@@ -5,7 +5,7 @@ use super::convert::{
 use super::disk::FilesystemLogger;
 use super::hex_utils;
 use base64;
-use bitcoin::address::{Address, Payload, WitnessVersion};
+use bitcoin::address::{Address, Payload};
 use bitcoin::blockdata::constants::WITNESS_SCALE_FACTOR;
 use bitcoin::blockdata::script::ScriptBuf;
 use bitcoin::blockdata::transaction::Transaction;
@@ -14,6 +14,7 @@ use bitcoin::hash_types::{BlockHash, Txid};
 use bitcoin::hashes::Hash;
 use bitcoin::key::XOnlyPublicKey;
 use bitcoin::psbt::PartiallySignedTransaction;
+use bitcoin::WitnessVersion;
 use bitcoin::{Network, OutPoint, TxOut, WPubkeyHash};
 use lightning::chain::chaininterface::{BroadcasterInterface, ConfirmationTarget, FeeEstimator};
 use lightning::events::bump_transaction::{Utxo, WalletSource};

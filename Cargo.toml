@@ -22,14 +22,14 @@ lightning-persister = { version = "0.0.121" }
 lightning-background-processor = { version = "0.0.121", features = ["futures"] }
 lightning-rapid-gossip-sync = { version = "0.0.121" }
 
-base64 = "0.13.0"
-bitcoin = { version = "0.30.2", features = ["serde"] }
-bitcoin-bech32 = "0.12"
-bech32 = "0.8"
-libc = "0.2"
+base64 = "0.22.0"
+bitcoin = { version = "0.31.1", features = ["serde"] }
+bitcoin-bech32 = "0.13"
+bech32 = "0.11"
+libc = "0.2.142"
 
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-rand = "0.4"
+rand = "0.8.5"
 serde_json = { version = "1.0" }
 tokio = { version = "1", features = [
     "io-util",

@@ -6,9 +6,9 @@ mod disk;
 mod hex_utils;
 mod sweep;
 
-use bitcoin::blockdata::transaction::Transaction;
+use bitcoin::Transaction;
 use bitcoin::consensus::encode;
-use bitcoin::network::constants::Network as BitcoinNetwork;
+use bitcoin::Network as BitcoinNetwork;
 use bitcoin::BlockHash;
 use bitcoin_bech32::WitnessProgram;
 use bitcoind_client::BitcoindClient;
@@ -489,7 +489,7 @@ async fn handle_ldk_events(
             let forwarding_channel_manager = channel_manager.clone();
             let min = time_forwardable.as_millis() as u64;
             tokio::spawn(async move {
-                let millis_to_sleep = thread_rng().gen_range(min, min * 5) as u64;
+                let millis_to_sleep = thread_rng().gen_range(min..min * 5) as u64;
                 tokio::time::sleep(Duration::from_millis(millis_to_sleep)).await;
                 forwarding_channel_manager.process_pending_htlc_forwards();
             });

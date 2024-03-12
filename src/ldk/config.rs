@@ -36,17 +36,17 @@ impl<'de> serde::Deserialize<'de> for SocketAddress {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct Network(pub bitcoin::network::constants::Network);
+pub struct Network(pub bitcoin::Network);
 
 impl<'s> From<&'s str> for Network {
     fn from(value: &'s str) -> Self {
-        Self(bitcoin::network::constants::Network::from_str(value).expect("valid bitcoin network"))
+        Self(bitcoin::Network::from_str(value).expect("valid bitcoin network"))
     }
 }
 
 impl Default for Network {
     fn default() -> Self {
-        Network(bitcoin::network::constants::Network::Testnet)
+        Network(bitcoin::Network::Testnet)
     }
 }
 
