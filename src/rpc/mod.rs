@@ -23,6 +23,7 @@ pub struct HttpBody {
 }
 
 pub struct AppState {
+    event_actor: ActorRef<EventActorMessage>,
     pub ckb_command_sender: Option<mpsc::Sender<NetworkActorCommand>>,
     pub cch_command_sender: Option<mpsc::Sender<CchCommand>>,
 }
@@ -58,6 +59,7 @@ async fn handle_request(
 
 pub async fn start_rpc<F>(
     config: RpcConfig,
+    event_actor: ActorRef<EventActorMessage>,
     ckb_command_sender: Option<mpsc::Sender<NetworkActorCommand>>,
     cch_command_sender: Option<mpsc::Sender<CchCommand>>,
     shutdown_signal: F,
@@ -65,6 +67,7 @@ pub async fn start_rpc<F>(
     F: Future<Output = ()> + Send + 'static,
 {
     let app_state = Arc::new(AppState {
+        event_actor,
         ckb_command_sender,
         cch_command_sender,
     });

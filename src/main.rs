@@ -85,10 +85,13 @@ pub async fn main() {
 
             let (event_sender, mut event_receiver) = mpsc::channel(CHANNEL_SIZE);
 
+            let (response_sender, response_receiver) = mpsc::channel(CHANNEL_SIZE);
+
             info!("Starting ckb");
             let ckb_actor = start_ckb(
                 ckb_config,
                 event_sender,
+                response_sender,
                 new_tokio_task_tracker(),
                 root_actor.get_cell(),
             )

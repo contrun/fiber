@@ -36,6 +36,18 @@ use crate::unwrap_or_return;
 
 pub const PCN_PROTOCOL_ID: ProtocolId = ProtocolId::new(42);
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct NetworkRequest {
+    pub id: u64,
+    pub request: NetworkActorCommand,
+}
+
+#[derive(Debug)]
+pub struct NetworkResponse {
+    pub id: u64,
+    pub response: NetworkActorEvent,
+}
+
 #[serde_as]
 #[derive(Clone, Debug, Deserialize)]
 pub enum NetworkActorCommand {
@@ -51,12 +63,20 @@ pub enum NetworkActorCommand {
 }
 
 impl NetworkActorMessage {
+    pub fn new_command(command: NetworkActorCommand) -> Self {
+        Self::Command(command)
+    }
+
+    pub fn new_request(id: NetworkRequestId, request: NetworkActorCommand) -> Self {
+        Self::Request(id, request)
+    }
+
     pub fn new_event(event: NetworkActorEvent) -> Self {
         Self::Event(event)
     }
 
-    pub fn new_command(command: NetworkActorCommand) -> Self {
-        Self::Command(command)
+    pub fn new_response(id: NetworkRequestId, response: NetworkActorEvent) -> Self {
+        Self::Response(id, response)
     }
 }
 
@@ -79,10 +99,36 @@ pub enum NetworkActorEvent {
     NetworkServiceEvent(NetworkServiceEvent),
 }
 
+pub type NetworkRequestId = u64;
+
 #[derive(Debug)]
 pub enum NetworkActorMessage {
     Command(NetworkActorCommand),
     Event(NetworkActorEvent),
+    Request(NetworkRequestId, NetworkActorCommand),
+    Response(NetworkRequestId, NetworkActorEvent),
+}
+
+enum InternalNetworkActorMessage {
+    Command(Option<NetworkRequestId>, NetworkActorCommand),
+    Event(Option<NetworkRequestId>, NetworkActorEvent),
+}
+
+impl From<NetworkActorMessage> for InternalNetworkActorMessage {
+    fn from(message: NetworkActorMessage) -> Self {
+        match message {
+            NetworkActorMessage::Command(command) => {
+                InternalNetworkActorMessage::Command(None, command)
+            }
+            NetworkActorMessage::Event(event) => InternalNetworkActorMessage::Event(None, event),
+            NetworkActorMessage::Request(id, request) => {
+                InternalNetworkActorMessage::Command(Some(id), request)
+            }
+            NetworkActorMessage::Response(id, response) => {
+                InternalNetworkActorMessage::Event(Some(id), response)
+            }
+        }
+    }
 }
 
 #[serde_as]
@@ -104,11 +150,34 @@ pub struct PCNMessageWithSessionId {
 pub struct NetworkActor {
     // An event emitter to notify ourside observers.
     event_sender: mpsc::Sender<NetworkServiceEvent>,
+    // An event responder to send responses to the outside world.
+    response_sender: mpsc::Sender<NetworkResponse>,
 }
 
 impl NetworkActor {
+    pub async fn emit_event_or_response(
+        &self,
+        id: Option<NetworkRequestId>,
+        event: NetworkServiceEvent,
+    ) {
+        match id {
+            Some(id) => self.emit_response(id, event).await,
+            None => self.emit_event(event).await,
+        }
+    }
+
     pub async fn emit_event(&self, event: NetworkServiceEvent) {
         let _ = self.event_sender.send(event).await;
+    }
+
+    pub async fn emit_response(&self, id: NetworkRequestId, event: NetworkServiceEvent) {
+        let _ = self
+            .response_sender
+            .send(NetworkResponse {
+                id,
+                response: NetworkActorEvent::NetworkServiceEvent(event),
+            })
+            .await;
     }
 }
 
@@ -205,10 +274,11 @@ impl Actor for NetworkActor {
     ) -> Result<(), ActorProcessingErr> {
         debug!("Network actor processing message {:?}", message);
 
+        let message = InternalNetworkActorMessage::from(message);
         match message {
-            NetworkActorMessage::Event(event) => match event {
+            InternalNetworkActorMessage::Event(request_id, event) => match event {
                 NetworkActorEvent::NetworkServiceEvent(e) => {
-                    self.emit_event(e).await;
+                    self.emit_event_or_response(request_id, e).await;
                 }
 
                 NetworkActorEvent::PeerConnected(id, session) => match state.peers.get(&id) {
@@ -227,9 +297,10 @@ impl Actor for NetworkActor {
                         .expect("spawn peer actor")
                         .0;
 
-                        self.emit_event(NetworkServiceEvent::PeerConnected(
-                            session.address.clone(),
-                        ))
+                        self.emit_event_or_response(
+                            request_id,
+                            NetworkServiceEvent::PeerConnected(session.address.clone()),
+                        )
                         .await;
 
                         actor
@@ -241,9 +312,10 @@ impl Actor for NetworkActor {
                 NetworkActorEvent::PeerDisconnected(id, session) => match state.peers.remove(&id) {
                     Some(actor) => {
                         debug!("Removed actor for peer {:?} from network actor", id);
-                        self.emit_event(NetworkServiceEvent::PeerDisConnected(
-                            session.address.clone(),
-                        ))
+                        self.emit_event_or_response(
+                            request_id,
+                            NetworkServiceEvent::PeerDisConnected(session.address.clone()),
+                        )
                         .await;
                         actor
                             .send_message(PeerActorMessage::Disconnected(session))
@@ -266,7 +338,7 @@ impl Actor for NetworkActor {
                     }
                 }
             },
-            NetworkActorMessage::Command(command) => match command {
+            InternalNetworkActorMessage::Command(_id, command) => match command {
                 NetworkActorCommand::SendPcnMessageToSession(PCNMessageWithSessionId {
                     session_id,
                     message,
@@ -368,12 +440,21 @@ impl Handle {
     async fn emit_event(&self, event: NetworkServiceEvent) {
         let _ = self
             .actor
-            .send_message(NetworkActorMessage::Event(
+            .send_message(NetworkActorMessage::new_event(
                 NetworkActorEvent::NetworkServiceEvent(event),
             ))
             .expect("network actor alive");
     }
 
+    async fn emit_response(&self, id: NetworkRequestId, event: NetworkServiceEvent) {
+        let _ = self
+            .actor
+            .send_message(NetworkActorMessage::new_response(
+                id,
+                NetworkActorEvent::NetworkServiceEvent(event),
+            ))
+            .expect("network actor alive");
+    }
     fn create_meta(self, id: ProtocolId) -> ProtocolMeta {
         MetaBuilder::new()
             .id(id)
@@ -468,12 +549,16 @@ impl ServiceHandle for Handle {
 pub async fn start_ckb(
     config: CkbConfig,
     event_sender: mpsc::Sender<NetworkServiceEvent>,
+    response_sender: mpsc::Sender<NetworkResponse>,
     tracker: TaskTracker,
     supervisor: ActorCell,
 ) -> ActorRef<NetworkActorMessage> {
     let (actor, _handle) = Actor::spawn_linked(
         Some("network actor".to_string()),
-        NetworkActor { event_sender },
+        NetworkActor {
+            event_sender,
+            response_sender,
+        },
         (config, tracker),
         supervisor,
     )
