@@ -1,4 +1,5 @@
 use ckb_pcn_node::actors::RootActor;
+use ckb_pcn_node::events::{Event, EventActor, EventActorMessage};
 use log::{debug, error, info};
 use tentacle::multiaddr::Multiaddr;
 use tokio::sync::mpsc;
@@ -61,6 +62,7 @@ pub async fn main() {
     let tracker = new_tokio_task_tracker();
     let token = new_tokio_cancellation_token();
     let root_actor = RootActor::start(tracker, token).await;
+    let event_actor = EventActor::start_linked(root_actor.get_cell()).await;
 
     let ckb_command_sender = match config.ckb {
         Some(ckb_config) => {
@@ -88,10 +90,11 @@ pub async fn main() {
                 ckb_config,
                 event_sender,
                 new_tokio_task_tracker(),
-                root_actor.clone(),
+                root_actor.get_cell(),
             )
             .await;
 
+            let cloned_event_actor = event_actor.clone();
             new_tokio_task_tracker().spawn(async move {
                 let token = new_tokio_cancellation_token();
                 loop {
@@ -107,7 +110,8 @@ pub async fn main() {
                                     break;
                                 }
                                 Some(event) => {
-                                    debug!("Received event: {:?}", event);
+                                    debug!("Sending ckb event to event actor: {:?}", &event);
+                                    cloned_event_actor.send_message(EventActorMessage::ProcessEvent(Event::NetworkServiceEvent(event))).expect("send event");
                                 }
                             }
                         }
@@ -180,6 +184,7 @@ pub async fn main() {
         new_tokio_task_tracker().spawn(async move {
             start_rpc(
                 rpc_config,
+                event_actor.clone(),
                 ckb_command_sender,
                 cch_command_sender,
                 shutdown_signal,

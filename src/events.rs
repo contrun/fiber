@@ -6,7 +6,7 @@ use std::{
 use crate::NetworkServiceEvent;
 
 use log::error;
-use ractor::{async_trait as rasync_trait, Actor, ActorProcessingErr, ActorRef};
+use ractor::{async_trait as rasync_trait, Actor, ActorCell, ActorProcessingErr, ActorRef};
 use thiserror::Error;
 
 type EventProcessorID = usize;
@@ -47,6 +47,20 @@ pub struct EventActorState {
 }
 
 pub struct EventActor {}
+
+impl EventActor {
+    pub async fn start_linked(supervisor: ActorCell) -> ActorRef<EventActorMessage> {
+        Actor::spawn_linked(
+            Some("event actor".to_string()),
+            EventActor {},
+            (),
+            supervisor,
+        )
+        .await
+        .expect("start event actor")
+        .0
+    }
+}
 
 #[rasync_trait]
 impl Actor for EventActor {

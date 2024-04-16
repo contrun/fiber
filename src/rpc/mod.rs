@@ -3,11 +3,12 @@ pub use config::RpcConfig;
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::post, Json, Router};
 use log::{debug, info};
+use ractor::ActorRef;
 use serde::Deserialize;
 use std::{future::Future, sync::Arc};
 use tokio::sync::mpsc;
 
-use crate::{cch::CchCommand, ckb::NetworkActorCommand};
+use crate::{cch::CchCommand, ckb::NetworkActorCommand, events::EventActorMessage};
 
 #[derive(Debug, Deserialize)]
 pub enum HttpRequest {
