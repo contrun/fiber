@@ -83,45 +83,14 @@ pub async fn main() {
                     .expect("receiver not closed")
             }
 
-            let (event_sender, mut event_receiver) = mpsc::channel(CHANNEL_SIZE);
-
-            let (response_sender, response_receiver) = mpsc::channel(CHANNEL_SIZE);
-
             info!("Starting ckb");
             let ckb_actor = start_ckb(
                 ckb_config,
-                event_sender,
-                response_sender,
+                event_actor.clone(),
                 new_tokio_task_tracker(),
                 root_actor.get_cell(),
             )
             .await;
-
-            let cloned_event_actor = event_actor.clone();
-            new_tokio_task_tracker().spawn(async move {
-                let token = new_tokio_cancellation_token();
-                loop {
-                    select! {
-                        _ = token.cancelled() => {
-                            debug!("Cancellation received, event processing service");
-                            break;
-                        }
-                        event = event_receiver.recv() => {
-                            match event {
-                                None => {
-                                    debug!("Event receiver completed, event processing service");
-                                    break;
-                                }
-                                Some(event) => {
-                                    debug!("Sending ckb event to event actor: {:?}", &event);
-                                    cloned_event_actor.send_message(EventActorMessage::ProcessEvent(Event::NetworkServiceEvent(event))).expect("send event");
-                                }
-                            }
-                        }
-                    }
-                }
-                debug!("Event processing service exited");
-            });
 
             // TODO: we should really pass the created actor to other components.
             new_tokio_task_tracker().spawn(async move {

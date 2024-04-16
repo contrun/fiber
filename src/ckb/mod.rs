@@ -4,7 +4,8 @@ pub use config::CkbConfig;
 mod network;
 pub use network::start_ckb;
 pub use network::{
-    NetworkActor, NetworkActorCommand, NetworkActorEvent, NetworkActorMessage, NetworkServiceEvent,
+    NetworkActor, NetworkActorCommand, NetworkActorEvent, NetworkActorMessage, NetworkRequest,
+    NetworkRequestId, NetworkResponse, NetworkServiceEvent,
 };
 
 mod peer;

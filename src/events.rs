@@ -3,7 +3,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::NetworkServiceEvent;
+use crate::{
+    ckb::{NetworkRequestId, NetworkResponse},
+    NetworkServiceEvent,
+};
 
 use log::error;
 use ractor::{async_trait as rasync_trait, Actor, ActorCell, ActorProcessingErr, ActorRef};
@@ -18,9 +21,22 @@ pub enum EventActorMessage {
     ProcessEvent(Event),
 }
 
-#[derive(Debug)]
+impl<F> EventProcessor for F
+where
+    F: Fn(&Event) -> () + Send,
+{
+    fn process_event(&self, event: &Event) -> ProcessingEventResult {
+        self(event);
+        ProcessingEventResult {
+            should_continue: false,
+            result: Ok(()),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub enum Event {
-    NetworkServiceEvent(NetworkServiceEvent),
+    NetworkResponse(NetworkResponse),
 }
 
 #[derive(Error, Debug)]

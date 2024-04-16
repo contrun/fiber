@@ -8,7 +8,11 @@ use serde::Deserialize;
 use std::{future::Future, sync::Arc};
 use tokio::sync::mpsc;
 
-use crate::{cch::CchCommand, ckb::NetworkActorCommand, events::EventActorMessage};
+use crate::{
+    cch::CchCommand,
+    ckb::NetworkActorCommand,
+    events::{Event, EventActorMessage},
+};
 
 #[derive(Debug, Deserialize)]
 pub enum HttpRequest {
@@ -40,6 +44,17 @@ async fn handle_request(
         &state.cch_command_sender,
     ) {
         (HttpRequest::Command(command), Some(ckb_command_sender), _) => {
+            let id = http_request.id.unwrap_or(rand::random());
+            let (sender, receiver) = tokio::sync::oneshot::channel::<Event>();
+            let duration = std::time::Duration::from_secs(60);
+            state
+                .event_actor
+                .send_message(EventActorMessage::AddOneShotProcessor(
+                    Box::new(|event: &Event| {
+                        sender.send(event.clone()).expect("receiver alive");
+                    }),
+                    duration,
+                ));
             ckb_command_sender
                 .send(command)
                 .await

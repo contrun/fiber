@@ -19,7 +19,6 @@ use tentacle::{
     ProtocolId,
 };
 
-use tokio::sync::mpsc;
 use tokio_util::task::TaskTracker;
 
 use super::peer::get_peer_actor_name;
@@ -32,6 +31,7 @@ use super::{
     CkbConfig,
 };
 
+use crate::events::{Event, EventActorMessage};
 use crate::unwrap_or_return;
 
 pub const PCN_PROTOCOL_ID: ProtocolId = ProtocolId::new(42);
@@ -42,7 +42,7 @@ pub struct NetworkRequest {
     pub request: NetworkActorCommand,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct NetworkResponse {
     pub id: u64,
     pub response: NetworkActorEvent,
@@ -80,15 +80,15 @@ impl NetworkActorMessage {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum NetworkServiceEvent {
-    ServiceError(ServiceError),
-    ServiceEvent(ServiceEvent),
+    ServiceError(String),
+    ServiceEvent(String),
     PeerConnected(Multiaddr),
     PeerDisConnected(Multiaddr),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum NetworkActorEvent {
     /// Network eventss to be processed by this actor.
     PeerConnected(PeerId, SessionContext),
@@ -148,10 +148,7 @@ pub struct PCNMessageWithSessionId {
 }
 
 pub struct NetworkActor {
-    // An event emitter to notify ourside observers.
-    event_sender: mpsc::Sender<NetworkServiceEvent>,
-    // An event responder to send responses to the outside world.
-    response_sender: mpsc::Sender<NetworkResponse>,
+    event_actor: ActorRef<EventActorMessage>,
 }
 
 impl NetworkActor {
@@ -166,18 +163,18 @@ impl NetworkActor {
         }
     }
 
-    pub async fn emit_event(&self, event: NetworkServiceEvent) {
-        let _ = self.event_sender.send(event).await;
-    }
+    pub async fn emit_event(&self, event: NetworkServiceEvent) {}
 
     pub async fn emit_response(&self, id: NetworkRequestId, event: NetworkServiceEvent) {
         let _ = self
-            .response_sender
-            .send(NetworkResponse {
-                id,
-                response: NetworkActorEvent::NetworkServiceEvent(event),
-            })
-            .await;
+            .event_actor
+            .send_message(EventActorMessage::ProcessEvent(Event::NetworkResponse(
+                NetworkResponse {
+                    id,
+                    response: NetworkActorEvent::NetworkServiceEvent(event),
+                },
+            )))
+            .expect("event actor alive");
     }
 }
 
@@ -537,28 +534,30 @@ impl ServiceProtocol for Handle {
 #[async_trait]
 impl ServiceHandle for Handle {
     async fn handle_error(&mut self, _context: &mut ServiceContext, error: ServiceError) {
-        self.emit_event(NetworkServiceEvent::ServiceError(error))
-            .await;
+        self.emit_event(NetworkServiceEvent::ServiceError(format!(
+            "Service error: {:?}",
+            error
+        )))
+        .await;
     }
     async fn handle_event(&mut self, _context: &mut ServiceContext, event: ServiceEvent) {
-        self.emit_event(NetworkServiceEvent::ServiceEvent(event))
-            .await;
+        self.emit_event(NetworkServiceEvent::ServiceEvent(format!(
+            "Service event: {:?}",
+            event
+        )))
+        .await;
     }
 }
 
 pub async fn start_ckb(
     config: CkbConfig,
-    event_sender: mpsc::Sender<NetworkServiceEvent>,
-    response_sender: mpsc::Sender<NetworkResponse>,
+    event_actor: ActorRef<EventActorMessage>,
     tracker: TaskTracker,
     supervisor: ActorCell,
 ) -> ActorRef<NetworkActorMessage> {
     let (actor, _handle) = Actor::spawn_linked(
         Some("network actor".to_string()),
-        NetworkActor {
-            event_sender,
-            response_sender,
-        },
+        NetworkActor { event_actor },
         (config, tracker),
         supervisor,
     )
