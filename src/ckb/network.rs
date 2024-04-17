@@ -56,7 +56,7 @@ impl NetworkActorMessage {
     }
 
     pub fn new_command(command: NetworkActorCommand) -> Self {
-        Self::Command(command)
+        Self::Command(command, None)
     }
 }
 
@@ -81,7 +81,11 @@ pub enum NetworkActorEvent {
 
 #[derive(Debug)]
 pub enum NetworkActorMessage {
-    Command(NetworkActorCommand),
+    Command(
+        NetworkActorCommand,
+        // TODO: we may need to refine the following type according to each commands.
+        Option<oneshot::Sender<crate::Result<()>>>,
+    ),
     Event(NetworkActorEvent),
 }
 
@@ -266,7 +270,7 @@ impl Actor for NetworkActor {
                     }
                 }
             },
-            NetworkActorMessage::Command(command) => match command {
+            NetworkActorMessage::Command(command, sender) => match command {
                 NetworkActorCommand::SendPcnMessageToSession(PCNMessageWithSessionId {
                     session_id,
                     message,
