@@ -7,10 +7,8 @@ use serde::Deserialize;
 use std::{future::Future, sync::Arc};
 use tokio::sync::mpsc;
 
-pub type NetworkActorCommandWithReply = (
-    NetworkActorCommand,
-    Option<oneshot::Sender<crate::Result<()>>>,
-);
+pub type NetworkActorCommandWithReply =
+    (NetworkActorCommand, Option<mpsc::Sender<crate::Result<()>>>);
 
 use crate::{cch::CchCommand, ckb::NetworkActorCommand};
 
@@ -43,23 +41,21 @@ async fn handle_request(
         &state.cch_command_sender,
     ) {
         (HttpRequest::Command(command), Some(ckb_command_sender), _) => {
-            let (sender, receiver) = oneshot::channel::<crate::Result<()>>();
+            let (sender, mut receiver) = mpsc::channel(1);
             let command = (command, Some(sender));
             ckb_command_sender
                 .send(command)
                 .await
                 .expect("send command");
             debug!("Waiting for command to be processed");
-            tokio::spawn(async move {
-                let start = std::time::Instant::now();
-                let result = receiver.recv_timeout(std::time::Duration::from_secs(60));
-                debug!(
-                    "Processed command in {:?}: {:?}",
-                    std::time::Instant::now().checked_duration_since(start),
-                    result
-                );
-            });
-            StatusCode::OK
+            match receiver.recv().await {
+                Some(Ok(_)) => StatusCode::OK,
+                Some(Err(err)) => {
+                    error!("Error processing command: {:?}", err);
+                    StatusCode::BAD_REQUEST
+                }
+                None => StatusCode::INTERNAL_SERVER_ERROR,
+            }
         }
         (HttpRequest::CchCommand(command), _, Some(cch_command_sender)) => {
             cch_command_sender
