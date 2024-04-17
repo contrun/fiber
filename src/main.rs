@@ -74,7 +74,7 @@ pub async fn main() {
             );
             for bootnode in &ckb_config.bootnode_addrs {
                 let addr = Multiaddr::from_str(bootnode).expect("valid bootnode");
-                let command = (NetworkActorCommand::ConnectPeer(addr), None);
+                let command = NetworkActorCommand::ConnectPeer(addr);
                 command_sender
                     .send(command)
                     .await
@@ -128,9 +128,9 @@ pub async fn main() {
                                     debug!("Command receiver completed");
                                     break;
                                 }
-                                Some((command, sender)) => {
+                                Some(command) => {
                                     debug!("Received command: {:?}", command);
-                                    ckb_actor.send_message(NetworkActorMessage::Command(command, sender)).expect("network actor alive");
+                                    ckb_actor.send_message(NetworkActorMessage::Command(command)).expect("network actor alive");
                                 }
                             }
                         }

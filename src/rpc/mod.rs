@@ -27,7 +27,7 @@ pub struct HttpBody {
 }
 
 pub struct AppState {
-    pub ckb_command_sender: Option<mpsc::Sender<NetworkActorCommandWithReply>>,
+    pub ckb_command_sender: Option<mpsc::Sender<NetworkActorCommand>>,
     pub cch_command_sender: Option<mpsc::Sender<CchCommand>>,
 }
 
@@ -43,20 +43,12 @@ async fn handle_request(
         &state.cch_command_sender,
     ) {
         (HttpRequest::Command(command), Some(ckb_command_sender), _) => {
-            let (sender, receiver) = oneshot::channel::<crate::Result<()>>();
-            let command = (command, Some(sender));
             ckb_command_sender
                 .send(command)
                 .await
                 .expect("send command");
             debug!("Waiting for command to be processed");
-            match receiver.recv_timeout(std::time::Duration::from_secs(5)) {
-                Ok(_) => StatusCode::OK,
-                Err(err) => {
-                    error!("Error processing command: {:?}", err);
-                    StatusCode::INTERNAL_SERVER_ERROR
-                }
-            }
+            StatusCode::OK
         }
         (HttpRequest::CchCommand(command), _, Some(cch_command_sender)) => {
             cch_command_sender
@@ -71,7 +63,7 @@ async fn handle_request(
 
 pub async fn start_rpc<F>(
     config: RpcConfig,
-    ckb_command_sender: Option<mpsc::Sender<NetworkActorCommandWithReply>>,
+    ckb_command_sender: Option<mpsc::Sender<NetworkActorCommand>>,
     cch_command_sender: Option<mpsc::Sender<CchCommand>>,
     shutdown_signal: F,
 ) where

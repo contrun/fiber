@@ -56,7 +56,7 @@ impl NetworkActorMessage {
     }
 
     pub fn new_command(command: NetworkActorCommand) -> Self {
-        Self::Command(command, None)
+        Self::Command(command)
     }
 }
 
@@ -84,7 +84,7 @@ pub enum NetworkActorMessage {
     Command(
         NetworkActorCommand,
         // TODO: we may need to refine the following type according to each commands.
-        Option<oneshot::Sender<crate::Result<()>>>,
+        // Option<oneshot::Sender<crate::Result<()>>>,
     ),
     Event(NetworkActorEvent),
 }
@@ -342,13 +342,13 @@ impl Actor for NetworkActor {
                     }
                 }
             },
-            NetworkActorMessage::Command(command, sender) => {
+            NetworkActorMessage::Command(command) => {
                 debug!("Handling command");
                 let result = self.handle_command(myself, state, command).await;
                 debug!("Command result: {:?}", result);
-                if let Some(sender) = sender {
-                    sender.send(result).expect("receiver not closed");
-                }
+                // if let Some(sender) = sender {
+                //     sender.send(result).expect("receiver not closed");
+                // }
             }
         }
         Ok(())
