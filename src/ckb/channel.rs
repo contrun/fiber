@@ -1,4 +1,5 @@
 use bitflags::bitflags;
+
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_types::packed::{OutPoint, Transaction};
 use log::{debug, error, info};
@@ -16,6 +17,7 @@ use std::fmt::Debug;
 use super::{
     network::PCNMessageWithPeerId,
     peer::PeerActorMessage,
+    serde_utils::EntityWrapperBase64,
     types::{
         AcceptChannel, ChannelReady, CommitmentSigned, Hash256, OpenChannel, PCNMessage, Privkey,
         Pubkey, TxCollaborationMsg,
@@ -28,6 +30,9 @@ pub type ChannelActorMessage = PCNMessage;
 #[derive(Clone, Debug, Deserialize)]
 pub enum ChannelCommand {
     OpenChannel(OpenChannelCommand),
+    TxAdd(TxAddCommand),
+    TxRemove(TxRemoveCommand),
+    TxComplete(TxCompleteCommand),
 }
 
 pub const HOLDER_INITIAL_COMMITMENT_NUMBER: u64 = 0;
@@ -46,6 +51,25 @@ pub struct OpenChannelCommand {
     pub peer_id: PeerId,
     pub total_value: u64,
     pub to_self_value: u64,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Deserialize)]
+pub struct TxCommand {
+    #[serde_as(as = "DisplayFromStr")]
+    pub peer_id: PeerId,
+    pub channel_id: Hash256,
+    #[serde_as(as = "EntityWrapperBase64<Transaction>")]
+    pub transaction: Transaction,
+}
+
+pub type TxAddCommand = TxCommand;
+
+pub type TxRemoveCommand = TxCommand;
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct TxCompleteCommand {
+    pub channel_id: Hash256,
 }
 
 impl OpenChannelCommand {

@@ -1,3 +1,4 @@
+use lightning::ln::channel_keys;
 use log::{debug, error, info, warn};
 use ractor::{async_trait as rasync_trait, Actor, ActorCell, ActorProcessingErr, ActorRef};
 use serde::Deserialize;
@@ -22,6 +23,7 @@ use tentacle::{
 use tokio::sync::mpsc;
 use tokio_util::task::TaskTracker;
 
+use super::channel::{ChannelState, NegotiatingFundingFlags, ProcessingChannelError};
 use super::{
     channel::ChannelCommand,
     channel::{ChannelActor, ChannelInitializationParameter},
@@ -32,6 +34,7 @@ use super::{
     CkbConfig,
 };
 
+use crate::ckb::channel;
 use crate::{unwrap_or_return, Error};
 
 pub const PCN_PROTOCOL_ID: ProtocolId = ProtocolId::new(42);
@@ -191,6 +194,27 @@ impl NetworkActor {
                         }
                     }
                 }
+                ChannelCommand::TxAdd(tx) => {
+                     match self.state {
+                        ChannelState::NegotiatingFunding(NegotiatingFundingFlags::INIT_SENT) => {
+                            // Only the initator should start sending tx_add messages.
+                            let was_initially_inbound = false;
+                            if was_initially_inbound {
+                                return Err(ProcessingChannelError::InvalidState(format!(
+                                    "Try to send a TxAdd message, but we are the acceptor of this channel"),
+                                ).into());
+                            } else {
+                                let message = PCNMessage::TxAdd(TxAdd {
+                                    channel_id: self.id(),
+                                    tx: tx.clone(),
+                                });
+                                // TODO: send message to peer.
+                            }
+                        }
+                    }
+                },
+                ChannelCommand::TxRemove(_) => todo!(),
+                ChannelCommand::TxComplete(_) => todo!(),
             },
         };
         Ok(())
