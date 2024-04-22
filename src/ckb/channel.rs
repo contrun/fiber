@@ -1,6 +1,9 @@
 use bitflags::bitflags;
 use ckb_hash::{blake2b_256, new_blake2b};
-use ckb_types::packed::{OutPoint, Transaction};
+use ckb_types::{
+    packed::{OutPoint, RawTransaction, Transaction},
+    prelude::IntoTransactionView,
+};
 use log::{debug, error, info, warn};
 use molecule::prelude::Entity;
 use musig2::SecNonce;
@@ -921,6 +924,37 @@ impl ChannelActorState {
     ) -> CommitmentTransaction {
         let directed_channel_parameters = self.must_get_directed_channel_parameters(local);
         // 1. Get transaction inputs from direct channel parameters.
+        let mut total_value = self.total_value;
+        let mut party_a_value = if local {
+            self.to_self_value
+        } else {
+            total_value - self.to_self_value
+        };
+
+        let raw_funding_tx_builder = RawTransaction::new_builder();
+        let mut all_inputs = vec![];
+        let mut all_outputs = vec![];
+        for tx in self.funding_tx_inputs.iter() {
+            let inputs = tx.0.raw().inputs();
+            all_inputs.extend(inputs.into_iter());
+            let outputs: ckb_types::packed::CellOutputVec = tx.0.raw().outputs();
+            for output in outputs.into_iter() {
+                all_outputs.push(output);
+                let is_channel_output = true;
+                let is_party_a_output = true;
+                let output_value =
+                    u64::from_le_bytes(output.capacity().as_slice().try_into().unwrap());
+                // TODO: determine if the output is an channel output.
+                if is_channel_output {
+                    total_value += output_value;
+                }
+                if is_party_a_output {
+                    party_a_value += output.capacity().unpack();
+                }
+            }
+            all_outputs.extend(outputs.into_iter());
+        }
+
         // 2. Assemble transaction outputs from current chanenl information.
         // 3. Sign the transaction with the private key.
         todo!("build_commitment_tx");
