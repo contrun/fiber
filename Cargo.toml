@@ -67,3 +67,6 @@ panic = "abort"
 
 [profile.dev]
 panic = "abort"
+
+[dev-dependencies]
+tempdir = "0.3.7"

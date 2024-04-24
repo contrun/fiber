@@ -187,7 +187,8 @@ impl ChannelActor {
             }
         };
 
-        let (tx, partial_signature) = state.build_and_sign_funding_tx()?;
+        let (tx, partial_signature) =
+            state.build_commitment_tx(COUNTERPARTY_INITIAL_COMMITMENT_NUMBER)?;
         debug!(
             "Build a funding tx ({:?}) with partial signature {:?}",
             &tx, &partial_signature
@@ -1709,10 +1710,12 @@ mod tests {
         prelude::{Pack, PackVec},
     };
     use molecule::prelude::{Builder, Entity};
+    use ractor::Actor;
+    use tentacle::secio::PeerId;
 
-    use crate::ckb::types::Privkey;
+    use crate::{actors::RootActor, ckb::types::Privkey};
 
-    use super::{derive_private_key, derive_public_key};
+    use super::{derive_private_key, derive_public_key, ChannelActor};
 
     #[test]
     fn test_derive_private_and_public_keys() {
