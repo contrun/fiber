@@ -5,7 +5,7 @@ export RUST_BACKTRACE=full RUST_LOG=info,ckb_pcn_node=debug
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 nodes_dir="$(dirname "$script_dir")/nodes"
 
-export BINARY_PATH="$(realpath "$script_dir/../../build/release")"
+export BINARY_PATH="$(realpath "$script_dir/../../../ckb-pcn-scripts/build/release")"
 
 cd "$nodes_dir" || exit 1
 

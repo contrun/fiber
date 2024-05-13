@@ -2015,6 +2015,11 @@ impl ChannelActorState {
                     .build();
 
                 dbg!("input: {:?}", &input);
+                let commitment_output_lock_script = commitment_tx
+                    .output_with_data(commitment_lock_index)
+                    .unwrap()
+                    .0
+                    .lock();
                 let revocation_tx = TransactionBuilder::default()
                     .cell_deps(commitment_tx.cell_deps().clone())
                     .inputs(vec![input])
@@ -2030,40 +2035,51 @@ impl ChannelActorState {
                 );
                 let message: [u8; 32] = revocation_tx.hash().as_slice().try_into().unwrap();
                 dbg!("message: {:?}", &message);
-                let results = revocation_keys
+                let (key, witness_script) = revocation_keys
                     .iter()
-                    .map(|key| {
-                        let signature = ckb_crypto::secp::Privkey::from_slice(&key)
-                            .sign_recoverable(&message.into())
-                            .unwrap()
-                            .serialize();
-                        let witness_script = self.build_previous_commitment_transaction_witnesses(local);
-                        dbg!("Witnesses to set", hex::encode(&witness_script));
-                        let witness = [witness_script.clone(), vec![0xFF], signature].concat();
-
-                        let revocation_tx = revocation_tx
-                            .as_advanced_builder()
-                            .witnesses(vec![witness.pack()])
-                            .build();
-
-                            dbg!("add the revocation tx to test_verify_fixed_tx to verify our construction works", &revocation_tx);
-
+                    .filter_map(|key| {
+                        let witness_script =
+                            self.build_previous_commitment_transaction_witnesses(local);
                         dbg!(
-                            "Verifying spending transaction of commitment tx: {:?}",
-                            &revocation_tx
+                            "witness of previous commitment transaction",
+                            hex::encode(&witness_script)
                         );
-
-                        let result = context.verify_tx(&revocation_tx, 10_000_000);
-                        dbg!(&result);
-                        result.is_ok()
+                        let witness_hash = blake2b_256(&witness_script);
+                        // We have two asymmetrical transactions, we only use the one that has the matching hash.
+                        dbg!("witness_hash: {:?}", &witness_hash[..20]);
+                        dbg!(
+                            "commitment_output_lock_script.args(): {:?}",
+                            commitment_output_lock_script.args().as_slice()
+                        );
+                        if commitment_output_lock_script.args().as_slice() == &witness_hash[..20] {
+                            Some((key, witness_script))
+                        } else {
+                            None
+                        }
                     })
-                    .collect::<Vec<_>>();
-                dbg!("validating results", &results);
-                // The person who firstly signs the transaction will give the other one
-                // the right to revoke the commitment transaction. While the other one
-                // can't revoke the commitment transaction, as this is not signed to
-                // allow his revocation key to revoke the commitment transaction.
-                assert!(results == vec![false, true] || results == vec![true, false]);
+                    .next()
+                    .expect("Must have one matching key");
+                let signature = ckb_crypto::secp::Privkey::from_slice(key)
+                    .sign_recoverable(&message.into())
+                    .unwrap()
+                    .serialize();
+                let witness = [witness_script.clone(), vec![0xFF], signature].concat();
+
+                let revocation_tx = revocation_tx
+                    .as_advanced_builder()
+                    .witnesses(vec![witness.pack()])
+                    .build();
+
+                dbg!("add the revocation tx to test_verify_fixed_tx to verify our construction works", &revocation_tx);
+
+                dbg!(
+                    "Verifying spending transaction of commitment tx: {:?}",
+                    &revocation_tx
+                );
+
+                let result = context.verify_tx(&revocation_tx, 10_000_000);
+                dbg!(&result);
+                assert!(result.is_ok());
             }
         }
 
