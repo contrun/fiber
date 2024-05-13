@@ -2,9 +2,11 @@ use bitflags::bitflags;
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_sdk::Since;
 use ckb_types::{
-    core::{DepType, TransactionBuilder, TransactionView},
-    packed::{Byte32, Bytes, CellDep, CellInput, CellOutput, OutPoint, Script, Transaction},
-    prelude::{IntoTransactionView, Pack},
+    core::{DepType, ScriptHashType, TransactionBuilder, TransactionView},
+    packed::{
+        Byte32, Bytes, CellDep, CellDepVec, CellInput, CellOutput, OutPoint, Script, Transaction,
+    },
+    prelude::{IntoTransactionView, Pack, PackVec},
 };
 
 use log::{debug, error, info, warn};
@@ -1060,9 +1062,12 @@ impl ChannelActorState {
             &counterparty_pubkeys.revocation_base_key,
         );
 
+        let counterparty_commitment_number = 1;
+
         debug!(
-            "Generated channel id ({:?}) for temporary channel {:?}",
-            &channel_id, &temp_channel_id
+            "Generated channel id ({:?}) for temporary channel {:?} with local commitment number {:?} and remote commitment number {:?}",
+            &channel_id, &temp_channel_id,
+            commitment_number, counterparty_commitment_number
         );
 
         Self {
@@ -1089,7 +1094,7 @@ impl ChannelActorState {
                 selected_contest_delay: counterparty_delay,
             }),
             holder_commitment_number: commitment_number,
-            counterparty_commitment_number: 1,
+            counterparty_commitment_number,
             counterparty_shutdown_script: None,
             counterparty_nonce: Some(counterparty_nonce),
             counterparty_commitment_points: vec![
@@ -1109,7 +1114,7 @@ impl ChannelActorState {
     ) -> Self {
         let new_channel_id = new_channel_id_from_seed(seed);
         let signer = InMemorySigner::generate_from_seed(seed);
-        let commitment_number = 0;
+        let commitment_number = 1;
         let holder_pubkeys = signer.to_channel_public_keys(commitment_number);
         Self {
             state: ChannelState::NegotiatingFunding(NegotiatingFundingFlags::empty()),
@@ -1200,6 +1205,15 @@ impl ChannelActorState {
         tx.output_pts_iter()
             .next()
             .expect("Funding transaction output is present")
+    }
+
+    pub fn get_commitment_transaction_cell_deps(&self) -> CellDepVec {
+        // TODO: Fill in the actual cell deps here.
+        [CellDep::new_builder()
+            .out_point(get_commitment_lock_outpoint())
+            .dep_type(DepType::Code.into())
+            .build()]
+        .pack()
     }
 
     pub fn get_holder_shutdown_script(&self) -> &Script {
@@ -1442,7 +1456,6 @@ impl ChannelActorState {
                         debug!("CommitmentSigned message received, but we haven't sent our commitment_signed message yet");
                     }
                 }
-                {}
                 Ok(())
             }
             PCNMessage::TxSignatures(tx_signatures) => {
@@ -2257,12 +2270,7 @@ impl ChannelActorState {
         _counterparty_shutdown_script: &Script,
     ) -> TransactionView {
         let tx_builder = TransactionBuilder::default()
-            .cell_dep(
-                CellDep::new_builder()
-                    .out_point(get_commitment_lock_outpoint())
-                    .dep_type(DepType::Code.into())
-                    .build(),
-            )
+            .cell_deps(self.get_commitment_transaction_cell_deps())
             .input(
                 CellInput::new_builder()
                     .previous_output(self.get_funding_transaction_outpoint())
@@ -2296,7 +2304,7 @@ impl ChannelActorState {
         let sign_ctx = Musig2SignContext::from(self);
         let signature = sign_ctx.sign(message.as_slice())?;
         debug!(
-            "Signed commitment tx ({:?}) message {:?} with signature {:?}",
+            "Signed shutdown tx ({:?}) message {:?} with signature {:?}",
             &tx, &message, &signature,
         );
         Ok(signature)
@@ -2373,12 +2381,7 @@ impl ChannelActorState {
     pub fn build_commitment_tx(&self, local: bool) -> TransactionView {
         let input = self.get_funding_transaction_outpoint();
         let tx_builder = TransactionBuilder::default()
-            .cell_dep(
-                CellDep::new_builder()
-                    .out_point(get_commitment_lock_outpoint())
-                    .dep_type(DepType::Code.into())
-                    .build(),
-            )
+            .cell_deps(self.get_commitment_transaction_cell_deps())
             .input(CellInput::new_builder().previous_output(input).build());
 
         let (outputs, outputs_data) = self.build_commitment_transaction_outputs(local);
@@ -2388,31 +2391,37 @@ impl ChannelActorState {
         tx_builder.build()
     }
 
-    fn build_commitment_transaction_outputs(&self, local: bool) -> (Vec<CellOutput>, Vec<Bytes>) {
-        let (to_broadcaster_value, to_countersignatory_value) =
-            self.get_broadcaster_and_countersignatory_amounts(local);
-
-        let immediate_payment_key = {
-            let (commitment_point, base_payment_key) = if local {
-                (
-                    self.get_current_counterparty_commitment_point(),
-                    self.get_counterparty_channel_parameters()
-                        .payment_base_key(),
-                )
-            } else {
-                (
-                    self.get_current_holder_commitment_point(),
-                    self.get_holder_channel_parameters().payment_base_key(),
-                )
-            };
-            derive_payment_pubkey(base_payment_key, &commitment_point)
+    fn build_previous_commitment_transaction_witnesses(&self, local: bool) -> Vec<u8> {
+        let commitment_number = if local {
+            self.holder_commitment_number - 1
+        } else {
+            self.counterparty_commitment_number - 1
         };
+        dbg!(
+            "Building previous commitment transaction witnesses for",
+            local,
+            commitment_number
+        );
+        self.build_commitment_transaction_witnesses(local, commitment_number)
+    }
+
+    // We need this function both for building new commitment transaction and revoking old commitment transaction.
+    fn build_commitment_transaction_witnesses(
+        &self,
+        local: bool,
+        commitment_number: u64,
+    ) -> Vec<u8> {
+        dbg!(
+            "Building commitment transaction witnesses for commitment number",
+            commitment_number,
+            local
+        );
         let (delayed_epoch, delayed_payment_key, revocation_key) = {
             let (delay, commitment_point, base_delayed_payment_key, base_revocation_key) = if local
             {
                 (
                     self.get_holder_channel_parameters().selected_contest_delay,
-                    self.get_current_holder_commitment_point(),
+                    self.get_holder_commitment_point(commitment_number),
                     self.get_holder_channel_parameters()
                         .delayed_payment_base_key(),
                     self.get_holder_channel_parameters().revocation_base_key(),
@@ -2421,13 +2430,14 @@ impl ChannelActorState {
                 (
                     self.get_counterparty_channel_parameters()
                         .selected_contest_delay,
-                    self.get_current_counterparty_commitment_point(),
+                    self.get_counterparty_commitment_point(commitment_number),
                     self.get_counterparty_channel_parameters()
                         .delayed_payment_base_key(),
                     self.get_counterparty_channel_parameters()
                         .revocation_base_key(),
                 )
             };
+            dbg!(delay, base_delayed_payment_key, base_revocation_key);
             (
                 delay,
                 derive_delayed_payment_pubkey(base_delayed_payment_key, &commitment_point),
@@ -2436,6 +2446,8 @@ impl ChannelActorState {
         };
 
         // Build a sorted array of TLC so that both party can generate the same commitment transaction.
+        // TODO: we actually need a historical snapshot of tlcs for the commitment number.
+        // This currently only works for the current commitment number.
         let tlcs = {
             let (mut received_tlcs, mut offered_tlcs) = (
                 self.pending_received_tlcs
@@ -2465,11 +2477,18 @@ impl ChannelActorState {
             b.sort_by(|x, y| x.id.cmp(&y.id));
             [a, b].concat()
         };
-        // The to_broadcaster_value is amount of immediately spendable assets of the broadcaster.
-        // In the commitment transaction, we need also to include the amount of the TLCs.
-        let to_broadcaster_value =
-            to_broadcaster_value as u64 + tlcs.iter().map(|tlc| tlc.amount).sum::<u128>() as u64;
 
+        let delayed_payment_key_hash = blake2b_256(delayed_payment_key.serialize());
+        let revocation_key_hash = blake2b_256(revocation_key.serialize());
+
+        dbg!(
+            &tlcs,
+            local,
+            delayed_payment_key,
+            hex::encode(&delayed_payment_key_hash[..20]),
+            revocation_key,
+            hex::encode(&revocation_key_hash[..20])
+        );
         let witnesses: Vec<u8> = [
             (Since::from(delayed_epoch).value()).to_le_bytes().to_vec(),
             blake2b_256(delayed_payment_key.serialize())[0..20].to_vec(),
@@ -2480,29 +2499,62 @@ impl ChannelActorState {
                 .collect(),
         ]
         .concat();
+        witnesses
+    }
 
-        // TODO: fill in the actual lock script.
-        let secp256k1_lock_script = Script::default();
-        let commitment_lock_script = Script::default();
+    fn build_commitment_transaction_outputs(&self, local: bool) -> (Vec<CellOutput>, Vec<Bytes>) {
+        let (to_broadcaster_value, to_countersignatory_value) =
+            self.get_broadcaster_and_countersignatory_amounts(local);
+
+        // The to_broadcaster_value is amount of immediately spendable assets of the broadcaster.
+        // In the commitment transaction, we need also to include the amount of the TLCs.
+        let to_broadcaster_value = to_broadcaster_value as u64
+            + self
+                .get_all_tlcs()
+                .iter()
+                .map(|tlc| tlc.amount)
+                .sum::<u128>() as u64;
+
+        let immediate_payment_key = {
+            let (commitment_point, base_payment_key) = if local {
+                (
+                    self.get_current_counterparty_commitment_point(),
+                    self.get_counterparty_channel_parameters()
+                        .payment_base_key(),
+                )
+            } else {
+                (
+                    self.get_current_holder_commitment_point(),
+                    self.get_holder_channel_parameters().payment_base_key(),
+                )
+            };
+            derive_payment_pubkey(base_payment_key, &commitment_point)
+        };
+
+        let witnesses: Vec<u8> = self.build_previous_commitment_transaction_witnesses(local);
+
+        let hash = blake2b_256(&witnesses);
+        dbg!(
+            "witness in host",
+            hex::encode(&witnesses),
+            "witness hash",
+            hex::encode(&hash[..20]),
+            local,
+            self.holder_commitment_number,
+            self.counterparty_commitment_number
+        );
+        let secp256k1_lock_script =
+            get_secp256k1_lock_script(&blake2b_256(immediate_payment_key.serialize())[0..20]);
+        let commitment_lock_script = get_commitment_lock_script(&blake2b_256(witnesses)[0..20]);
 
         let outputs = vec![
             CellOutput::new_builder()
                 .capacity((to_countersignatory_value as u64).pack())
-                .lock(
-                    secp256k1_lock_script
-                        .as_builder()
-                        .args(blake2b_256(immediate_payment_key.serialize())[0..20].pack())
-                        .build(),
-                )
+                .lock(secp256k1_lock_script)
                 .build(),
             CellOutput::new_builder()
                 .capacity((to_broadcaster_value as u64).pack())
-                .lock(
-                    commitment_lock_script
-                        .as_builder()
-                        .args(blake2b_256(witnesses)[0..20].pack())
-                        .build(),
-                )
+                .lock(commitment_lock_script)
                 .build(),
         ];
         let outputs_data = vec![Bytes::default(); outputs.len()];
@@ -2542,6 +2594,64 @@ impl ChannelActorState {
 
         Ok(PartiallySignedCommitmentTransaction { tx, signature })
     }
+
+    /// Verify the partial signature from the peer and create a complete transaction
+    /// with valid witnesses.
+    pub fn verify_and_complete_tx(
+        &self,
+        signature: PartialSignature,
+    ) -> Result<TransactionView, ProcessingChannelError> {
+        dbg!("Calling build_commitment_tx from verify_and_complete_tx");
+        let tx = self.build_and_verify_commitment_tx(signature)?;
+        dbg!(
+            "verify_and_complete_tx build_and_verify_commitment_tx tx: {:?}",
+            &tx.tx,
+            tx.tx.hash(),
+            tx.tx.cell_deps(),
+            tx.tx.inputs(),
+            tx.tx.outputs(),
+            tx.tx.witnesses()
+        );
+        let sign_ctx = Musig2SignContext::from(self);
+
+        let message = get_tx_message_to_sign(&tx.tx);
+
+        let signature2 = sign_ctx.sign(message.as_slice())?;
+        debug!(
+            "Signed commitment tx ({:?}) message {:?} with signature {:?}",
+            &tx, &message, &signature2,
+        );
+
+        let signatures = self.order_things_for_musig2(signature, signature2);
+        let tx = aggregate_partial_signatures_for_tx(
+            tx.tx,
+            Musig2VerifyContext::from(&*self),
+            signatures,
+        )
+        .expect("The validity of the signatures verified");
+        dbg!("verify_and_complete_tx tx: {:?}", &tx);
+        Ok(tx)
+    }
+}
+
+// TODO: fill in the actual lock script.
+fn get_commitment_lock_script(args: &[u8]) -> Script {
+    Script::new_builder()
+        .code_hash(Byte32::new([42u8; 32]))
+        .hash_type(ScriptHashType::Type.into())
+        .args(args.pack())
+        .build()
+}
+
+// TODO: fill in the actual lock script.
+fn get_secp256k1_lock_script(args: &[u8]) -> Script {
+    // Just need a script that can be found by ckb to pass the test.
+    // So we use commitment lock script instead of a non-existing secp256k1 lock script.
+    Script::new_builder()
+        .code_hash(Byte32::new([24u8; 32]))
+        .hash_type(ScriptHashType::Type.into())
+        .args(args.pack())
+        .build()
 }
 
 /// The commitment transactions are the transaction that each parties holds to
@@ -2673,6 +2783,8 @@ pub fn aggregate_partial_signatures_for_tx(
     verify_ctx: Musig2VerifyContext,
     partial_signatures: [PartialSignature; 2],
 ) -> Result<TransactionView, ProcessingChannelError> {
+    debug!("Aggregating partial signatures for tx {:?}", &tx);
+
     let message = get_tx_message_to_sign(&tx);
     let signature: CompactSignature = aggregate_partial_signatures(
         &verify_ctx.key_agg_ctx,
