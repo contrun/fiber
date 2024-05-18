@@ -208,7 +208,7 @@ impl CommitmentLockContext {
                     for contract in contracts {
                         let type_hash = get_hash_from_environment_variable(
                             contract,
-                            EnvironmentVariableType::CodeHash,
+                            EnvironmentVariableType::TypeHash,
                             dep_type,
                         );
                         let tx = get_hash_from_environment_variable(
