@@ -59,7 +59,7 @@ impl MockContext {
                             .build_script(&out_point, Bytes::new())
                             .expect("Build script");
                         let cell_dep = CellDep::new_builder().out_point(out_point.clone()).build();
-                        ((*contract, (out_point, script)), cell_dep)
+                        ((*contract, script), cell_dep)
                     })
                     .unzip()
                 }
@@ -81,7 +81,7 @@ impl MockContext {
             let context = MockContext {
                 context: RwLock::new(context),
                 contracts_context: Arc::new(ContractsContext {
-                    contracts: map,
+                    contract_default_scripts: map,
                     cell_deps: cell_dep_vec,
                 }),
             };
@@ -118,7 +118,7 @@ impl Contract {
 
 #[derive(Debug)]
 pub struct ContractsContext {
-    contracts: HashMap<Contract, (OutPoint, Script)>,
+    contract_default_scripts: HashMap<Contract, Script>,
     // TODO: We bundle all the cell deps together, but some of they are not always needed.
     cell_deps: CellDepVec,
 }
@@ -233,7 +233,7 @@ impl CommitmentLockContext {
                             .hash_type(ScriptHashType::Data1.into())
                             .args(Bytes::new().pack())
                             .build();
-                        map.insert(contract, (dep_group_out_point.clone(), script));
+                        map.insert(contract, script);
                         cell_deps.push(
                             CellDep::new_builder()
                                 .out_point(dep_group_out_point)
@@ -242,12 +242,6 @@ impl CommitmentLockContext {
                         );
                     }
                 }
-                let tx0_env_name = format!("{ENV_PREFIX}_CKB_GENESIS_TX_0");
-                let tx0 = Hash256::from_str(
-                    &env::var(&tx0_env_name)
-                        .expect(&format!("environment variable {tx0_env_name}")),
-                )
-                .expect("valid hash");
                 let tx1_env_name = format!("{ENV_PREFIX}_CKB_GENESIS_TX_1");
                 let tx1 = Hash256::from_str(
                     &env::var(&tx1_env_name)
@@ -255,10 +249,6 @@ impl CommitmentLockContext {
                 )
                 .expect("valid hash");
 
-                let secp256k1_outpoint = OutPoint::new_builder()
-                    .tx_hash(tx0.into())
-                    .index(1u32.pack())
-                    .build();
                 let secp256k1_script = Script::new_builder()
                     .code_hash(
                         Hash256::from_str(DEFUALT_SECP256K1_CODE_HASH)
@@ -268,10 +258,7 @@ impl CommitmentLockContext {
                     .hash_type(ScriptHashType::Type.into())
                     .args(Bytes::new().pack())
                     .build();
-                map.insert(
-                    Contract::Secp256k1Lock,
-                    (secp256k1_outpoint, secp256k1_script),
-                );
+                map.insert(Contract::Secp256k1Lock, secp256k1_script);
                 cell_deps.push(
                     CellDep::new_builder()
                         .out_point(
@@ -291,7 +278,7 @@ impl CommitmentLockContext {
                     &cell_dep_vec
                 );
                 Self::Real(Arc::new(ContractsContext {
-                    contracts: map,
+                    contract_default_scripts: map,
                     cell_deps: cell_dep_vec,
                 }))
             }
@@ -315,10 +302,10 @@ impl CommitmentLockContext {
         }
     }
 
-    fn get_contracts_map(&self) -> &HashMap<Contract, (OutPoint, Script)> {
+    fn get_contracts_map(&self) -> &HashMap<Contract, Script> {
         match self {
-            Self::Mock(mock) => &mock.contracts_context.contracts,
-            Self::Real(real) => &real.contracts,
+            Self::Mock(mock) => &mock.contracts_context.contract_default_scripts,
+            Self::Real(real) => &real.contract_default_scripts,
         }
     }
     fn get_cell_deps(&self) -> &CellDepVec {
@@ -328,20 +315,11 @@ impl CommitmentLockContext {
         }
     }
 
-    fn get_contract_info(&self, contract: Contract) -> (OutPoint, Script) {
+    fn get_script(&self, contract: Contract, args: &[u8]) -> Script {
         self.get_contracts_map()
             .get(&contract)
             .expect(format!("Contract {:?} exists", contract).as_str())
             .clone()
-    }
-
-    fn get_out_point(&self, contract: Contract) -> OutPoint {
-        self.get_contract_info(contract).0
-    }
-
-    fn get_script(&self, contract: Contract, args: &[u8]) -> Script {
-        self.get_contract_info(contract)
-            .1
             .as_builder()
             .args(args.pack())
             .build()
@@ -361,10 +339,6 @@ impl CommitmentLockContext {
         }
     }
 
-    pub fn get_commitment_lock_outpoint(&self) -> OutPoint {
-        self.get_out_point(Contract::CommitmentLock)
-    }
-
     pub fn get_secp256k1_lock_script(&self, args: &[u8]) -> Script {
         self.get_script(Contract::Secp256k1Lock, args)
     }
@@ -379,10 +353,6 @@ impl CommitmentLockContext {
 
     pub fn get_commitment_transaction_cell_deps(&self) -> CellDepVec {
         self.get_cell_deps().clone()
-    }
-
-    pub fn get_always_success_outpoint(&self) -> OutPoint {
-        self.get_out_point(Contract::AlwaysSuccess)
     }
 
     pub fn get_always_success_script(&self, args: &[u8]) -> Script {
