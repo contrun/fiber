@@ -1,4 +1,5 @@
 ckb:
+  network: "Testnet"
   listening_port: 8345
   bootnode_addrs:
     - "/ip4/127.0.0.1/tcp/8344/p2p/QmbvRjJHAQDmj3cgnUBGQ5zVnGxUKwb2qJygwNs2wk41h8"
@@ -14,6 +15,8 @@ ckb_chain:
   # funding lock
   funding_cell_lock_script_code_hash: "0x8090ce20be9976e2407511502acebf74ac1cfed10d7b35b7f33f56c9bd0daec6"
   funding_cell_lock_script_hash_type: "type"
+
+  rpc_url: "https://testnet.ckb.dev/"
 
 services:
   - ckb

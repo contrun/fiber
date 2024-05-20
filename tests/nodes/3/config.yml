@@ -1,5 +1,6 @@
 ckb:
   listening_port: 8346
+  network: "Testnet"
 
 rpc:
   listening_addr: 127.0.0.1:41716
@@ -18,6 +19,8 @@ ckb_chain:
   # funding lock
   funding_cell_lock_script_code_hash: "0x8090ce20be9976e2407511502acebf74ac1cfed10d7b35b7f33f56c9bd0daec6"
   funding_cell_lock_script_hash_type: "type"
+
+  rpc_url: "https://testnet.ckb.dev/"
 
 services:
   - ckb

@@ -29,7 +29,7 @@ if [[ -f "$deploy_dir/.env.local" ]]; then
     export $(xargs <"$deploy_dir/.env.local")
 fi
 
-ckb run -C "$deploy_dir/node-data" --indexer &
+# ckb run -C "$deploy_dir/node-data" --indexer &
 
 # Start the dev node in the background.
 cd "$nodes_dir" || exit 1
