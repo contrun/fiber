@@ -1284,7 +1284,7 @@ impl ChannelActorState {
         let ctx: &CommitmentLockContext = CommitmentLockContext::get();
         let args = blake2b_256(self.get_funding_lock_script_xonly());
         debug!(
-            "Aggregated pubkey: {:?}, hash: {:?}",
+            "Calculating funding lock script args: aggregated pubkey: {:?}, hash: {:?}",
             hex::encode(&args),
             hex::encode(&args[..20])
         );
@@ -2033,7 +2033,7 @@ impl ChannelActorState {
                 if !flags.contains(CollaboratingFundingTxFlags::COLLABRATION_COMPLETED) =>
             {
                 return Err(ProcessingChannelError::InvalidState(format!(
-                    "Unable to process commitment_signed command in state {:?}, as collaboration is not completed yet.",
+                    "Unable to process commitment_signed message in state {:?}, as collaboration is not completed yet.",
                     &self.state
                 )));
             }
