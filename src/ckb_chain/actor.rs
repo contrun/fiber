@@ -1,5 +1,6 @@
 use ckb_sdk::CkbRpcClient;
 use ckb_types::{core::TransactionView, packed, prelude::*};
+use log::debug;
 use ractor::{
     concurrency::{sleep, Duration},
     Actor, ActorProcessingErr, ActorRef, RpcReplyPort,
@@ -145,6 +146,10 @@ impl Actor for CkbChainActor {
                                                 .block_number
                                                 .unwrap_or_default()
                                                 .into();
+                                            debug!(
+                                                "Tracing tx, current tip_number: {}, tx commit_number: {}, num of confirmation required: {}, is transaction committed: {}",
+                                                tip_number, commit_number, confirmations, tip_number >= commit_number + confirmations
+                                            );
                                             (tip_number >= commit_number + confirmations)
                                                 .then_some(ckb_jsonrpc_types::Status::Committed)
                                         }
