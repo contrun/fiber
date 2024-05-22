@@ -34,5 +34,8 @@ assert {
 
 script:post-response {
   // Sleep for sometime to make sure current operation finishes before next request starts.
-  await new Promise(r => setTimeout(r, 10 *1000));
+  // Give it 30 seconds for us to assemble valid inputs to the funding tx.
+  // The assembly process requires a few rpc calls for both parties, each may require
+  // a few seconds to finish.
+  await new Promise(r => setTimeout(r, 30 * 1000));
 }

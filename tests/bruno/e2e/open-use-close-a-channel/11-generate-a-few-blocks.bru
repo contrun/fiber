@@ -29,5 +29,7 @@ assert {
 }
 
 script:post-response {
-  await new Promise(r => setTimeout(r, 100 * 1000));
+  // Average block time is 8s in the test net. We requires 4 confirmations.
+  // So 90 seconds should be enough.
+  await new Promise(r => setTimeout(r, 90 * 1000));
 }
