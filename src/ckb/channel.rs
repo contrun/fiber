@@ -20,11 +20,7 @@ use ractor::{
 };
 
 use serde::{Deserialize, Serialize};
-<<<<<<< HEAD
-use serde_with::serde_as;
-=======
 use serde_with::{serde_as, DisplayFromStr};
->>>>>>> f1fde85 (parent 63b234516064ce2480c4a2c238a20bcad255840e)
 use tentacle::secio::PeerId;
 use thiserror::Error;
 use tokio::sync::{mpsc::error::TrySendError, oneshot};
@@ -161,14 +157,19 @@ pub enum ChannelInitializationParameter {
 }
 
 #[derive(Debug)]
-pub struct ChannelActor {
+pub struct ChannelActor<S> {
     peer_id: PeerId,
     network: ActorRef<NetworkActorMessage>,
+    store: S,
 }
 
-impl ChannelActor {
-    pub fn new(peer_id: PeerId, network: ActorRef<NetworkActorMessage>) -> Self {
-        Self { peer_id, network }
+impl<S> ChannelActor<S> {
+    pub fn new(peer_id: PeerId, network: ActorRef<NetworkActorMessage>, store: S) -> Self {
+        Self {
+            peer_id,
+            network,
+            store,
+        }
     }
 
     pub fn handle_commitment_signed_command(
@@ -547,7 +548,10 @@ impl ChannelActor {
 }
 
 #[rasync_trait]
-impl Actor for ChannelActor {
+impl<S> Actor for ChannelActor<S>
+where
+    S: ChannelActorStateStore + Send + Sync + 'static,
+{
     type Msg = ChannelActorMessage;
     type State = ChannelActorState;
     type Arguments = ChannelInitializationParameter;
@@ -753,8 +757,6 @@ impl Actor for ChannelActor {
                     .expect("network actor alive");
 
                 tx.send(channel.get_id()).expect("Receive not dropped");
-<<<<<<< HEAD
-=======
                 Ok(channel)
             }
             ChannelInitializationParameter::ReestablishChannel(channel_id) => {
@@ -772,7 +774,6 @@ impl Actor for ChannelActor {
                         ),
                     ))
                     .expect("network actor alive");
->>>>>>> f1fde85 (parent 63b234516064ce2480c4a2c238a20bcad255840e)
                 Ok(channel)
             }
         }
@@ -866,11 +867,8 @@ pub struct ChannelActorState {
     #[serde_as(as = "DisplayFromStr")]
     pub peer_id: PeerId,
     pub id: Hash256,
-<<<<<<< HEAD
-    pub funding_tx: Option<TransactionView>,
-=======
+    #[serde_as(as = "Option<EntityHex>")]
     pub funding_tx: Option<Transaction>,
->>>>>>> f1fde85 (parent 63b234516064ce2480c4a2c238a20bcad255840e)
 
     // Is this channel initially inbound?
     // An inbound channel is one where the counterparty is the funder of the channel.
@@ -1428,20 +1426,10 @@ impl ChannelActorState {
         match self.state {
             ChannelState::ChannelReady(_) => Ok(()),
             ChannelState::ShuttingDown(_) => Ok(()),
-<<<<<<< HEAD
             _ => Err(ProcessingChannelError::InvalidState(format!(
                 "Invalid state {:?} for adding tlc",
                 self.state
             ))),
-=======
-            _ => {
-                eprintln!("now channel state: {:?}", self.state);
-                return Err(ProcessingChannelError::InvalidState(format!(
-                    "Invalid state {:?} for adding tlc",
-                    self.state
-                )));
-            }
->>>>>>> f1fde85 (parent 63b234516064ce2480c4a2c238a20bcad255840e)
         }
     }
 
