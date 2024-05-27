@@ -106,9 +106,9 @@ impl Contract {
         match self {
             Contract::FundingLock => "funding-lock",
             Contract::CommitmentLock => "commitment-lock",
-            // TODO fix me.
-            // We create an secp256k1 binary here because we need to find out the tx of secp256k1 in dev chain.
-            Contract::Secp256k1Lock => "always_success",
+            Contract::Secp256k1Lock => {
+                panic!("secp256k1 is a builtin contract which should have no corresponding binary file")
+            }
             Contract::AlwaysSuccess => "always_success",
             Contract::CkbAuth => "auth",
             Contract::SimpleUDT => "simple_udt",
