@@ -2147,6 +2147,7 @@ impl ChannelActorState {
         let commitment_lock_context = CommitmentLockContext::get();
         // Try to create an transaction which spends the commitment transaction, to
         // verify that our code actually works.
+        #[cfg(test)]
         if commitment_lock_context.is_testing() {
             dbg!("Since we are in testing model, we will now create a revocation transaction to test our construction works");
             let output_lock_script = commitment_lock_context.get_always_success_script(b"whatever");
@@ -2512,6 +2513,7 @@ impl ChannelActorState {
                 let commtiment_lock_context = CommitmentLockContext::get();
                 // Just create a cell with the same capacity as the first output of the funding tx.
                 // This is to test the validity of the commitment tx that spends the funding tx.
+                #[cfg(test)]
                 if commtiment_lock_context.is_testing() {
                     let always_success = commtiment_lock_context
                         .get_always_success_script(b"funding transaction test");

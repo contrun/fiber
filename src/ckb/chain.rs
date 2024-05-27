@@ -1,4 +1,4 @@
-use ckb_testtool::{ckb_types::bytes::Bytes, context::Context};
+use ckb_types::bytes::Bytes;
 use ckb_types::{
     core::{DepType, ScriptHashType},
     packed::{CellDep, CellDepVec, OutPoint, Script},
@@ -10,19 +10,26 @@ use std::{
     collections::HashMap,
     env,
     str::FromStr,
-    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{Arc, RwLockReadGuard, RwLockWriteGuard},
 };
 
 use ckb_types::prelude::Pack;
 
 use super::{config::CkbNetwork, types::Hash256};
 
+#[cfg(test)]
+use ckb_testtool::context::Context;
+#[cfg(test)]
+use std::sync::RwLock;
+
+#[cfg(test)]
 #[derive(Debug)]
 pub struct MockContext {
     context: RwLock<Context>,
     contracts_context: Arc<ContractsContext>,
 }
 
+#[cfg(test)]
 impl MockContext {
     // If we are using cfg(test), then directly including contracts binaries into the
     // resulting executable is not a problem. Otherwise, we'd better read the binaries from
@@ -161,6 +168,7 @@ pub struct ContractsContext {
 
 #[derive(Clone, Debug)]
 pub enum CommitmentLockContext {
+    #[cfg(test)]
     Mock(&'static MockContext),
     Real(Arc<ContractsContext>),
 }
@@ -232,6 +240,7 @@ impl CommitmentLockContext {
     // because it is used in so many places.
     pub fn initialize(network: CkbNetwork) -> &'static Self {
         COMMITMENT_LOCK_CTX_INSTANCE.get_or_init(|| match network {
+            #[cfg(test)]
             CkbNetwork::Mocknet => Self::Mock(MockContext::get()),
             CkbNetwork::Dev => {
                 let mut map = HashMap::new();
@@ -338,6 +347,7 @@ impl CommitmentLockContext {
         COMMITMENT_LOCK_CTX_INSTANCE.get().unwrap()
     }
 
+    #[cfg(test)]
     pub fn get_mock() -> Self {
         Self::Mock(MockContext::get())
     }
@@ -348,6 +358,7 @@ impl CommitmentLockContext {
 
     pub fn is_testing(&self) -> bool {
         match self {
+            #[cfg(test)]
             Self::Mock(_) => true,
             Self::Real(_) => false,
         }
@@ -355,12 +366,15 @@ impl CommitmentLockContext {
 
     fn get_contracts_map(&self) -> &HashMap<Contract, (OutPoint, Script)> {
         match self {
+            #[cfg(test)]
             Self::Mock(mock) => &mock.contracts_context.contracts,
             Self::Real(real) => &real.contracts,
         }
     }
+    
     fn get_cell_deps(&self) -> &CellDepVec {
         match self {
+            #[cfg(test)]
             Self::Mock(mock) => &mock.contracts_context.cell_deps,
             Self::Real(real) => &real.cell_deps,
         }
@@ -385,6 +399,7 @@ impl CommitmentLockContext {
             .build()
     }
 
+    #[cfg(test)]
     pub fn read_mock_context(&self) -> RwLockReadGuard<Context> {
         match &self {
             Self::Mock(mock) => mock.context.read().unwrap(),
@@ -392,6 +407,7 @@ impl CommitmentLockContext {
         }
     }
 
+    #[cfg(test)]
     pub fn write_mock_context(&self) -> RwLockWriteGuard<Context> {
         match &self {
             Self::Mock(mock) => mock.context.write().unwrap(),
