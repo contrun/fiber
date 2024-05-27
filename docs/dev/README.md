@@ -19,6 +19,8 @@ We can (re)initialize the dev chain to transfer some balances from the default d
 
 ## Run some simple tests to the dev chain
 
+There are a few RPC examples inside the folder [/tests/bruno](/tests/bruno/), we can run 
+
 ```
 cd tests/bruno
 npm exec -- @usebruno/cli run e2e/open-use-close-a-channel -r --env test
