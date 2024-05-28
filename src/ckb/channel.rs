@@ -1386,14 +1386,6 @@ impl ChannelActorState {
         AggNonce::sum(nonces)
     }
 
-    pub fn get_broadcaster_and_countersignatory_amounts(&self, local: bool) -> (u128, u128) {
-        if local {
-            (self.to_self_amount, self.to_remote_amount)
-        } else {
-            (self.to_remote_amount, self.to_self_amount)
-        }
-    }
-
     pub fn get_all_tlcs(&self) -> Vec<TLC> {
         debug!("Getting tlcs for commitment tx");
         debug!(
@@ -2667,57 +2659,6 @@ impl ChannelActorState {
         Ok(tx_builder.build())
     }
 
-    pub fn build_tx_creation_keys(&self, local: bool, commitment_number: u64) -> TxCreationKeys {
-        debug!(
-            "Building commitment transaction #{} for {}",
-            commitment_number,
-            if local { "us" } else { "them" },
-        );
-        let (
-            broadcaster,
-            countersignatory,
-            broadcaster_commitment_point,
-            countersignatory_commitment_point,
-        ) = if local {
-            (
-                self.get_holder_channel_parameters(),
-                self.get_counterparty_channel_parameters(),
-                self.get_holder_commitment_point(commitment_number),
-                self.get_counterparty_commitment_point(commitment_number),
-            )
-        } else {
-            (
-                self.get_counterparty_channel_parameters(),
-                self.get_holder_channel_parameters(),
-                self.get_counterparty_commitment_point(commitment_number),
-                self.get_holder_commitment_point(commitment_number),
-            )
-        };
-        let tx_creation_keys = TxCreationKeys {
-            broadcaster_delayed_payment_key: derive_delayed_payment_pubkey(
-                broadcaster.delayed_payment_base_key(),
-                &broadcaster_commitment_point,
-            ),
-            countersignatory_payment_key: derive_payment_pubkey(
-                countersignatory.payment_base_key(),
-                &countersignatory_commitment_point,
-            ),
-            countersignatory_revocation_key: derive_revocation_pubkey(
-                countersignatory.revocation_base_key(),
-                &countersignatory_commitment_point,
-            ),
-            broadcaster_tlc_key: derive_tlc_pubkey(
-                broadcaster.tlc_base_key(),
-                &broadcaster_commitment_point,
-            ),
-            countersignatory_tlc_key: derive_tlc_pubkey(
-                countersignatory.tlc_base_key(),
-                &countersignatory_commitment_point,
-            ),
-        };
-        tx_creation_keys
-    }
-
     pub fn build_commitment_tx(&self, local: bool) -> TransactionView {
         let commitment_lock_context = CommitmentLockContext::get();
         let input = self.get_funding_transaction_outpoint();
@@ -2844,11 +2785,14 @@ impl ChannelActorState {
     }
 
     fn build_commitment_transaction_outputs(&self, local: bool) -> (Vec<CellOutput>, Vec<Bytes>) {
-        let (to_broadcaster_value, to_countersignatory_value) =
-            self.get_broadcaster_and_countersignatory_amounts(local);
+        let (to_broadcaster_value, to_countersignatory_value) = if local {
+            (self.to_self_amount, self.to_remote_amount)
+        } else {
+            (self.to_remote_amount, self.to_self_amount)
+        };
 
-        // The to_broadcaster_value is amount of immediately spendable assets of the broadcaster.
-        // In the commitment transaction, we need also to include the amount of the TLCs.
+        // The to_broadcaster_value is amount of assets locked by commitment-lock.
+        // We need also to include the total balance of all pending TLCs.
         let to_broadcaster_value = to_broadcaster_value as u64
             + self
                 .get_all_tlcs()
@@ -2856,7 +2800,7 @@ impl ChannelActorState {
                 .map(|tlc| tlc.amount)
                 .sum::<u128>() as u64;
 
-        let immediate_payment_key = {
+        let countersignatory_payment_key = {
             let (commitment_point, base_payment_key) = if local {
                 (
                     self.get_previous_counterparty_commitment_point(),
@@ -2885,15 +2829,16 @@ impl ChannelActorState {
             self.counterparty_commitment_number
         );
         let commitment_lock_ctx = CommitmentLockContext::get();
-        let secp256k1_lock_script = commitment_lock_ctx
-            .get_secp256k1_lock_script(&blake2b_256(immediate_payment_key.serialize())[0..20]);
+        let countersignatory_secp256k1_lock_script = commitment_lock_ctx.get_secp256k1_lock_script(
+            &blake2b_256(countersignatory_payment_key.serialize())[0..20],
+        );
         let commitment_lock_script =
             commitment_lock_ctx.get_commitment_lock_script(&blake2b_256(witnesses)[0..20]);
 
         let outputs = vec![
             CellOutput::new_builder()
                 .capacity((to_countersignatory_value as u64).pack())
-                .lock(secp256k1_lock_script)
+                .lock(countersignatory_secp256k1_lock_script)
                 .build(),
             CellOutput::new_builder()
                 .capacity((to_broadcaster_value as u64).pack())
@@ -2990,33 +2935,6 @@ pub trait ChannelActorStateStore {
     fn get_channel_actor_state(&self, id: &Hash256) -> Option<ChannelActorState>;
     fn insert_channel_actor_state(&self, state: ChannelActorState);
     fn get_channels(&self, peer_id: &PeerId) -> Vec<Hash256>;
-}
-
-/// The commitment transactions are the transaction that each parties holds to
-/// spend the funding transaction and create a new partition of the channel
-/// balance between each parties. This struct contains all the information
-/// that we need to build the actual CKB transaction.
-/// Note that these commitment transactions are asymmetrical,
-/// meaning that counterparties have different resulting CKB transaction.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CommitmentTransaction {
-    // The input to the commitment transactions,
-    // always the first output of the  funding transaction.
-    pub input: OutPoint,
-    // Will change after each commitment to derive new commitment secrets.
-    // Currently always 0.
-    pub commitment_number: u64,
-    // The broadcaster's balance, may be spent after timelock by the broadcaster or
-    // by the countersignatory with revocation key.
-    pub to_broadcaster_value: u128,
-    // The countersignatory's balance, may be spent immediately by the countersignatory.
-    pub to_countersignatory_value: u128,
-    // The list of TLC commitmentments. These outputs are already multisiged to another
-    // set of transactions, whose output may be spent by countersignatory with revocation key,
-    // the original sender after delay, or the receiver if they has correct preimage,
-    pub tlcs: Vec<TLCOutputInCommitment>,
-    // A cache of the parties' pubkeys required to construct the transaction.
-    pub keys: TxCreationKeys,
 }
 
 /// A wrapper on CommitmentTransaction that has a partial signature along with
