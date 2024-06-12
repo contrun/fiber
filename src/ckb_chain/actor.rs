@@ -121,8 +121,9 @@ impl Actor for CkbChainActor {
                             }
                             _ => {
                                 log::error!(
-                                    "[{}] send transaction failed: {:?}",
+                                    "[{}] send transaction failed (tx hash: {:?}): {:?}",
                                     myself.get_name().unwrap_or_default(),
+                                    tx.hash(),
                                     err
                                 );
                             }
