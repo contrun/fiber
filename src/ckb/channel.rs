@@ -1589,43 +1589,41 @@ impl ChannelActorState {
             .expect("Counterparty shutdown script is present")
     }
 
-    pub fn get_commitment_point(&self, local: bool, commitment_number: u64) -> Pubkey {
-        if local {
-            self.get_local_commitment_point(commitment_number)
-        } else {
-            self.get_remote_commitment_point(commitment_number)
-        }
-    }
-
-    pub fn get_current_commitment_point(&self, local: bool) -> Pubkey {
-        if local {
-            self.get_current_local_commitment_point()
-        } else {
-            self.get_previous_remote_commitment_point()
-        }
-    }
-
     pub fn get_local_commitment_point(&self, commitment_number: u64) -> Pubkey {
-        self.signer.get_commitment_point(commitment_number)
+        let commitment_point = self.signer.get_commitment_point(commitment_number);
+        debug!(
+            "Obtaining {}th local commitment point: {:?}",
+            commitment_number, &commitment_point
+        );
+        debug!(
+            "Commitment secret for #{} commitment point {:?}: {:?}",
+            commitment_number,
+            commitment_point,
+            hex::encode(self.signer.get_commitment_secret(commitment_number))
+        );
+        commitment_point
     }
 
     pub fn get_current_local_commitment_point(&self) -> Pubkey {
         self.get_local_commitment_point(self.local_commitment_number)
     }
 
-    pub fn get_previous_remote_commitment_point(&self) -> Pubkey {
-        self.get_remote_commitment_point(self.remote_commitment_number - 1)
-    }
-
     /// Get the counterparty commitment point for the given commitment number.
     pub fn get_remote_commitment_point(&self, commitment_number: u64) -> Pubkey {
         let index = commitment_number as usize;
+        let commitment_point = self.remote_commitment_points[index];
         debug!(
-            "Obtaining {}th commitment point (out of {}) for remote",
+            "Obtaining {}th commitment point (out of {}) for remote: {:?}",
             index,
-            self.remote_commitment_points.len()
+            self.remote_commitment_points.len(),
+            &commitment_point
         );
-        self.remote_commitment_points[index]
+        commitment_point
+    }
+
+    pub fn get_current_remote_commitment_point(&self) -> Pubkey {
+        debug!("Getting current remote commitment point");
+        self.get_remote_commitment_point(self.remote_commitment_number)
     }
 
     pub fn get_funding_lock_script_xonly(&self) -> [u8; 32] {
@@ -2303,8 +2301,12 @@ impl ChannelActorState {
             per_commitment_secret,
             next_per_commitment_point,
         } = revoke_and_ack;
-        let per_commitment_point = self.get_previous_remote_commitment_point();
+        let per_commitment_point = self.get_current_remote_commitment_point();
         if per_commitment_point != Privkey::from(per_commitment_secret).pubkey() {
+            error!(
+                "Received invalid per_commitment_secret {:?} for commitment point {:?}",
+                per_commitment_secret, per_commitment_point
+            );
             return Err(ProcessingChannelError::InvalidParameter(
                 "Invalid per_commitment_secret".to_string(),
             ));
@@ -2708,7 +2710,7 @@ impl ChannelActorState {
         let immediate_payment_key = {
             let (commitment_point, base_payment_key) = if local {
                 (
-                    self.get_previous_remote_commitment_point(),
+                    self.get_current_remote_commitment_point(),
                     self.get_remote_channel_parameters().payment_base_key(),
                 )
             } else {
