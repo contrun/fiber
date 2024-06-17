@@ -1120,8 +1120,8 @@ impl From<Transaction> for FundingTxInput {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitmentNumbers {
-    pub local: u64,
-    pub remote: u64,
+    pub locally_signed: u64,
+    pub remotely_signed: u64,
 }
 
 impl Default for CommitmentNumbers {
@@ -1133,25 +1133,25 @@ impl Default for CommitmentNumbers {
 impl CommitmentNumbers {
     pub fn new() -> Self {
         Self {
-            local: INITIAL_COMMITMENT_NUMBER,
-            remote: INITIAL_COMMITMENT_NUMBER,
+            locally_signed: INITIAL_COMMITMENT_NUMBER,
+            remotely_signed: INITIAL_COMMITMENT_NUMBER,
         }
     }
 
     pub fn get_local(&self) -> u64 {
-        self.local
+        self.locally_signed
     }
 
     pub fn get_remote(&self) -> u64 {
-        self.remote
+        self.remotely_signed
     }
 
     pub fn increment_local(&mut self) {
-        self.local += 1;
+        self.locally_signed += 1;
     }
 
     pub fn increment_remote(&mut self) {
-        self.remote += 1;
+        self.remotely_signed += 1;
     }
 }
 
@@ -1704,11 +1704,11 @@ impl ChannelActorState {
         self.commitment_numbers
     }
 
-    pub fn get_local_commitment_number(&self) -> u64 {
+    pub fn get_locally_signed_commitment_number(&self) -> u64 {
         self.commitment_numbers.get_local()
     }
 
-    pub fn get_remote_commitment_number(&self) -> u64 {
+    pub fn get_remotely_signed_commitment_number(&self) -> u64 {
         self.commitment_numbers.get_remote()
     }
 
@@ -1720,16 +1720,16 @@ impl ChannelActorState {
         self.commitment_numbers.increment_remote();
     }
 
-    pub fn get_current_commitment_number(&self, local: bool) -> u64 {
-        if local {
-            self.get_local_commitment_number()
+    pub fn get_current_commitment_number(&self, to_be_signed_locally: bool) -> u64 {
+        if to_be_signed_locally {
+            self.get_locally_signed_commitment_number()
         } else {
-            self.get_remote_commitment_number()
+            self.get_remotely_signed_commitment_number()
         }
     }
 
-    pub fn get_next_commitment_number(&self, local: bool) -> u64 {
-        self.get_current_commitment_number(local) + 1
+    pub fn get_next_commitment_number(&self, to_be_signed_locally: bool) -> u64 {
+        self.get_current_commitment_number(to_be_signed_locally) + 1
     }
 
     pub fn get_next_offering_tlc_id(&self) -> u64 {
@@ -1780,7 +1780,8 @@ impl ChannelActorState {
         );
         let detailed_tlc = DetailedTLCInfo {
             tlc,
-            created_at: self.get_current_commitment_numbers(),
+            created_at_for_offerer: self.get_current_commitment_number(tlc.is_offered()),
+            created_at_for_receiver: None,
             creation_confirmed_at: None,
             removed_at: None,
             removal_confirmed_at: None,
@@ -1952,7 +1953,7 @@ impl ChannelActorState {
 
     pub fn get_local_musig2_secnonce(&self) -> SecNonce {
         self.signer
-            .derive_musig2_nonce(self.get_local_commitment_number())
+            .derive_musig2_nonce(self.get_locally_signed_commitment_number())
     }
 
     pub fn get_local_musig2_pubnonce(&self) -> PubNonce {
@@ -2036,11 +2037,60 @@ impl ChannelActorState {
     // This tlc must have valid local_committed_at and remote_committed_at fields.
     pub fn get_tlc_pubkeys(&self, tlc: &DetailedTLCInfo, local: bool) -> (Pubkey, Pubkey) {
         debug!("Getting tlc pubkeys for tlc: {:?}", tlc);
+        let am_i_sending_add_tlc_message = {
+            if tlc.tlc.is_offered() {
+                local
+            } else {
+                !local
+            }
+        };
+
+        match (am_i_sending_add_tlc_message, local) {
+            (true, true) => (
+                tlc.created_at_for_offerer,
+                tlc.created_at_for_receiver.unwrap(),
+            ),
+            (true, false) => (
+                tlc.creation_confirmed_at.unwrap().locally_signed(),
+                tlc.creation_confirmed_at.unwrap().remotely_signed(),
+            ),
+            (false, true) => (
+                tlc.creation_confirmed_at.unwrap().locally_signed(),
+                tlc.creation_confirmed_at.unwrap().remotely_signed(),
+            ),
+            (false, false) => (
+                tlc.created_at_for_offerer,
+                tlc.created_at_for_receiver.unwrap(),
+            ),
+        }
+
+        let local_commitment_number = tlc.created_at_for_offerer;
+        if am_i_sending_add_tlc_message {
+            (
+                derive_tlc_pubkey(
+                    &self.get_local_channel_parameters().pubkeys.tlc_base_key,
+                    &self.get_local_commitment_point(tlc.created_at_for_offerer),
+                ),
+                derive_tlc_pubkey(
+                    &self.get_remote_channel_parameters().pubkeys.tlc_base_key,
+                    &self.get_remote_commitment_point(tlc.created_at_for_receiver.unwrap()),
+                ),
+            )
+        } else {
+            (
+                derive_tlc_pubkey(
+                    &self.get_remote_channel_parameters().pubkeys.tlc_base_key,
+                    &self.get_remote_commitment_point(tlc.created_at_for_receiver.unwrap()),
+                ),
+                derive_tlc_pubkey(
+                    &self.get_local_channel_parameters().pubkeys.tlc_base_key,
+                    &self.get_local_commitment_point(tlc.created_at_for_offerer),
+                ),
+            )
+        }
         let is_offered = tlc.tlc.is_offered();
-        let CommitmentNumbers {
-            local: local_commitment_number,
-            remote: remote_commitment_number,
-        } = tlc.get_commitment_numbers(local);
+        let (offerer_commitment_number, receiver_commitment_number) =
+            tlc.get_commitment_numbers(local);
         let local_pubkey = derive_tlc_pubkey(
             &self.get_local_channel_parameters().pubkeys.tlc_base_key,
             &self.get_local_commitment_point(remote_commitment_number),
@@ -2077,8 +2127,8 @@ impl ChannelActorState {
         })
     }
 
-    pub fn get_witness_args_for_active_tlcs(&self, local: bool) -> Vec<u8> {
-        // Build a sorted array of TLC so that both party can generate the same commitment transaction.
+    // Build a sorted array of TLC so that both party can generate the same commitment transaction.
+    fn get_witness_args_for_active_tlcs(&self, local: bool) -> Vec<u8> {
         debug!("All tlcs: {:?}", self.tlcs);
         let tlcs = {
             let (mut received_tlcs, mut offered_tlcs) = (
@@ -2628,10 +2678,10 @@ impl ChannelActorState {
             }
             CommitmentSignedFlags::ChannelReady(_) | CommitmentSignedFlags::PendingShutdown(_) => {
                 // Now we should revoke previous transation by revealing preimage.
-                let old_number = self.get_remote_commitment_number();
+                let old_number = self.get_remotely_signed_commitment_number();
                 let secret = self.signer.get_commitment_secret(old_number);
                 self.increment_remote_commitment_number();
-                let new_number = self.get_remote_commitment_number();
+                let new_number = self.get_remotely_signed_commitment_number();
                 let point = self.get_local_commitment_point(new_number);
 
                 debug!(
@@ -2797,7 +2847,7 @@ impl ChannelActorState {
             per_commitment_secret,
             next_per_commitment_point,
         } = revoke_and_ack;
-        let commitment_number = self.get_local_commitment_number() - 1;
+        let commitment_number = self.get_locally_signed_commitment_number() - 1;
         debug!(
             "Checking commitment secret and point for revocation #{}",
             commitment_number
@@ -3118,7 +3168,7 @@ impl ChannelActorState {
         debug!(
             "Building {} commitment transaction #{} with local commtiment number {} and remote commitment number {}", 
             if local { "local" } else { "remote" }, version,
-            self.get_local_commitment_number(), self.get_remote_commitment_number()
+            self.get_locally_signed_commitment_number(), self.get_remotely_signed_commitment_number()
         );
         let funding_out_point = self.get_funding_transaction_outpoint();
         let mut contracts = vec![Contract::CommitmentLock];
@@ -3261,14 +3311,14 @@ impl ChannelActorState {
                 (
                     // Note that we're building a local commitment transaction, so we need to use
                     // the local commitment number.
-                    self.get_remote_commitment_point(self.get_local_commitment_number()),
+                    self.get_remote_commitment_point(self.get_locally_signed_commitment_number()),
                     self.get_remote_channel_parameters().payment_base_key(),
                 )
             } else {
                 (
                     // Note that we're building a remote commitment transaction, so we need to use
                     // the remote commitment number.
-                    self.get_local_commitment_point(self.get_remote_commitment_number()),
+                    self.get_local_commitment_point(self.get_remotely_signed_commitment_number()),
                     self.get_local_channel_parameters().payment_base_key(),
                 )
             };
@@ -3284,8 +3334,8 @@ impl ChannelActorState {
             if local { "local" } else {"remote"},
             hex::encode(&witnesses),
             hex::encode(&script_arg),
-            self.get_local_commitment_number(),
-            self.get_remote_commitment_number()
+            self.get_locally_signed_commitment_number(),
+            self.get_remotely_signed_commitment_number()
         );
 
         let immediate_secp256k1_lock_script = get_script_by_contract(
@@ -3697,13 +3747,8 @@ pub struct DetailedTLCInfo {
     tlc: TLC,
     // The commitment numbers of both parties when this tlc is created
     // as the offerer sees it.
-    // TODO: There is a potential bug here. The commitment number of the
-    // receiver may have been updated by the time this tlc is included
-    // in a commitment of the offerer. Currently we assume that the commitment
-    // number of the receiver when the time this tlc is actually committed by
-    // the offerer is just the same as the commitment number of the receiver
-    // when the this tlc is created.
-    created_at: CommitmentNumbers,
+    created_at_for_offerer: u64,
+    created_at_for_receiver: Option<u64>,
     // The commitment number of the party that received this tlc
     // (also called receiver) when this tlc is first included in
     // the commitment transaction of the receiver.
@@ -3721,7 +3766,7 @@ impl DetailedTLCInfo {
         self.tlc.is_offered()
     }
 
-    fn get_commitment_numbers(&self, local: bool) -> CommitmentNumbers {
+    fn get_commitment_numbers(&self, local: bool) -> (u64, u64) {
         let am_i_sending_the_tlc = {
             if self.is_offered() {
                 local
@@ -3730,7 +3775,12 @@ impl DetailedTLCInfo {
             }
         };
         if am_i_sending_the_tlc {
-            self.created_at
+            CommitmentNumbers {
+                locally_signed: self.created_at_for_offerer,
+                remotely_signed: self
+                    .created_at_for_receiver
+                    .expect("Commitment number is present"),
+            }
         } else {
             self.creation_confirmed_at
                 .expect("Commitment number is present")
