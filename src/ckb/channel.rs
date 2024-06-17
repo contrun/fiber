@@ -524,7 +524,6 @@ impl<S> ChannelActor<S> {
                 state.maybe_transition_to_shutdown(&self.network)?;
             }
         }
-        state.increment_local_commitment_number();
         Ok(())
     }
 
@@ -1607,6 +1606,12 @@ impl ChannelActorState {
             self.total_amount = self.to_local_amount + self.to_remote_amount;
         }
 
+        if is_received {
+            self.increment_remote_commitment_number();
+        } else {
+            self.increment_local_commitment_number();
+        }
+
         // If this revoke_and_ack message is received from the counterparty,
         // then we should be operating on remote commitment numbers.
         let commitment_numbers = self.get_current_commitment_numbers();
@@ -2632,7 +2637,6 @@ impl ChannelActorState {
                 // Now we should revoke previous transation by revealing preimage.
                 let old_number = self.get_remote_commitment_number();
                 let secret = self.signer.get_commitment_secret(old_number);
-                self.increment_remote_commitment_number();
                 let new_number = self.get_remote_commitment_number();
                 let point = self.get_local_commitment_point(new_number);
 
@@ -2799,7 +2803,7 @@ impl ChannelActorState {
             per_commitment_secret,
             next_per_commitment_point,
         } = revoke_and_ack;
-        let commitment_number = self.get_local_commitment_number() - 1;
+        let commitment_number = self.get_local_commitment_number();
         debug!(
             "Checking commitment secret and point for revocation #{}",
             commitment_number
@@ -3882,8 +3886,10 @@ mod tests {
 
     use crate::{
         ckb::{
+            channel::{AddTlcCommand, ChannelCommand, ChannelCommandWithId},
             network::{AcceptChannelCommand, OpenChannelCommand},
             test_utils::NetworkNode,
+            types::LockTime,
             NetworkActorCommand, NetworkActorMessage,
         },
         NetworkServiceEvent,
@@ -4108,7 +4114,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_channel_with_tlc_updates() {
+    async fn test_channel_balance() {
         let _ = env_logger::try_init();
 
         let [mut node_a, mut node_b] = NetworkNode::new_n_interconnected_nodes(2)
@@ -4223,6 +4229,42 @@ mod tests {
             node_b.submit_tx(node_b_commitment_tx.clone()).await,
             Status::Committed
         );
+
+        let create_add_tlc_message = |add_tlc, rpc_reply| {
+            NetworkActorMessage::new_command({
+                NetworkActorCommand::ControlPcnChannel(ChannelCommandWithId {
+                    channel_id: new_channel_id.clone(),
+                    command: ChannelCommand::AddTlc(add_tlc, rpc_reply),
+                })
+            })
+        };
+
+        let create_remove_tlc_message = |add_tlc, rpc_reply| {
+            NetworkActorMessage::new_command({
+                NetworkActorCommand::ControlPcnChannel(ChannelCommandWithId {
+                    channel_id: new_channel_id.clone(),
+                    command: ChannelCommand::RemoveTlc(add_tlc, rpc_reply),
+                })
+            })
+        };
+
+        let add_tlc1 = |rpc| {
+            create_add_tlc_message(
+                AddTlcCommand {
+                    amount: 1000,
+                    preimage: Some([1u8; 32].into()),
+                    payment_hash: None,
+                    expiry: LockTime::new(100),
+                },
+                rpc,
+            )
+        };
+
+        let accept_channel_result = call!(node_a.network_actor, add_tlc1)
+            .expect("node_b alive")
+            .expect("accept channel success");
+
+        dbg!(&accept_channel_result);
     }
 
     #[tokio::test]
