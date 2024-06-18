@@ -148,16 +148,16 @@ impl ChannelActorStateStore for Store {
             None => vec![64],
         };
         let iter = self.db.prefix_iterator(prefix.as_ref());
-        iter.map(|(key, value)| {
+        iter.filter_map(|(key, _value)| {
             let key_len = key.len();
             let peer_id = PeerId::from_bytes(key[1..key_len - 32].into())
                 .expect("deserialize peer id should be OK");
             let channel_id: [u8; 32] = key[key_len - 32..]
                 .try_into()
                 .expect("channel id should be 32 bytes");
-            let state = serde_json::from_slice(value.as_ref())
-                .expect("deserialize ChannelState should be OK");
-            (peer_id, channel_id.into(), state)
+            // This is not an atomic action. Fetching channel state here may fail.
+            self.get_channel_actor_state(&Hash256::from(channel_id))
+                .map(|state| (peer_id, channel_id.into(), state.state))
         })
         .collect()
     }
