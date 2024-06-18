@@ -38,4 +38,6 @@ script:post-response {
   // Sleep for sometime to make sure current operation finishes before next request starts.
   await new Promise(r => setTimeout(r, 2000));
   bru.setVar("CHANNEL_ID", res.body.result.channels[0].channel_id);
+  bru.setVar("NODE1_BALANCE", res.body.result.channels[0].local_balance);
+  bru.setVar("NODE3_BALANCE", res.body.result.channels[0].remote_balance);
 }

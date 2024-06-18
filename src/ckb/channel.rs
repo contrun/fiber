@@ -1608,6 +1608,10 @@ impl ChannelActorState {
         self.get_tlc_value_received_from_remote(false)
     }
 
+    pub fn is_closed(&self) -> bool {
+        matches!(self.state, ChannelState::Closed)
+    }
+
     fn update_state(&mut self, new_state: ChannelState) {
         debug!(
             "Updating channel state from {:?} to {:?}",
@@ -3489,6 +3493,15 @@ pub trait ChannelActorStateStore {
     fn insert_channel_actor_state(&self, state: ChannelActorState);
     fn delete_channel_actor_state(&self, id: &Hash256);
     fn get_channel_ids_by_peer(&self, peer_id: &PeerId) -> Vec<Hash256>;
+    fn get_active_channel_ids_by_peer(&self, peer_id: &PeerId) -> Vec<Hash256> {
+        self.get_channel_ids_by_peer(peer_id)
+            .into_iter()
+            .filter(|id| match self.get_channel_actor_state(&id) {
+                Some(state) if !state.is_closed() => true,
+                _ => false,
+            })
+            .collect()
+    }
     fn get_channel_states(&self, peer_id: Option<PeerId>) -> Vec<(PeerId, Hash256, ChannelState)>;
 }
 
