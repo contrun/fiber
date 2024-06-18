@@ -33,8 +33,8 @@ use tokio_util::task::TaskTracker;
 
 use super::channel::{
     AcceptChannelParameter, ChannelActorMessage, ChannelActorStateStore, ChannelCommandWithId,
-    ChannelEvent, OpenChannelParameter, ProcessingChannelError, ProcessingChannelResult,
-    DEFAULT_COMMITMENT_FEE_RATE, DEFAULT_FEE_RATE,
+    ChannelEvent, ChannelSubscribers, OpenChannelParameter, ProcessingChannelError,
+    ProcessingChannelResult, DEFAULT_COMMITMENT_FEE_RATE, DEFAULT_FEE_RATE,
 };
 use super::key::blake2b_hash_with_salt;
 use super::types::{Hash256, OpenChannel};
@@ -783,6 +783,7 @@ pub struct NetworkActorState {
     open_channel_auto_accept_min_ckb_funding_amount: u64,
     // Tha default amount of CKB to be funded when auto accepting a channel.
     auto_accept_channel_ckb_funding_amount: u64,
+    channel_subscribers: ChannelSubscribers,
 }
 
 impl NetworkActorState {
@@ -825,7 +826,12 @@ impl NetworkActorState {
         let (tx, rx) = oneshot::channel::<Hash256>();
         let channel = Actor::spawn_linked(
             None,
-            ChannelActor::new(peer_id.clone(), network.clone(), store),
+            ChannelActor::new(
+                peer_id.clone(),
+                network.clone(),
+                store,
+                self.channel_subscribers.clone(),
+            ),
             ChannelInitializationParameter::OpenChannel(OpenChannelParameter {
                 funding_amount,
                 seed,
@@ -876,7 +882,12 @@ impl NetworkActorState {
         let (tx, rx) = oneshot::channel::<Hash256>();
         let channel = Actor::spawn_linked(
             None,
-            ChannelActor::new(peer_id.clone(), network.clone(), store),
+            ChannelActor::new(
+                peer_id.clone(),
+                network.clone(),
+                store,
+                self.channel_subscribers.clone(),
+            ),
             ChannelInitializationParameter::AcceptChannel(AcceptChannelParameter {
                 funding_amount,
                 reserved_ckb_amount,
@@ -1004,7 +1015,12 @@ impl NetworkActorState {
             debug!("Reestablishing channel {:?}", &channel_id);
             if let Ok((channel, _)) = Actor::spawn_linked(
                 None,
-                ChannelActor::new(peer_id.clone(), self.network.clone(), store.clone()),
+                ChannelActor::new(
+                    peer_id.clone(),
+                    self.network.clone(),
+                    store.clone(),
+                    self.channel_subscribers.clone(),
+                ),
                 ChannelInitializationParameter::ReestablishChannel(channel_id),
                 self.network.get_cell(),
             )
@@ -1210,6 +1226,12 @@ impl NetworkActorState {
     }
 }
 
+pub struct NetworkActorStartArguments {
+    pub config: CkbConfig,
+    pub tracker: TaskTracker,
+    pub channel_subscribers: ChannelSubscribers,
+}
+
 #[rasync_trait]
 impl<S> Actor for NetworkActor<S>
 where
@@ -1217,13 +1239,18 @@ where
 {
     type Msg = NetworkActorMessage;
     type State = NetworkActorState;
-    type Arguments = (CkbConfig, TaskTracker);
+    type Arguments = NetworkActorStartArguments;
 
     async fn pre_start(
         &self,
         myself: ActorRef<Self::Msg>,
-        (config, tracker): Self::Arguments,
+        args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
+        let NetworkActorStartArguments {
+            config,
+            tracker,
+            channel_subscribers,
+        } = args;
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("SystemTime::now() should after UNIX_EPOCH");
@@ -1289,6 +1316,7 @@ where
             open_channel_auto_accept_min_ckb_funding_amount: config
                 .open_channel_auto_accept_min_ckb_funding_amount(),
             auto_accept_channel_ckb_funding_amount: config.auto_accept_channel_ckb_funding_amount(),
+            channel_subscribers,
         })
     }
 
@@ -1453,11 +1481,16 @@ pub async fn start_ckb<S: ChannelActorStateStore + Clone + Send + Sync + 'static
     tracker: TaskTracker,
     root_actor: ActorCell,
     store: S,
+    channel_subscribers: ChannelSubscribers,
 ) -> ActorRef<NetworkActorMessage> {
     let (actor, _handle) = Actor::spawn_linked(
         Some("network actor".to_string()),
         NetworkActor::new(event_sender, chain_actor, store),
-        (config, tracker),
+        NetworkActorStartArguments {
+            config,
+            tracker,
+            channel_subscribers,
+        },
         root_actor,
     )
     .await

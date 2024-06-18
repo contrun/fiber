@@ -1,0 +1,60 @@
+meta {
+  name: 06-ckb-generate-blocks
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{CKB_RPC_URL}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "id": {{iteration}},
+    "jsonrpc": "2.0",
+    "method": "generate_block",
+    "params": []
+  }
+}
+
+vars:post-response {
+  max_iterations: 10
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:pre-request {
+  // Script taken from https://github.com/usebruno/bruno/discussions/385#discussioncomment-8015350
+  if(bru.getVar("iteration") === undefined){
+    bru.setVar("iteration", 0);
+  }
+}
+
+script:post-response {
+  const i = bru.getVar("iteration");
+  const n = bru.getVar("max_iterations");
+
+  if (i <= n) {
+    console.log(`Generated ${i+1}/${n + 1} blocks`);
+  }
+
+  if(i < n) {
+    bru.setVar("iteration", i + 1);
+    await new Promise(r => setTimeout(r, 10));
+    bru.setNextRequest("06-ckb-generate-blocks");
+  } else {
+    bru.setVar("iteration", 0);
+    // Don't know why it takes so long for funding transaction to be confirmed.
+    console.log("Wait for 5 seconds");
+    await new Promise(r => setTimeout(r, 5000));
+  }
+}

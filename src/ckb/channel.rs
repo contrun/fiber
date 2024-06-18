@@ -1,3 +1,4 @@
+use bitcoin::hashes::{sha256::Hash as Sha256, Hash as _};
 use bitflags::bitflags;
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_sdk::Since;
@@ -16,7 +17,8 @@ use musig2::{
     PubNonce, SecNonce,
 };
 use ractor::{
-    async_trait as rasync_trait, Actor, ActorProcessingErr, ActorRef, RpcReplyPort, SpawnErr,
+    async_trait as rasync_trait, Actor, ActorProcessingErr, ActorRef, OutputPort, RpcReplyPort,
+    SpawnErr,
 };
 
 use serde::{Deserialize, Serialize};
@@ -25,7 +27,7 @@ use tentacle::secio::PeerId;
 use thiserror::Error;
 use tokio::sync::oneshot;
 
-use std::{borrow::Borrow, collections::BTreeMap};
+use std::{borrow::Borrow, collections::BTreeMap, fmt::Debug, sync::Arc};
 
 use crate::{
     ckb::{
@@ -47,8 +49,8 @@ use super::{
     serde_utils::EntityHex,
     types::{
         AcceptChannel, AddTlc, CFNMessage, ChannelReady, ClosingSigned, CommitmentSigned, Hash256,
-        LockTime, OpenChannel, Privkey, Pubkey, ReestablishChannel, RemoveTlc, RemoveTlcReason,
-        RevokeAndAck, TxCollaborationMsg, TxComplete, TxUpdate,
+        LockTime, OpenChannel, Privkey, Pubkey, ReestablishChannel, RemoveTlc, RemoveTlcFulfill,
+        RemoveTlcReason, RevokeAndAck, TxCollaborationMsg, TxComplete, TxUpdate,
     },
     NetworkActorCommand, NetworkActorEvent, NetworkActorMessage,
 };
@@ -79,6 +81,13 @@ pub enum ChannelActorMessage {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AddTlcResponse {
     pub tlc_id: u64,
+}
+
+#[derive(Clone)]
+pub struct TlcNotification {
+    pub channel_id: Hash256,
+    pub tlc: TLC,
+    pub script: Script,
 }
 
 #[derive(Debug)]
@@ -175,19 +184,40 @@ pub enum ChannelInitializationParameter {
     ReestablishChannel(Hash256),
 }
 
-#[derive(Debug)]
+#[derive(Clone)]
+pub struct ChannelSubscribers {
+    pub pending_received_tlcs_subscribers: Arc<OutputPort<TlcNotification>>,
+    pub settled_tlcs_subscribers: Arc<OutputPort<TlcNotification>>,
+}
+
+impl Default for ChannelSubscribers {
+    fn default() -> Self {
+        Self {
+            pending_received_tlcs_subscribers: Arc::new(OutputPort::default()),
+            settled_tlcs_subscribers: Arc::new(OutputPort::default()),
+        }
+    }
+}
+
 pub struct ChannelActor<S> {
     peer_id: PeerId,
     network: ActorRef<NetworkActorMessage>,
     store: S,
+    subscribers: ChannelSubscribers,
 }
 
 impl<S> ChannelActor<S> {
-    pub fn new(peer_id: PeerId, network: ActorRef<NetworkActorMessage>, store: S) -> Self {
+    pub fn new(
+        peer_id: PeerId,
+        network: ActorRef<NetworkActorMessage>,
+        store: S,
+        subscribers: ChannelSubscribers,
+    ) -> Self {
         Self {
             peer_id,
             network,
             store,
+            subscribers,
         }
     }
 
@@ -342,7 +372,15 @@ impl<S> ChannelActor<S> {
 
                 let tlc = state.create_inbounding_tlc(add_tlc)?;
                 state.insert_tlc(tlc)?;
-
+                if let Some(ref udt_type_script) = state.funding_udt_type_script {
+                    self.subscribers
+                        .pending_received_tlcs_subscribers
+                        .send(TlcNotification {
+                            tlc,
+                            channel_id: state.get_id(),
+                            script: udt_type_script.clone(),
+                        });
+                }
                 // TODO: here we didn't send any ack message to the peer.
                 // The peer may falsely believe that we have already processed this message,
                 // while we have crashed. We need a way to make sure that the peer will resend
@@ -351,9 +389,25 @@ impl<S> ChannelActor<S> {
             }
             CFNMessage::RemoveTlc(remove_tlc) => {
                 state.check_state_for_tlc_update()?;
+                let channel_id = state.get_id();
 
-                state
+                let tlc_details = state
                     .remove_tlc_with_reason(TLCId::Offered(remove_tlc.tlc_id), remove_tlc.reason)?;
+                if let (
+                    Some(ref udt_type_script),
+                    RemoveTlcReason::RemoveTlcFulfill(RemoveTlcFulfill { payment_preimage }),
+                ) = (state.funding_udt_type_script.clone(), remove_tlc.reason)
+                {
+                    let mut tlc = tlc_details.tlc.clone();
+                    tlc.payment_preimage = Some(payment_preimage);
+                    self.subscribers
+                        .settled_tlcs_subscribers
+                        .send(TlcNotification {
+                            tlc,
+                            channel_id,
+                            script: udt_type_script.clone(),
+                        });
+                }
                 Ok(())
             }
             CFNMessage::Shutdown(shutdown) => {
@@ -4794,4 +4848,8 @@ mod tests {
             })
             .await;
     }
+}
+
+pub fn sha256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
+    Sha256::hash(s.as_ref()).to_byte_array()
 }
