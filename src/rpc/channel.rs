@@ -76,9 +76,9 @@ pub struct Channel {
     pub peer_id: PeerId,
     pub state: ChannelState,
     pub local_balance: u128,
-    pub sent_tlc_balance: u128,
+    pub pending_local_balance: u128,
     pub remote_balance: u128,
-    pub received_tlc_balance: u128,
+    pub pending_remote_balance: u128,
 }
 
 #[serde_as]
@@ -254,8 +254,8 @@ where
                             state: state.state,
                             local_balance: state.get_local_balance(),
                             remote_balance: state.get_remote_balance(),
-                            sent_tlc_balance: state.get_sent_tlc_balance(),
-                            received_tlc_balance: state.get_received_tlc_balance(),
+                            pending_local_balance: state.get_pending_local_balance(),
+                            pending_remote_balance: state.get_pending_remote_balance(),
                         })
                 })
                 .collect(),
