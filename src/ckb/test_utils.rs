@@ -10,6 +10,8 @@ use std::{
 
 use ckb_types::core::TransactionView;
 
+use anyhow::anyhow;
+
 use ractor::{Actor, ActorRef};
 
 use tempfile::TempDir as OldTempDir;
@@ -183,7 +185,10 @@ impl NetworkNode {
         .await;
     }
 
-    pub async fn expect_to_process_event<F, T>(&mut self, event_processor: F) -> T
+    pub async fn try_to_process_event<F, T>(
+        &mut self,
+        event_processor: F,
+    ) -> Result<T, anyhow::Error>
     where
         F: Fn(&NetworkServiceEvent) -> Option<T>,
     {
@@ -196,24 +201,34 @@ impl NetworkNode {
                             println!("Recevied event when waiting for specific event: {:?}", &event);
                             if let Some(r) =  event_processor(&event) {
                                 println!("Event ({:?}) matching filter received, exiting waiting for event loop", &event);
-                                return r;
+                                return Ok(r);
                             }
                         }
                     }
                 }
                 _ = sleep(Duration::from_secs(5)) => {
-                    panic!("Waiting for event timeout");
+                    return Err(anyhow!("Waiting for event timeout"));
                 }
             }
         }
+    }
+
+    pub async fn expect_to_process_event<F, T>(&mut self, event_processor: F) -> T
+    where
+        F: Fn(&NetworkServiceEvent) -> Option<T>,
+    {
+        self.try_to_process_event(event_processor)
+            .await
+            .expect("event received")
     }
 
     pub async fn expect_event<F>(&mut self, event_filter: F)
     where
         F: Fn(&NetworkServiceEvent) -> bool,
     {
-        self.expect_to_process_event(|event| if event_filter(event) { Some(()) } else { None })
-            .await;
+        self.try_to_process_event(|event| if event_filter(event) { Some(()) } else { None })
+            .await
+            .expect("event received");
     }
 
     pub async fn submit_tx(&mut self, tx: TransactionView) -> ckb_jsonrpc_types::Status {
