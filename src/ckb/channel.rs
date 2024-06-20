@@ -1806,8 +1806,10 @@ impl ChannelActorState {
             }
         };
         if tlc.is_offered() {
+            // TODO: We should actually also consider all our fulfilled tlcs here.
+            // Because this is also the amount that we can actually spend.
             let sent_tlc_value = self.get_sent_tlc_balance();
-            debug_assert!(self.to_local_amount > sent_tlc_value);
+            debug_assert!(self.to_local_amount >= sent_tlc_value);
             // TODO: handle transaction fee here.
             if sent_tlc_value + tlc.amount > self.to_local_amount {
                 return Err(ProcessingChannelError::InvalidParameter(format!(
@@ -1816,12 +1818,14 @@ impl ChannelActorState {
                 )));
             }
         } else {
+            // TODO: We should actually also consider all their fulfilled tlcs here.
+            // Because this is also the amount that we can actually spend.
             let received_tlc_value = self.get_received_tlc_balance();
             debug!(
                 "anan debug: {} {}",
                 self.to_remote_amount, received_tlc_value
             );
-            debug_assert!(self.to_remote_amount > received_tlc_value);
+            debug_assert!(self.to_remote_amount >= received_tlc_value);
             // TODO: handle transaction fee here.
             if received_tlc_value + tlc.amount > self.to_remote_amount {
                 return Err(ProcessingChannelError::InvalidParameter(format!(
@@ -2094,28 +2098,16 @@ impl ChannelActorState {
     }
 
     fn get_tlc_value_sent_by_local(&self, local_commitment: bool) -> u128 {
-        if local_commitment {
-            self.get_active_offered_tlcs(local_commitment)
-                .map(|tlc| tlc.tlc.amount)
-                .sum::<u128>()
-        } else {
-            self.get_active_received_tlcs(local_commitment)
-                .map(|tlc| tlc.tlc.amount)
-                .sum::<u128>()
-        }
+        self.get_active_received_tlcs(local_commitment)
+            .map(|tlc| tlc.tlc.amount)
+            .sum::<u128>()
     }
 
     // The parameter local indicates whether we are interested in the value sent by the local party.
     fn get_tlc_value_received_from_remote(&self, local_commitment: bool) -> u128 {
-        if local_commitment {
-            self.get_active_received_tlcs(local_commitment)
-                .map(|tlc| tlc.tlc.amount)
-                .sum::<u128>()
-        } else {
-            self.get_active_offered_tlcs(local_commitment)
-                .map(|tlc| tlc.tlc.amount)
-                .sum::<u128>()
-        }
+        self.get_active_received_tlcs(local_commitment)
+            .map(|tlc| tlc.tlc.amount)
+            .sum::<u128>()
     }
 
     // Get the pubkeys for the tlc. Tlc pubkeys are the pubkeys held by each party
