@@ -97,7 +97,7 @@ pub enum TxCollaborationCommand {
     TxComplete(TxCompleteCommand),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AddTlcCommand {
     pub amount: u128,
     pub preimage: Option<Hash256>,
@@ -536,9 +536,13 @@ impl<S> ChannelActor<S> {
     ) -> Result<u64, ProcessingChannelError> {
         warn!("handle add tlc command : {:?}", &command);
         state.check_state_for_tlc_update()?;
-        state.check_add_tlc_amount(command.amount)?;
+        debug!(
+            "Balance checking before handle_add_tlc_command: {} available_amount: {}, local_reserve_ckb_amount: {}  .. remote_amount: {} remote_reserve_ckb_amount: {}",
+            command.amount, state.to_local_amount, state.local_reserve_ckb_amount, state.to_remote_amount, state.remote_reserve_ckb_amount
+        );
+        //state.check_add_tlc_amount(command.amount)?;
 
-        let tlc = state.create_outbounding_tlc(command);
+        let tlc = state.create_outbounding_tlc(command.clone());
         state.insert_tlc(tlc)?;
 
         debug!("Inserted tlc into channel state: {:?}", &tlc);
@@ -566,6 +570,10 @@ impl<S> ChannelActor<S> {
             ))
             .expect(ASSUME_NETWORK_ACTOR_ALIVE);
 
+        debug!(
+                "Balance checking after handle_add_tlc_command: {} available_amount: {}, local_reserve_ckb_amount: {}  .. remote_amount: {} remote_reserve_ckb_amount: {}",
+                command.amount, state.to_local_amount, state.local_reserve_ckb_amount, state.to_remote_amount, state.remote_reserve_ckb_amount
+            );
         Ok(tlc.id.into())
     }
 
@@ -575,6 +583,11 @@ impl<S> ChannelActor<S> {
         command: RemoveTlcCommand,
     ) -> ProcessingChannelResult {
         state.check_state_for_tlc_update()?;
+
+        debug!(
+            "Balance checking, before handle_remove_tlc_command: {:?} available_amount: {}, local_reserve_ckb_amount: {}  .. remote_amount: {} remote_reserve_ckb_amount: {}",
+            command, state.to_local_amount, state.local_reserve_ckb_amount, state.to_remote_amount, state.remote_reserve_ckb_amount
+        );
         let tlc = state.remove_tlc_with_reason(TLCId::Received(command.id), command.reason)?;
         let msg = CFNMessageWithPeerId {
             peer_id: self.peer_id.clone(),
@@ -591,12 +604,9 @@ impl<S> ChannelActor<S> {
             .expect(ASSUME_NETWORK_ACTOR_ALIVE);
 
         debug!(
-            "Channel ({:?}) balance after removing tlc {:?}: local balance: {}, remote balance: {}",
-            state.get_id(),
-            tlc,
-            state.to_local_amount,
-            state.to_remote_amount
-        );
+                "Balance checking, after handle_remove_tlc_command: {} available_amount: {}, local_reserve_ckb_amount: {}  .. remote_amount: {} remote_reserve_ckb_amount: {}",
+                tlc.tlc.amount, state.to_local_amount, state.local_reserve_ckb_amount, state.to_remote_amount, state.remote_reserve_ckb_amount
+            );
         state.maybe_transition_to_shutdown(&self.network)?;
 
         Ok(())
@@ -1875,7 +1885,11 @@ impl ChannelActorState {
         };
         if tlc.is_offered() {
             let sent_tlc_value = self.get_sent_tlc_balance();
-            debug_assert!(self.to_local_amount > sent_tlc_value);
+            debug!(
+                "Balance checking is_offered : sent_tlc_value: {}, to_local_amount: {}",
+                sent_tlc_value, self.to_local_amount
+            );
+            debug_assert!(self.to_local_amount >= sent_tlc_value);
             // TODO: handle transaction fee here.
             if sent_tlc_value + tlc.amount > self.to_local_amount {
                 return Err(ProcessingChannelError::InvalidParameter(format!(
@@ -1885,7 +1899,11 @@ impl ChannelActorState {
             }
         } else {
             let received_tlc_value = self.get_received_tlc_balance();
-            debug_assert!(self.to_remote_amount > received_tlc_value);
+            debug!(
+                "Balance checking not offered : received_tlc_value: {}, to_remote_amount: {}",
+                received_tlc_value, self.to_remote_amount
+            );
+            debug_assert!(self.to_remote_amount >= received_tlc_value);
             // TODO: handle transaction fee here.
             if received_tlc_value + tlc.amount > self.to_remote_amount {
                 return Err(ProcessingChannelError::InvalidParameter(format!(
@@ -2334,21 +2352,21 @@ impl ChannelActorState {
         }
     }
 
-    fn check_add_tlc_amount(&self, amount: u128) -> ProcessingChannelResult {
-        debug!(
-            "check_add_tlc_amount: {} available_amount: {}",
-            amount, self.to_local_amount
-        );
-        if amount > self.to_local_amount {
-            return Err(ProcessingChannelError::InvalidParameter(format!(
-                "Local balance is not enough to add tlc with amount {}, you can add at most {}",
-                amount, self.to_local_amount
-            )));
-        }
-        Ok(())
-    }
+    // fn check_add_tlc_amount(&self, amount: u128) -> ProcessingChannelResult {
+    //     debug!(
+    //         "check_add_tlc_amount: {} available_amount: {}, local_reserve_ckb_amount: {}  .. remote_amount: {} remote_reserve_ckb_amount: {}",
+    //         amount, self.to_local_amount, self.local_reserve_ckb_amount, self.to_remote_amount, self.remote_reserve_ckb_amount
+    //     );
+    //     if amount > self.to_local_amount {
+    //         return Err(ProcessingChannelError::InvalidParameter(format!(
+    //             "Local balance is not enough to add tlc with amount {}, you can add at most {}",
+    //             amount, self.to_local_amount
+    //         )));
+    //     }
+    //     Ok(())
+    // }
 
-    pub fn create_outbounding_tlc(&mut self, command: AddTlcCommand) -> TLC {
+    pub fn create_outbounding_tlc(&self, command: AddTlcCommand) -> TLC {
         // TODO: we are filling the user command with a new id here.
         // The advantage of this is that we don't need to burden the users to
         // provide a next id for each tlc. The disadvantage is that users may
