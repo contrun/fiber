@@ -1601,11 +1601,15 @@ impl ChannelActorState {
     }
 
     pub fn get_sent_tlc_balance(&self) -> u128 {
-        self.get_tlc_value_sent_by_local(true)
+        self.get_active_offered_tlcs(true)
+            .map(|tlc| tlc.tlc.amount)
+            .sum::<u128>()
     }
 
     pub fn get_received_tlc_balance(&self) -> u128 {
-        self.get_tlc_value_received_from_remote(false)
+        self.get_active_received_tlcs(false)
+            .map(|tlc| tlc.tlc.amount)
+            .sum::<u128>()
     }
 
     fn update_state(&mut self, new_state: ChannelState) {
@@ -1806,8 +1810,11 @@ impl ChannelActorState {
             }
         };
         if tlc.is_offered() {
+            // TODO: We should actually also consider all our fulfilled tlcs here.
+            // Because this is also the amount that we can actually spend.
             let sent_tlc_value = self.get_sent_tlc_balance();
-            debug_assert!(self.to_local_amount > sent_tlc_value);
+            debug!("Value of local sent tlcs: {}", sent_tlc_value);
+            debug_assert!(self.to_local_amount >= sent_tlc_value);
             // TODO: handle transaction fee here.
             if sent_tlc_value + tlc.amount > self.to_local_amount {
                 return Err(ProcessingChannelError::InvalidParameter(format!(
@@ -1816,8 +1823,11 @@ impl ChannelActorState {
                 )));
             }
         } else {
+            // TODO: We should actually also consider all their fulfilled tlcs here.
+            // Because this is also the amount that we can actually spend.
             let received_tlc_value = self.get_received_tlc_balance();
-            debug_assert!(self.to_remote_amount > received_tlc_value);
+            debug!("Value of remote received tlcs: {}", received_tlc_value);
+            debug_assert!(self.to_remote_amount >= received_tlc_value);
             // TODO: handle transaction fee here.
             if received_tlc_value + tlc.amount > self.to_remote_amount {
                 return Err(ProcessingChannelError::InvalidParameter(format!(
@@ -2087,18 +2097,6 @@ impl ChannelActorState {
             Self::should_tlc_be_included_in_commitment_tx(info, local_commitment)
                 && info.is_offered()
         })
-    }
-
-    fn get_tlc_value_sent_by_local(&self, local_commitment: bool) -> u128 {
-        if local_commitment {
-            self.get_active_offered_tlcs(local_commitment)
-                .map(|tlc| tlc.tlc.amount)
-                .sum::<u128>()
-        } else {
-            self.get_active_received_tlcs(local_commitment)
-                .map(|tlc| tlc.tlc.amount)
-                .sum::<u128>()
-        }
     }
 
     // The parameter local indicates whether we are interested in the value sent by the local party.
@@ -3243,50 +3241,60 @@ impl ChannelActorState {
     }
 
     fn build_current_commitment_transaction_witnesses(&self, local: bool) -> Vec<u8> {
-        let commitment_number = self.get_current_commitment_number(local);
+        let local_commitment_number = self.get_local_commitment_number();
+        let remote_commitment_number = self.get_remote_commitment_number();
+        let commitment_number = if local {
+            local_commitment_number
+        } else {
+            remote_commitment_number
+        };
         debug!(
-            "Building current commitment transaction witnesses for {} party, commitment number: {}",
+            "Building {} commitment transaction #{}'s witnesses (commitment numbers: local {}, remote {})",
             if local { "local" } else { "remote" },
-            commitment_number
-        );
-        self.build_commitment_transaction_witnesses(local, commitment_number)
-    }
-
-    // We need this function both for building new commitment transaction and revoking old commitment transaction.
-    fn build_commitment_transaction_witnesses(
-        &self,
-        local: bool,
-        commitment_number: u64,
-    ) -> Vec<u8> {
-        debug!(
-            "Building {} commitment transaction witnesses for commitment number {}",
-            if local { "local" } else { "remote" },
-            commitment_number
+            commitment_number,
+            local_commitment_number,
+            remote_commitment_number
         );
         let (delayed_epoch, delayed_payment_key, revocation_key) = {
-            let (delay, commitment_point, base_delayed_payment_key, base_revocation_key) = if local
-            {
+            let (
+                delay,
+                // delayed_payment and revocation keys.
+                // The two fields below are used to derive a pubkey for the delayed payment.
+                // The delayed_payment_commitment_point is held by the broadcaster.
+                delayed_payment_commitment_point,
+                delayed_payment_base_key,
+                // The two fields below are used to derive a pubkey for the revocation.
+                // Unlike delayed_payment_commitment_point above, the revocation key is held
+                // by the counter-signatory until this commitment transaction is revoked.
+                revocation_commitment_point,
+                revocation_base_key,
+            ) = if local {
                 (
                     self.get_local_channel_parameters().selected_contest_delay,
-                    self.get_local_commitment_point(commitment_number),
+                    self.get_local_commitment_point(remote_commitment_number),
                     self.get_local_channel_parameters()
                         .delayed_payment_base_key(),
+                    self.get_remote_commitment_point(local_commitment_number),
                     self.get_local_channel_parameters().revocation_base_key(),
                 )
             } else {
                 (
                     self.get_remote_channel_parameters().selected_contest_delay,
-                    self.get_remote_commitment_point(commitment_number),
+                    self.get_remote_commitment_point(local_commitment_number),
                     self.get_remote_channel_parameters()
                         .delayed_payment_base_key(),
+                    self.get_local_commitment_point(remote_commitment_number),
                     self.get_remote_channel_parameters().revocation_base_key(),
                 )
             };
-            debug!("Got base witness parameters: delayed time: {:?}, delayed_payment_key: {:?}, revocation_key: {:?}", delay, base_delayed_payment_key, base_revocation_key);
+            debug!("Got base witness parameters: delayed time: {:?}, delayed_payment_key: {:?}, revocation_key: {:?}", delay, delayed_payment_base_key, revocation_base_key);
             (
                 delay,
-                derive_delayed_payment_pubkey(base_delayed_payment_key, &commitment_point),
-                derive_revocation_pubkey(base_revocation_key, &commitment_point),
+                derive_delayed_payment_pubkey(
+                    delayed_payment_base_key,
+                    &delayed_payment_commitment_point,
+                ),
+                derive_revocation_pubkey(revocation_base_key, &revocation_commitment_point),
             )
         };
 
