@@ -1641,7 +1641,7 @@ impl ChannelActorState {
         let (mut to_local_amount, mut to_remote_amount) =
             (self.to_local_amount, self.to_remote_amount);
 
-        debug!("Updating local state on revoke_and_ack message {}, current commitment number: {:?}, to_local_amount: {}, to_remote_amount: {}", 
+        debug!("Updating local state on revoke_and_ack message {}, current commitment number: {:?}, to_local_amount: {}, to_remote_amount: {}",
             if is_received { "received" } else { "sent" }, commitment_numbers, to_local_amount, to_remote_amount);
 
         self.tlcs.values_mut().for_each(|tlc| {
@@ -1817,6 +1817,10 @@ impl ChannelActorState {
             }
         } else {
             let received_tlc_value = self.get_received_tlc_balance();
+            debug!(
+                "anan debug: {} {}",
+                self.to_remote_amount, received_tlc_value
+            );
             debug_assert!(self.to_remote_amount > received_tlc_value);
             // TODO: handle transaction fee here.
             if received_tlc_value + tlc.amount > self.to_remote_amount {
@@ -3204,7 +3208,7 @@ impl ChannelActorState {
     pub fn build_commitment_tx(&self, local: bool) -> (TransactionView, [u8; 32], Vec<u8>) {
         let version = self.get_current_commitment_number(local);
         debug!(
-            "Building {} commitment transaction #{} with local commtiment number {} and remote commitment number {}", 
+            "Building {} commitment transaction #{} with local commtiment number {} and remote commitment number {}",
             if local { "local" } else { "remote" }, version,
             self.get_local_commitment_number(), self.get_remote_commitment_number()
         );
