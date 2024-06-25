@@ -3848,11 +3848,11 @@ pub fn get_tweak_by_commitment_point(commitment_point: &Pubkey) -> [u8; 32] {
 }
 
 fn derive_private_key(secret: &Privkey, commitment_point: &Pubkey) -> Privkey {
-    secret.tweak(get_tweak_by_commitment_point(commitment_point))
+    secret.tweak(&get_tweak_by_commitment_point(commitment_point))
 }
 
 fn derive_public_key(base_key: &Pubkey, commitment_point: &Pubkey) -> Pubkey {
-    base_key.tweak(get_tweak_by_commitment_point(commitment_point))
+    base_key.tweak(&get_tweak_by_commitment_point(commitment_point))
 }
 
 pub fn derive_revocation_pubkey(base_key: &Pubkey, commitment_point: &Pubkey) -> Pubkey {

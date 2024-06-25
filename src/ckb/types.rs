@@ -298,10 +298,9 @@ impl Privkey {
         Pubkey::from(self.0.public_key(secp256k1_instance()))
     }
 
-    pub fn tweak<I: Into<[u8; 32]>>(&self, scalar: I) -> Self {
-        let scalar = scalar.into();
-        let scalar = Scalar::from_slice(&scalar)
-            .expect(format!("Value {:?} must be within secp256k1 scalar range. If you generated this value from hash function, then your hash function is busted.", &scalar).as_str());
+    pub fn tweak(&self, tweak: &[u8; 32]) -> Self {
+        let scalar = Scalar::from_slice(tweak.as_slice())
+            .expect(format!("Value {:?} must be within secp256k1 scalar range. If you generated this value from hash function, then your hash function is busted.", tweak).as_str());
         let sk = Scalar::from(self);
         (scalar + sk).unwrap().into()
     }
@@ -351,10 +350,9 @@ impl Pubkey {
         PublicKey::from(self).serialize()
     }
 
-    pub fn tweak<I: Into<[u8; 32]>>(&self, scalar: I) -> Self {
-        let scalar = scalar.into();
-        let scalar = Scalar::from_slice(&scalar)
-            .expect(format!("Value {:?} must be within secp256k1 scalar range. If you generated this value from hash function, then your hash function is busted.", &scalar).as_str());
+    pub fn tweak(&self, tweak: &[u8; 32]) -> Self {
+        let scalar = Scalar::from_slice(tweak.as_slice())
+            .expect(format!("Value {:?} must be within secp256k1 scalar range. If you generated this value from hash function, then your hash function is busted.", tweak).as_str());
         let result = Point::from(self) + scalar.base_point_mul();
         PublicKey::from(result.unwrap()).into()
     }
