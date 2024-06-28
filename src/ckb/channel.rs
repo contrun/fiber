@@ -375,6 +375,11 @@ impl<S> ChannelActor<S> {
                         )));
                     }
                 };
+                dbg!(
+                    "Setting remote shutdown script and fee rate",
+                    &shutdown.close_script,
+                    &shutdown.fee_rate
+                );
                 state.remote_shutdown_script = Some(shutdown.close_script);
                 state.remote_shutdown_fee_rate = Some(shutdown.fee_rate.as_u64());
 
@@ -3507,6 +3512,12 @@ impl ChannelActorState {
     }
 
     pub fn build_shutdown_tx(&self) -> Result<(TransactionView, [u8; 32]), ProcessingChannelError> {
+        dbg!(
+            self.local_shutdown_script.clone(),
+            self.remote_shutdown_script.clone(),
+            self.local_shutdown_fee_rate,
+            self.remote_shutdown_fee_rate,
+        );
         // Don't use get_local_shutdown_script and get_remote_shutdown_script here
         // as they will panic if the scripts are not present.
         // This function may be called in a state where these scripts are not present.
@@ -3635,7 +3646,8 @@ impl ChannelActorState {
                 &tx,
             );
             debug!(
-                "Building message to sign for shutdown transaction {:?}",
+                "Built shutdown transaction {:?}, message to sign for shutdown transaction {:?}",
+                &tx,
                 hex::encode(message.as_slice())
             );
             Ok((tx, message))
@@ -4593,6 +4605,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_tlc() {
+        let _ = env_logger::try_init();
+
         let [mut node_a, mut node_b] = NetworkNode::new_n_interconnected_nodes(2)
             .await
             .try_into()
