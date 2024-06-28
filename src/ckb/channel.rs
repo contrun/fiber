@@ -4737,26 +4737,7 @@ mod tests {
             ))
         })
         .expect("node_b alive")
-        .expect("successfully removed tlc");
-
-        dbg!(&shutdown_channel_result);
-
-        let shutdown_channel_result = call!(node_a.network_actor, |rpc_reply| {
-            NetworkActorMessage::Command(NetworkActorCommand::ControlCfnChannel(
-                ChannelCommandWithId {
-                    channel_id: new_channel_id,
-                    command: ChannelCommand::Shutdown(
-                        ShutdownCommand {
-                            close_script: Script::default().as_builder().build(),
-                            fee_rate: FeeRate::from_u64(DEFAULT_COMMITMENT_FEE_RATE),
-                        },
-                        rpc_reply,
-                    ),
-                },
-            ))
-        })
-        .expect("node_b alive")
-        .expect("successfully removed tlc");
+        .expect("successfully shutdown channel");
 
         dbg!(&shutdown_channel_result);
 
