@@ -60,7 +60,7 @@ setup-lnd() {
   echo "$!" > "$lnd_dir/lnd.pid"
   local retries=30
   echo "waiting for ready"
-  while [[ $retries -gt 0 ]] && ! lncli -n regtest --lnddir="$lnd_dir" --no-macaroons --rpcserver "localhost:$lnd_port" getinfo &>/dev/null; do
+  while [[ $retries -gt 0 ]] && ! lncli -n regtest --lnddir="$lnd_dir" --macaroonpath="$lnd_dir/data/chain/bitcoin/regtest/admin.macaroon" --rpcserver "localhost:$lnd_port" getinfo &>/dev/null; do
     sleep 1
     retries=$((retries - 1))
   done
@@ -71,8 +71,8 @@ setup-channels() {
   echo "=> open channel from ingrid to bob"
   local bob_dir="$script_dir/lnd-bob"
   local ingrid_dir="$script_dir/lnd-ingrid"
-  local ingrid_p2tr_address="$(lncli -n regtest --lnddir="$ingrid_dir" --no-macaroons --rpcserver "localhost:$ingrid_port" newaddress p2tr | jq -r .address)"
-  local bob_node_key="$(lncli -n regtest --lnddir="$bob_dir" --no-macaroons --rpcserver "localhost:$bob_port" getinfo | jq -r .identity_pubkey)"
+  local ingrid_p2tr_address="$(lncli -n regtest --lnddir="$ingrid_dir" --macaroonpath="$ingrid_dir/data/chain/bitcoin/regtest/admin.macaroon"  --rpcserver "localhost:$ingrid_port" newaddress p2tr | jq -r .address)"
+  local bob_node_key="$(lncli -n regtest --lnddir="$bob_dir" --macaroonpath="$bob_dir/data/chain/bitcoin/regtest/admin.macaroon" --rpcserver "localhost:$bob_port" getinfo | jq -r .identity_pubkey)"
   echo "ingrid_p2tr_address=$ingrid_p2tr_address"
   echo "bob_node_key=$bob_node_key"
 
@@ -84,7 +84,7 @@ setup-channels() {
 
   echo "openchannel"
   local retries=5
-  while [[ $retries -gt 0 ]] && ! lncli -n regtest --lnddir="$ingrid_dir" --no-macaroons --rpcserver "localhost:$ingrid_port" \
+  while [[ $retries -gt 0 ]] && ! lncli -n regtest --lnddir="$ingrid_dir" --macaroonpath="$ingrid_dir/data/chain/bitcoin/regtest/admin.macaroon" --rpcserver "localhost:$ingrid_port" \
       openchannel \
       --node_key "$bob_node_key" \
       --connect localhost:9835 \
