@@ -1,0 +1,15 @@
+meta {
+  name: 17-node1-close-ln-channel
+  type: http
+  seq: 17
+}
+
+delete {
+  url: {{LND_BOB_RPC_URL}}/v1/channels/ed838c5107b877422e3802e7be20d7d67ebd7b4aafa59adcfaf8f2834459b944/0
+  body: json
+  auth: none
+}
+
+script:post-response {
+  console.log("close channel result: ", res.body);
+}
