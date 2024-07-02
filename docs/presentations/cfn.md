@@ -33,21 +33,21 @@ Everyone is anticipating it, but can we live long enough to witness it?
 
 ## Rethinking lightning
 
-Source: Rethinking Lightning https://stacker.news/items/379225
+Source: https://stacker.news/items/379225
 
-![50%](./rethinking-lightning-screenshot.png)
+![bg left:65% 90%](./rethinking-lightning-screenshot.png)
 
 ---
 
-- Nowadays, the average lightning user actually isn't using lightning, they are just using a custodial wallet and the few of that do run lightning nodes often find it a burdensome task.
+> Nowadays, the average lightning user actually isn't using lightning.
 
-- First and foremost one of the hardest UX challenges of lightning is channel liquidity.
+> First and foremost one of the hardest UX challenges of lightning is channel liquidity.
 
-- The other major pain point of lightning is the offline receive problem.
+> The other major pain point of lightning is the offline receive problem.
 
-- Combining existing large scale lightning infrastructure with self-custodial solutions sadly, isn't totally possible.
+> Combining existing large scale lightning infrastructure with self-custodial solutions sadly, isn't totally possible.
 
-- So how do we scale ownership? Simply put, the answer today is custody, whether that is pure custodial like a Wallet of Satoshi or in the grey area like fedimints and liquid, the only way to do it today is through custody or federated bridges.
+> So how do we scale ownership? Simply put, the answer today is custody.
 
 ---
 
@@ -59,19 +59,10 @@ Source: Rethinking Lightning https://stacker.news/items/379225
 
 ### What covenants can do?
 
-CLTV is not included here. Source: https://utxos.org/alternatives/
+Source: https://covenants.info/overview/summary/
 
 ![./covenant-proposals.jpg](./covenant-proposals.jpg)
 
-
----
-
-### Two major problems in lightning network
-
-- Use case 1 Lightning Symmetry: async receiving
-- Use case 2 Payment Pools: inbound liquidity
-
-Think every merchants needs to run their own node 7*24 hours and always check their inbound liquidity to receive money normally.
 
 ---
 
@@ -89,9 +80,13 @@ Think every merchants needs to run their own node 7*24 hours and always check th
 
 ## Wait, does CKB have covenants already?
 
+![./always-been-there.png](./always-been-there.png)
+
+---
+
 They have always been there. Just too trivial to give a dedicated term.
 
-![./always-been-there.png](./always-been-there.png)
+![bg left:70% 80%](./ckb-vm-syscalls.png)
 
 ---
 
@@ -111,6 +106,10 @@ They have always been there. Just too trivial to give a dedicated term.
 
 ## Introducing CKB Fiber Network (CFN)
 
+![](./cfn=ckb+ln.jpg)
+
+---
+
 ```
     BTC      L1
    /   \
@@ -121,34 +120,22 @@ LN      CKB  L2
     CFN    L2+L2=L3 or L4?
 ```
 
----
-
-### $2+2=\infty$
-
-- Lightning network: Instant, Infinitely Scalable P2P Payment System
+- LN: Instant, Infinitely Scalable P2P Payment System
 - CKB: Unmatched Flexibility and Interoperability
 
 Call this $L_\infty$ instead of $L_3$ or $L_4$.
 
 ---
 
-At this point, you may be completely bewildered.
+### High level overview of CFN
 
-![](./cfn=ckb+ln.jpg)
-
---- 
-
-## Talk is cheap
-Show me ~~the cool demos~~ `time.sleep(6)`
-![bg left:75% 90%](./cool-demo.png)
+![bg 90%](./cfn-ln.png)
 
 ---
 
-### High level overview of CFN
-
-Before we going down into the details. Here is a high level overview of CFN
-
-TODO: may be with some diagrams.
+- Same building blocks as lightning network (HTLC and revocation)
+- Native multiple assets support (extremely versatile thanks to xUDT's extensibility)
+- Cross-chain payment channel network (available now, made only possible by CKB-VM's flexibility)
 
 ---
 
@@ -160,24 +147,25 @@ TODO: show some testnet transaction screenshots on the explorer websites.
 
 ---
 
-## CFN as of today
-
-- Native multi-assets payment channel network
-- Native bitcoin lightning network interoperability with atomic 2-way transfers
-- Same secure assumption with bitcoin
-
-TODO: refine the list here.
+## Conclusion
 
 ---
 
-## CFN as of tomorrow
+### CFN as of today
 
-We will be focusing on the infrastructure side that application developers can leverage to change the world.
+- Same security assumption as bitcoin lightning network
+- Native multi-assets payment channel network
+- Native bitcoin lightning network interoperability with atomic 2-way transfers
 
+---
+
+### CFN as of tomorrow
+
+- Achieve Feature parity with bitcoin lightning network (watch tower, multiple-hop network)
 - Leverage existing BTC lightning network infrastructure for payment routing
-- Rethink lightning network with CKB's extensibility and programmbility
-
-TODO: add things on the roadmap here
+- Rethink payment channel network with CKB's extensibility and programmbility
+  - Highly-articipated lightning network features made possible by covenants (e.g. Non Interactive Channels)
+  - And beyond
 
 ---
 
@@ -185,6 +173,10 @@ TODO: add things on the roadmap here
 
 ![bg left:60% 80%](./friends-are-stronger-together.webp)
 
-Come and build
-For Life is too short
-To wait for BIPs to land
+Come and build.
+Life is too short,
+for all the nicest BIPs to land.
+
+
+- https://github.com/nervosnetwork/cfn-node
+- https://github.com/nervosnetwork/cfn-scripts
