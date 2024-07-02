@@ -20,7 +20,10 @@ Everyone is anticipating it, but can we live long enough to witness it?
 
 ### 2024, the year of BTC L2? All quiet on the LN front
 
-![bg 90%](./ln-statistics.png)
+
+![width:1000px](./ln-statistics.png)
+
+Source: https://bitcoinvisuals.com/lightning
 
 ---
 
@@ -29,7 +32,6 @@ Everyone is anticipating it, but can we live long enough to witness it?
 ![bg left:60% 80%](./terrible-ux.png)
 
 ---
-
 
 ## Rethinking lightning
 
@@ -99,7 +101,6 @@ They have always been there. Just too trivial to give a dedicated term.
 ### Request for fact-checking
 
 - You are welcome fact-check my hasty conclusion above (it's backed by only over-confidence). 
-
 - I will not fix any inaccuracy in my slides, as CKB is easily fixable.
 
 ---
@@ -139,9 +140,9 @@ Call this $L_\infty$ instead of $L_3$ or $L_4$.
 
 ---
 
-### Demo time and some bad news
+## Demo time
 
-We only have time to show some staged animations.
+Too bad. We only have time to show some staged animations.
 
 TODO: show some testnet transaction screenshots on the explorer websites.
 
@@ -155,15 +156,16 @@ TODO: show some testnet transaction screenshots on the explorer websites.
 
 - Same security assumption as bitcoin lightning network
 - Native multi-assets payment channel network
-- Native bitcoin lightning network interoperability with atomic 2-way transfers
+- Referenece implementation is now available with BTC cross chain support (WARNING: demonstratable only for now, lots for bugs to be squashed)
+- Almost all the functionalities mentioned above have their [repective RPC](https://github.com/nervosnetwork/cfn-node/blob/main/src/rpc/README.md) ready for integration
 
 ---
 
 ### CFN as of tomorrow
 
-- Achieve Feature parity with bitcoin lightning network (watch tower, multiple-hop network)
-- Leverage existing BTC lightning network infrastructure for payment routing
+- Achieve feature parity with bitcoin lightning network (watch tower, multiple-hop network)
 - Rethink payment channel network with CKB's extensibility and programmbility
+  - State channels with smart contract support
   - Highly-articipated lightning network features made possible by covenants (e.g. Non Interactive Channels)
   - And beyond
 
@@ -174,9 +176,8 @@ TODO: show some testnet transaction screenshots on the explorer websites.
 ![bg left:60% 80%](./friends-are-stronger-together.webp)
 
 Come and build.
-Life is too short,
+Life is too short
 for all the nicest BIPs to land.
-
 
 - https://github.com/nervosnetwork/cfn-node
 - https://github.com/nervosnetwork/cfn-scripts
