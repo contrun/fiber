@@ -1,0 +1,11 @@
+meta {
+  name: 16-node1-close-ln-channel
+  type: http
+  seq: 16
+}
+
+delete {
+  url: {{LND_BOB_RPC_URL}}/v1/channels/cf8e146a5dd57cd54d04aa0ca3c67167abde630506932f7c6876bbfe7bd3182a/0
+  body: json
+  auth: none
+}
