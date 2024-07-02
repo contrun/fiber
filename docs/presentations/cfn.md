@@ -33,7 +33,7 @@ Source: https://bitcoinvisuals.com/lightning
 
 ---
 
-## Rethinking lightning
+### Rethinking lightning
 
 Source: https://stacker.news/items/379225
 
@@ -80,7 +80,7 @@ Source: https://covenants.info/overview/summary/
 
 ---
 
-## Wait, does CKB have covenants already?
+### Wait, does CKB have covenants already?
 
 ![./always-been-there.png](./always-been-there.png)
 
@@ -148,7 +148,7 @@ You can reproduce the result from https://github.com/nervosnetwork/cfn-node/tree
 
 ---
 
-What we did there was
+What we did in above link was
 
 ![bg 90%](./send-btc-receive-wbtc.png)
 
@@ -175,12 +175,6 @@ What we did there was
 
 ---
 
-### You are wanted
-
-![bg 40%](./you-are-wanted.png)
-
----
-
 ### CFN as of tomorrow
 
 - Achieve feature parity with bitcoin lightning network (watch tower, multiple-hop network)
@@ -201,3 +195,11 @@ for all the nicest BIPs to land.
 
 - https://github.com/nervosnetwork/cfn-node
 - https://github.com/nervosnetwork/cfn-scripts
+
+---
+
+# CKB Fiber Network
+
+the best thing you may have never heard of about bitcoin lightning network
+
+---
