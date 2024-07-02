@@ -4,6 +4,8 @@ _class: lead
 paginate: true
 backgroundColor: #fff
 backgroundImage: url('https://marp.app/assets/hero-background.svg')
+author: contrun
+title: CKB Fiber Network
 ---
 
 # CKB Fiber Network
@@ -100,7 +102,7 @@ They have always been there. Just too trivial to give a dedicated term.
 
 ### Request for fact-checking
 
-- You are welcome fact-check my hasty conclusion above (it's backed by only over-confidence). 
+- You are welcome to fact-check my hasty conclusion above (it's backed by only over-confidence).
 - I will not fix any inaccuracy in my slides, as CKB is easily fixable.
 
 ---
@@ -171,7 +173,7 @@ What we did in above link was
 - Same security assumption as bitcoin lightning network
 - Native multi-assets payment channel network
 - Referenece implementation (https://github.com/nervosnetwork/cfn-node/) is now available with BTC cross chain support (WARNING: demonstratable only for now, lots for bugs to be squashed)
-- Almost all the functionalities mentioned above have their respective RPC (https://github.com/nervosnetwork/cfn-node/blob/main/src/rpc/README.md) ready for integration
+- RPC for above functionalities is documented at https://github.com/nervosnetwork/cfn-node/blob/main/src/rpc/README.md. If you have any interesting ideas, don't hesitate to talk to us or CKB Eco Fund in person
 
 ---
 
