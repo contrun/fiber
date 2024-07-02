@@ -144,7 +144,21 @@ Call this $L_\infty$ instead of $L_3$ or $L_4$.
 
 Too bad. We only have time to show some staged animations.
 
-TODO: show some testnet transaction screenshots on the explorer websites.
+You can reproduce the result from https://github.com/nervosnetwork/cfn-node/tree/7580b6b4b7550c0ab1dd69215f63e4f567219917/tests/bruno/e2e/cross-chain-hub (a few config tweaks required).
+
+---
+
+What we did there was
+
+![bg 90%](./send-btc-receive-wbtc.png)
+
+---
+
+![bg 80%](./btc-funding-tx.png)
+
+---
+
+![bg 80%](./btc-closing-tx.png)
 
 ---
 
@@ -156,8 +170,14 @@ TODO: show some testnet transaction screenshots on the explorer websites.
 
 - Same security assumption as bitcoin lightning network
 - Native multi-assets payment channel network
-- Referenece implementation is now available with BTC cross chain support (WARNING: demonstratable only for now, lots for bugs to be squashed)
-- Almost all the functionalities mentioned above have their [repective RPC](https://github.com/nervosnetwork/cfn-node/blob/main/src/rpc/README.md) ready for integration
+- Referenece implementation (https://github.com/nervosnetwork/cfn-node/) is now available with BTC cross chain support (WARNING: demonstratable only for now, lots for bugs to be squashed)
+- Almost all the functionalities mentioned above have their respective RPC (https://github.com/nervosnetwork/cfn-node/blob/main/src/rpc/README.md) ready for integration
+
+---
+
+### You are wanted
+
+![bg 40%](./you-are-wanted.png)
 
 ---
 
