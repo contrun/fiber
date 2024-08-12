@@ -1228,7 +1228,7 @@ impl NetworkActorState {
                 DEFAULT_CHAIN_ACTOR_TIMEOUT,
                 request.clone()
             ) {
-                Ok(status) if status == Status::Committed => {
+                Ok(status) if status.status == Status::Committed => {
                     info!("Funding transaction {:?} confirmed", &request.tx_hash,);
                     NetworkActorEvent::FundingTransactionConfirmed(outpoint)
                 }
