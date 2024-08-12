@@ -38,7 +38,7 @@ use super::channel::{
 };
 use super::config::AnnouncedNodeName;
 use super::key::blake2b_hash_with_salt;
-use super::types::{Hash256, NodeAnnouncement, OpenChannel, Privkey};
+use super::types::{Hash256, NodeAnnouncement, OpenChannel, Privkey, Pubkey};
 use super::{
     channel::{ChannelActor, ChannelCommand, ChannelInitializationParameter},
     types::CFNMessage,
@@ -163,7 +163,7 @@ pub enum NetworkServiceEvent {
 #[derive(Debug)]
 pub enum NetworkActorEvent {
     /// Network eventss to be processed by this actor.
-    PeerConnected(PeerId, SessionContext),
+    PeerConnected(PeerId, Pubkey, SessionContext),
     PeerDisconnected(PeerId, SessionContext),
     PeerMessage(PeerId, CFNMessage),
 
@@ -358,9 +358,9 @@ where
             NetworkActorEvent::NetworkServiceEvent(e) => {
                 self.on_service_event(e).await;
             }
-            NetworkActorEvent::PeerConnected(id, session) => {
+            NetworkActorEvent::PeerConnected(id, pubkey, session) => {
                 state
-                    .on_peer_connected(&id, &session, self.store.clone())
+                    .on_peer_connected(&id, pubkey, &session, self.store.clone())
                     .await;
                 // Notify outside observers.
                 myself
@@ -805,6 +805,8 @@ pub struct NetworkActorState {
     // the pre_start function.
     control: ServiceAsyncControl,
     peer_session_map: HashMap<PeerId, SessionId>,
+    // This map is used to store the public key of the peer.
+    peer_pubkey_map: HashMap<PeerId, Pubkey>,
     session_channels_map: HashMap<SessionId, HashSet<Hash256>>,
     channels: HashMap<Hash256, ActorRef<ChannelActorMessage>>,
     // Channels in this hashmap are pending for acceptance. The user needs to
@@ -825,6 +827,14 @@ impl NetworkActorState {
         let alias = self.node_name?;
         let addresses = vec![];
         Some(NodeAnnouncement::new(alias, addresses, &self.private_key))
+    }
+
+    pub fn get_private_key(&self) -> Privkey {
+        self.private_key
+    }
+
+    pub fn get_public_key(&self) -> Pubkey {
+        self.get_private_key().pubkey()
     }
 
     pub fn generate_channel_seed(&mut self) -> [u8; 32] {
@@ -852,6 +862,12 @@ impl NetworkActorState {
             commitment_fee_rate,
             funding_fee_rate,
         } = open_channel;
+        let remote_pubkey =
+            self.get_peer_pubkey(&peer_id)
+                .ok_or(ProcessingChannelError::InvalidParameter(format!(
+                    "Peer {:?} pubkey not found",
+                    &peer_id
+                )))?;
         if let Some(udt_type_script) = funding_udt_type_script.as_ref() {
             if !check_udt_script(udt_type_script) {
                 return Err(ProcessingChannelError::InvalidParameter(
@@ -866,7 +882,7 @@ impl NetworkActorState {
         let (tx, rx) = oneshot::channel::<Hash256>();
         let channel = Actor::spawn_linked(
             None,
-            ChannelActor::new(peer_id.clone(), network.clone(), store),
+            ChannelActor::new(self.get_public_key(), remote_pubkey, network.clone(), store),
             ChannelInitializationParameter::OpenChannel(OpenChannelParameter {
                 funding_amount,
                 seed,
@@ -901,6 +917,13 @@ impl NetworkActorState {
                 &temp_channel_id
             )))?;
 
+        let remote_pubkey =
+            self.get_peer_pubkey(&peer_id)
+                .ok_or(ProcessingChannelError::InvalidParameter(format!(
+                    "Peer {:?} pubkey not found",
+                    &peer_id
+                )))?;
+
         let (funding_amount, reserved_ckb_amount) = self.get_funding_and_reserved_amount(
             funding_amount,
             &open_channel.funding_udt_type_script,
@@ -917,7 +940,7 @@ impl NetworkActorState {
         let (tx, rx) = oneshot::channel::<Hash256>();
         let channel = Actor::spawn_linked(
             None,
-            ChannelActor::new(peer_id.clone(), network.clone(), store),
+            ChannelActor::new(self.get_public_key(), remote_pubkey, network.clone(), store),
             ChannelInitializationParameter::AcceptChannel(AcceptChannelParameter {
                 funding_amount,
                 reserved_ckb_amount,
@@ -935,6 +958,10 @@ impl NetworkActorState {
 
     fn get_peer_session(&self, peer_id: &PeerId) -> Option<SessionId> {
         self.peer_session_map.get(peer_id).cloned()
+    }
+
+    fn get_peer_pubkey(&self, peer_id: &PeerId) -> Option<Pubkey> {
+        self.peer_pubkey_map.get(peer_id).cloned()
     }
 
     fn get_funding_and_reserved_amount(
@@ -1035,23 +1062,32 @@ impl NetworkActorState {
 
     async fn on_peer_connected<S: ChannelActorStateStore + Clone + Send + Sync + 'static>(
         &mut self,
-        peer_id: &PeerId,
+        remote_peer_id: &PeerId,
+        remote_pubkey: Pubkey,
         session: &SessionContext,
         store: S,
     ) {
-        self.peer_session_map.insert(peer_id.clone(), session.id);
+        self.peer_session_map
+            .insert(remote_peer_id.clone(), session.id);
+        self.peer_pubkey_map
+            .insert(remote_peer_id.clone(), remote_pubkey);
 
-        for channel_id in store.get_channel_ids_by_peer(&peer_id) {
+        for channel_id in store.get_channel_ids_by_peer(&remote_peer_id) {
             debug!("Reestablishing channel {:?}", &channel_id);
             if let Ok((channel, _)) = Actor::spawn_linked(
                 None,
-                ChannelActor::new(peer_id.clone(), self.network.clone(), store.clone()),
+                ChannelActor::new(
+                    self.get_public_key(),
+                    remote_pubkey,
+                    self.network.clone(),
+                    store.clone(),
+                ),
                 ChannelInitializationParameter::ReestablishChannel(channel_id),
                 self.network.get_cell(),
             )
             .await
             {
-                self.on_channel_created(channel_id, peer_id, channel);
+                self.on_channel_created(channel_id, remote_peer_id, channel);
             }
         }
     }
@@ -1328,6 +1364,7 @@ where
             network: myself.clone(),
             control,
             peer_session_map: Default::default(),
+            peer_pubkey_map: Default::default(),
             session_channels_map: Default::default(),
             channels: Default::default(),
             to_be_accepted_channels: Default::default(),
@@ -1447,9 +1484,14 @@ impl ServiceProtocol for Handle {
             context.proto_id, session.id, session.address, session.ty, version
         );
 
-        if let Some(peer_id) = context.session.remote_pubkey.clone().map(PeerId::from) {
+        if let Some(remote_pubkey) = context.session.remote_pubkey.clone() {
+            let remote_peer_id = PeerId::from_public_key(&remote_pubkey);
             self.send_actor_message(NetworkActorMessage::new_event(
-                NetworkActorEvent::PeerConnected(peer_id, context.session.clone()),
+                NetworkActorEvent::PeerConnected(
+                    remote_peer_id,
+                    remote_pubkey.into(),
+                    context.session.clone(),
+                ),
             ));
         } else {
             warn!("Peer connected without remote pubkey {:?}", context.session);

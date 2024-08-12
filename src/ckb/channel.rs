@@ -20,7 +20,7 @@ use ractor::{
 };
 
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::serde_as;
 use tentacle::secio::PeerId;
 use thiserror::Error;
 use tokio::sync::oneshot;
@@ -177,18 +177,37 @@ pub enum ChannelInitializationParameter {
 
 #[derive(Debug)]
 pub struct ChannelActor<S> {
-    peer_id: PeerId,
+    local_pubkey: Pubkey,
+    remote_pubkey: Pubkey,
     network: ActorRef<NetworkActorMessage>,
     store: S,
 }
 
 impl<S> ChannelActor<S> {
-    pub fn new(peer_id: PeerId, network: ActorRef<NetworkActorMessage>, store: S) -> Self {
+    pub fn new(
+        local_pubkey: Pubkey,
+        remote_pubkey: Pubkey,
+        network: ActorRef<NetworkActorMessage>,
+        store: S,
+    ) -> Self {
         Self {
-            peer_id,
+            local_pubkey,
+            remote_pubkey,
             network,
             store,
         }
+    }
+
+    pub fn get_local_pubkey(&self) -> Pubkey {
+        self.local_pubkey.clone()
+    }
+
+    pub fn get_remote_pubkey(&self) -> Pubkey {
+        self.remote_pubkey.clone()
+    }
+
+    pub fn get_remote_peer_id(&self) -> PeerId {
+        self.remote_pubkey.tentacle_peer_id()
     }
 
     pub fn handle_peer_message(
@@ -215,7 +234,7 @@ impl<S> ChannelActor<S> {
                 self.network
                     .send_message(NetworkActorMessage::new_event(
                         NetworkActorEvent::ChannelAccepted(
-                            state.peer_id.clone(),
+                            state.get_remote_peer_id(),
                             state.get_id(),
                             old_id,
                             state.to_local_amount,
@@ -256,7 +275,7 @@ impl<S> ChannelActor<S> {
                             .send_message(NetworkActorMessage::new_event(
                                 NetworkActorEvent::NetworkServiceEvent(
                                     NetworkServiceEvent::CommitmentSignaturePending(
-                                        state.peer_id.clone(),
+                                        state.get_remote_peer_id(),
                                         state.get_id(),
                                         state.get_current_commitment_number(false),
                                     ),
@@ -538,7 +557,7 @@ impl<S> ChannelActor<S> {
         self.network
             .send_message(NetworkActorMessage::new_command(
                 NetworkActorCommand::SendCFNMessage(CFNMessageWithPeerId {
-                    peer_id: state.peer_id.clone(),
+                    peer_id: state.get_remote_peer_id(),
                     message: CFNMessage::CommitmentSigned(commitment_signed),
                 }),
             ))
@@ -546,7 +565,7 @@ impl<S> ChannelActor<S> {
         self.network
             .send_message(NetworkActorMessage::new_event(
                 NetworkActorEvent::NetworkServiceEvent(NetworkServiceEvent::LocalCommitmentSigned(
-                    state.peer_id.clone(),
+                    state.get_remote_peer_id(),
                     state.get_id(),
                     version,
                     tx.clone(),
@@ -866,7 +885,7 @@ impl<S> ChannelActor<S> {
                 self.network
                     .send_message(NetworkActorMessage::new_command(
                         NetworkActorCommand::SendCFNMessage(CFNMessageWithPeerId {
-                            peer_id: state.peer_id.clone(),
+                            peer_id: state.get_remote_peer_id(),
                             message: CFNMessage::ChannelReady(ChannelReady {
                                 channel_id: state.get_id(),
                             }),
@@ -931,7 +950,7 @@ where
                 open_channel,
                 channel_id_sender,
             }) => {
-                let peer_id = self.peer_id.clone();
+                let peer_id = self.get_remote_peer_id();
                 debug!(
                     "Accepting channel {:?} to peer {:?}",
                     &open_channel, &peer_id
@@ -968,7 +987,8 @@ where
                     *funding_fee_rate,
                     funding_udt_type_script.clone(),
                     &seed,
-                    peer_id.clone(),
+                    self.get_local_pubkey(),
+                    self.get_remote_pubkey(),
                     *funding_amount,
                     *reserved_ckb_amount,
                     *to_local_delay,
@@ -1040,7 +1060,7 @@ where
                 commitment_fee_rate,
                 funding_fee_rate,
             }) => {
-                let peer_id = self.peer_id.clone();
+                let peer_id = self.get_remote_peer_id();
                 info!("Trying to open a channel to {:?}", &peer_id);
 
                 let commitment_fee_rate =
@@ -1065,7 +1085,8 @@ where
 
                 let mut channel = ChannelActorState::new_outbound_channel(
                     &seed,
-                    peer_id.clone(),
+                    self.get_local_pubkey(),
+                    self.get_remote_pubkey(),
                     funding_amount,
                     reserved_ckb_amount,
                     commitment_fee_rate,
@@ -1176,7 +1197,7 @@ where
                 };
 
                 let command = CFNMessageWithPeerId {
-                    peer_id: self.peer_id.clone(),
+                    peer_id: self.get_remote_peer_id(),
                     message: CFNMessage::ReestablishChannel(reestablish_channel),
                 };
 
@@ -1374,8 +1395,10 @@ impl TLCId {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChannelActorState {
     pub state: ChannelState,
-    #[serde_as(as = "DisplayFromStr")]
-    pub peer_id: PeerId,
+    // The local public key used to establish p2p network connection.
+    pub local_pubkey: Pubkey,
+    // The remote public key used to establish p2p network connection.
+    pub remote_pubkey: Pubkey,
     pub id: Hash256,
     #[serde_as(as = "Option<EntityHex>")]
     pub funding_tx: Option<Transaction>,
@@ -1646,7 +1669,8 @@ impl ChannelActorState {
         funding_fee_rate: u64,
         funding_udt_type_script: Option<Script>,
         seed: &[u8],
-        peer_id: PeerId,
+        local_pubkey: Pubkey,
+        remote_pubkey: Pubkey,
         remote_value: u128,
         remote_reserved_ckb_amount: u64,
         remote_delay: LockTime,
@@ -1670,7 +1694,8 @@ impl ChannelActorState {
 
         Self {
             state: ChannelState::NegotiatingFunding(NegotiatingFundingFlags::THEIR_INIT_SENT),
-            peer_id,
+            local_pubkey,
+            remote_pubkey,
             funding_tx: None,
             is_acceptor: true,
             funding_udt_type_script,
@@ -1711,7 +1736,8 @@ impl ChannelActorState {
 
     pub fn new_outbound_channel(
         seed: &[u8],
-        peer_id: PeerId,
+        local_pubkey: Pubkey,
+        remote_pubkey: Pubkey,
         value: u128,
         local_reserved_ckb_amount: u64,
         commitment_fee_rate: u64,
@@ -1725,7 +1751,8 @@ impl ChannelActorState {
             derive_temp_channel_id_from_revocation_key(&local_pubkeys.revocation_base_key);
         Self {
             state: ChannelState::NegotiatingFunding(NegotiatingFundingFlags::empty()),
-            peer_id,
+            local_pubkey,
+            remote_pubkey,
             funding_tx: None,
             funding_udt_type_script,
             is_acceptor: false,
@@ -1943,8 +1970,12 @@ impl ChannelActorState {
         self.id
     }
 
-    pub fn get_remote_peer_id(&self) -> &PeerId {
-        &self.peer_id
+    pub fn get_local_peer_id(&self) -> PeerId {
+        self.local_pubkey.tentacle_peer_id()
+    }
+
+    pub fn get_remote_peer_id(&self) -> PeerId {
+        self.remote_pubkey.tentacle_peer_id()
     }
 
     pub fn get_local_secnonce(&self) -> SecNonce {
@@ -2288,7 +2319,7 @@ impl ChannelActorState {
         debug!(
             "Got agg nonces {:?} from peer {:?}: {:?}",
             AggNonce::sum(nonces),
-            &self.peer_id,
+            self.get_remote_peer_id(),
             nonces
         );
         AggNonce::sum(nonces)
@@ -2737,7 +2768,7 @@ impl ChannelActorState {
                 network
                     .send_message(NetworkActorMessage::new_command(
                         NetworkActorCommand::SendCFNMessage(CFNMessageWithPeerId {
-                            peer_id: self.peer_id.clone(),
+                            peer_id: self.get_remote_peer_id(),
                             message: CFNMessage::ClosingSigned(ClosingSigned {
                                 partial_signature: signature,
                                 channel_id: self.get_id(),

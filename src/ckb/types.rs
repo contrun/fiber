@@ -21,6 +21,7 @@ use secp256k1::{ecdsa::Signature as Secp256k1Signature, All, PublicKey, Secp256k
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use tentacle::multiaddr::MultiAddr;
+use tentacle::secio::PeerId;
 use thiserror::Error;
 
 pub fn secp256k1_instance() -> &'static Secp256k1<All> {
@@ -363,6 +364,20 @@ impl From<Point> for Pubkey {
     }
 }
 
+impl From<tentacle::secio::PublicKey> for Pubkey {
+    fn from(pk: tentacle::secio::PublicKey) -> Self {
+        secp256k1::PublicKey::from_slice(pk.inner_ref())
+            .expect("valid tentacle pubkey can be converted to secp pubkey")
+            .into()
+    }
+}
+
+impl From<Pubkey> for tentacle::secio::PublicKey {
+    fn from(pk: Pubkey) -> Self {
+        tentacle::secio::PublicKey::from_raw_key(pk.serialize().to_vec())
+    }
+}
+
 impl Pubkey {
     pub fn serialize(&self) -> [u8; 33] {
         PublicKey::from(self).serialize()
@@ -374,6 +389,11 @@ impl Pubkey {
             .expect(format!("Value {:?} must be within secp256k1 scalar range. If you generated this value from hash function, then your hash function is busted.", &scalar).as_str());
         let result = Point::from(self) + scalar.base_point_mul();
         PublicKey::from(result.unwrap()).into()
+    }
+
+    pub fn tentacle_peer_id(&self) -> PeerId {
+        let pubkey = self.clone().into();
+        PeerId::from_public_key(&pubkey)
     }
 }
 
