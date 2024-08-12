@@ -394,7 +394,7 @@ impl<S> ChannelActor<S> {
                     self.network
                         .send_message(NetworkActorMessage::new_command(
                             NetworkActorCommand::SendCFNMessage(CFNMessageWithPeerId {
-                                peer_id: self.peer_id.clone(),
+                                peer_id: state.get_remote_peer_id().clone(),
                                 message: CFNMessage::Shutdown(Shutdown {
                                     channel_id: state.get_id(),
                                     close_script: funding_source_lock_script.clone(),
@@ -588,7 +588,7 @@ impl<S> ChannelActor<S> {
 
         // Send tlc update message to peer.
         let msg = CFNMessageWithPeerId {
-            peer_id: self.peer_id.clone(),
+            peer_id: state.get_remote_peer_id().clone(),
             message: CFNMessage::AddTlc(AddTlc {
                 channel_id: state.get_id(),
                 tlc_id: tlc.id.into(),
@@ -616,7 +616,7 @@ impl<S> ChannelActor<S> {
         state.check_state_for_tlc_update()?;
         let tlc = state.remove_tlc_with_reason(TLCId::Received(command.id), command.reason)?;
         let msg = CFNMessageWithPeerId {
-            peer_id: self.peer_id.clone(),
+            peer_id: state.get_remote_peer_id().clone(),
             message: CFNMessage::RemoveTlc(RemoveTlc {
                 channel_id: state.get_id(),
                 tlc_id: command.id,
@@ -665,7 +665,7 @@ impl<S> ChannelActor<S> {
         self.network
             .send_message(NetworkActorMessage::new_command(
                 NetworkActorCommand::SendCFNMessage(CFNMessageWithPeerId {
-                    peer_id: self.peer_id.clone(),
+                    peer_id: state.get_remote_peer_id().clone(),
                     message: CFNMessage::Shutdown(Shutdown {
                         channel_id: state.get_id(),
                         close_script: command.close_script.clone(),
@@ -754,7 +754,7 @@ impl<S> ChannelActor<S> {
                 self.network
                     .send_message(NetworkActorMessage::new_command(
                         NetworkActorCommand::SendCFNMessage(CFNMessageWithPeerId::new(
-                            self.peer_id.clone(),
+                            state.get_remote_peer_id().clone(),
                             cfn_msg,
                         )),
                     ))
@@ -778,7 +778,7 @@ impl<S> ChannelActor<S> {
                 self.network
                     .send_message(NetworkActorMessage::new_command(
                         NetworkActorCommand::SendCFNMessage(CFNMessageWithPeerId::new(
-                            self.peer_id.clone(),
+                            state.get_remote_peer_id().clone(),
                             cfn_msg,
                         )),
                     ))
@@ -1019,7 +1019,7 @@ where
                     .send_message(NetworkActorMessage::new_event(
                         NetworkActorEvent::ChannelCreated(
                             state.get_id(),
-                            self.peer_id.clone(),
+                            state.get_remote_peer_id().clone(),
                             myself,
                         ),
                     ))
@@ -1065,7 +1065,7 @@ where
 
                 let mut channel = ChannelActorState::new_outbound_channel(
                     &seed,
-                    self.peer_id.clone(),
+                    peer_id.clone(),
                     funding_amount,
                     reserved_ckb_amount,
                     commitment_fee_rate,
@@ -1121,7 +1121,7 @@ where
                 self.network
                     .send_message(NetworkActorMessage::new_command(
                         NetworkActorCommand::SendCFNMessage(CFNMessageWithPeerId {
-                            peer_id,
+                            peer_id: peer_id.clone(),
                             message,
                         }),
                     ))
@@ -1134,7 +1134,7 @@ where
                 ));
                 debug!(
                     "Channel to peer {:?} with id {:?} created: {:?}",
-                    &self.peer_id,
+                    &peer_id,
                     &channel.get_id(),
                     &channel
                 );
@@ -1151,7 +1151,7 @@ where
                         // is a real channel id. This may cause confusion.
                         NetworkActorEvent::ChannelCreated(
                             channel.get_id(),
-                            self.peer_id.clone(),
+                            peer_id.clone(),
                             myself,
                         ),
                     ))
@@ -1190,7 +1190,7 @@ where
                     .send_message(NetworkActorMessage::new_event(
                         NetworkActorEvent::ChannelCreated(
                             channel.get_id(),
-                            self.peer_id.clone(),
+                            channel.get_remote_peer_id().clone(),
                             myself,
                         ),
                     ))
@@ -1833,7 +1833,7 @@ impl ChannelActorState {
         network
             .send_message(NetworkActorMessage::new_command(
                 NetworkActorCommand::SendCFNMessage(CFNMessageWithPeerId {
-                    peer_id: self.peer_id.clone(),
+                    peer_id: self.get_remote_peer_id().clone(),
                     message: CFNMessage::RevokeAndAck(RevokeAndAck {
                         channel_id: self.get_id(),
                         per_commitment_secret: secret.into(),
@@ -1941,6 +1941,10 @@ impl ChannelActorState {
 impl ChannelActorState {
     pub fn get_id(&self) -> Hash256 {
         self.id
+    }
+
+    pub fn get_remote_peer_id(&self) -> &PeerId {
+        &self.peer_id
     }
 
     pub fn get_local_secnonce(&self) -> SecNonce {
@@ -2756,7 +2760,11 @@ impl ChannelActorState {
 
                 network
                     .send_message(NetworkActorMessage::new_event(
-                        NetworkActorEvent::ChannelClosed(self.get_id(), self.peer_id.clone(), tx),
+                        NetworkActorEvent::ChannelClosed(
+                            self.get_id(),
+                            self.get_remote_peer_id().clone(),
+                            tx,
+                        ),
                     ))
                     .expect(ASSUME_NETWORK_ACTOR_ALIVE);
             }
@@ -2905,7 +2913,7 @@ impl ChannelActorState {
                         .send_message(NetworkActorMessage::new_event(
                             NetworkActorEvent::NetworkServiceEvent(
                                 NetworkServiceEvent::CommitmentSignaturePending(
-                                    self.peer_id.clone(),
+                                    self.get_remote_peer_id().clone(),
                                     self.get_id(),
                                     self.get_current_commitment_number(false),
                                 ),
@@ -2993,7 +3001,7 @@ impl ChannelActorState {
             .send_message(NetworkActorMessage::new_event(
                 NetworkActorEvent::NetworkServiceEvent(
                     NetworkServiceEvent::RemoteCommitmentSigned(
-                        self.peer_id.clone(),
+                        self.get_remote_peer_id().clone(),
                         self.get_id(),
                         num,
                         tx.clone(),
@@ -3114,7 +3122,7 @@ impl ChannelActorState {
         network
             .send_message(NetworkActorMessage::new_command(
                 NetworkActorCommand::SignTx(
-                    self.peer_id.clone(),
+                    self.get_remote_peer_id().clone(),
                     self.get_id(),
                     funding_tx,
                     partial_witnesses,
@@ -3133,7 +3141,7 @@ impl ChannelActorState {
         self.increment_remote_commitment_number();
         network
             .send_message(NetworkActorMessage::new_event(
-                NetworkActorEvent::ChannelReady(self.get_id(), self.peer_id.clone()),
+                NetworkActorEvent::ChannelReady(self.get_id(), self.get_remote_peer_id().clone()),
             ))
             .expect(ASSUME_NETWORK_ACTOR_ALIVE);
     }
@@ -3207,7 +3215,7 @@ impl ChannelActorState {
                                 network
                                     .send_message(NetworkActorMessage::new_command(
                                         NetworkActorCommand::SendCFNMessage(CFNMessageWithPeerId {
-                                            peer_id: self.peer_id.clone(),
+                                            peer_id: self.get_remote_peer_id().clone(),
                                             message: CFNMessage::AddTlc(AddTlc {
                                                 channel_id: self.get_id(),
                                                 tlc_id: info.tlc.get_id(),
@@ -3230,7 +3238,7 @@ impl ChannelActorState {
                                         .send_message(NetworkActorMessage::new_command(
                                             NetworkActorCommand::SendCFNMessage(
                                                 CFNMessageWithPeerId {
-                                                    peer_id: self.peer_id.clone(),
+                                                    peer_id: self.get_remote_peer_id().clone(),
                                                     message: CFNMessage::RemoveTlc(RemoveTlc {
                                                         channel_id: self.get_id(),
                                                         tlc_id: info.tlc.get_id(),
@@ -3360,7 +3368,7 @@ impl ChannelActorState {
             network
                 .send_message(NetworkActorMessage::new_command(
                     NetworkActorCommand::SendCFNMessage(CFNMessageWithPeerId::new(
-                        self.peer_id.clone(),
+                        self.get_remote_peer_id().clone(),
                         CFNMessage::TxComplete(TxComplete {
                             channel_id: self.get_id(),
                         }),
