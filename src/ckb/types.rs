@@ -20,6 +20,7 @@ use once_cell::sync::OnceCell;
 use secp256k1::{ecdsa::Signature as Secp256k1Signature, All, PublicKey, Secp256k1, SecretKey};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
+use tentacle::multiaddr::MultiAddr;
 use thiserror::Error;
 
 pub fn secp256k1_instance() -> &'static Secp256k1<All> {
@@ -1196,8 +1197,8 @@ impl TryFrom<molecule_cfn::AnnouncementSignatures> for AnnouncementSignatures {
 
 #[derive(Debug, Clone)]
 pub struct NodeAnnouncement {
-    // Signature to this message.
-    pub signature: Signature,
+    // Signature to this message, may be empty the message is not signed yet.
+    pub signature: Option<Signature>,
     // Tentatively using 64 bits for features. May change the type later while developing.
     // rust-lightning uses a Vec<u8> here.
     pub features: u64,
@@ -1209,13 +1210,37 @@ pub struct NodeAnnouncement {
     // If the length is more than 32 bytes, it should be truncated.
     pub alias: AnnouncedNodeName,
     // All the reachable addresses.
-    pub address: Vec<Vec<u8>>,
+    pub addresses: Vec<Vec<u8>>,
+}
+
+impl NodeAnnouncement {
+    pub fn new(
+        alias: AnnouncedNodeName,
+        addresses: Vec<MultiAddr>,
+        private_key: &Privkey,
+    ) -> NodeAnnouncement {
+        let mut unsigned = NodeAnnouncement {
+            signature: None,
+            features: Default::default(),
+            timestamp: Default::default(),
+            node_id: private_key.pubkey(),
+            alias,
+            addresses: addresses.iter().map(|a| a.to_vec()).collect(),
+        };
+        unsigned.signature = todo!("Sign the node announcement here");
+        unsigned
+    }
 }
 
 impl From<NodeAnnouncement> for molecule_cfn::NodeAnnouncement {
     fn from(node_announcement: NodeAnnouncement) -> Self {
         molecule_cfn::NodeAnnouncement::new_builder()
-            .signature(node_announcement.signature.into())
+            .signature(
+                node_announcement
+                    .signature
+                    .expect("node announcement signed")
+                    .into(),
+            )
             .features(node_announcement.features.pack())
             .timestamp(node_announcement.timestamp.pack())
             .node_id(node_announcement.node_id.into())
@@ -1224,7 +1249,7 @@ impl From<NodeAnnouncement> for molecule_cfn::NodeAnnouncement {
                 BytesVec::new_builder()
                     .set(
                         node_announcement
-                            .address
+                            .addresses
                             .into_iter()
                             .map(|address| address.pack())
                             .collect(),
@@ -1240,13 +1265,13 @@ impl TryFrom<molecule_cfn::NodeAnnouncement> for NodeAnnouncement {
 
     fn try_from(node_announcement: molecule_cfn::NodeAnnouncement) -> Result<Self, Self::Error> {
         Ok(NodeAnnouncement {
-            signature: node_announcement.signature().try_into()?,
+            signature: Some(node_announcement.signature().try_into()?),
             features: node_announcement.features().unpack(),
             timestamp: node_announcement.timestamp().unpack(),
             node_id: node_announcement.node_id().try_into()?,
             alias: AnnouncedNodeName::from_slice(node_announcement.alias().as_slice())
                 .map_err(|e| Error::AnyHow(anyhow!("Invalid alias: {}", e)))?,
-            address: node_announcement
+            addresses: node_announcement
                 .address()
                 .into_iter()
                 .map(|address| address.unpack())

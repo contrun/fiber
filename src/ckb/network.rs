@@ -36,8 +36,9 @@ use super::channel::{
     ChannelEvent, OpenChannelParameter, ProcessingChannelError, ProcessingChannelResult,
     DEFAULT_COMMITMENT_FEE_RATE, DEFAULT_FEE_RATE,
 };
+use super::config::AnnouncedNodeName;
 use super::key::blake2b_hash_with_salt;
-use super::types::{Hash256, OpenChannel};
+use super::types::{Hash256, NodeAnnouncement, OpenChannel, Privkey};
 use super::{
     channel::{ChannelActor, ChannelCommand, ChannelInitializationParameter},
     types::CFNMessage,
@@ -103,6 +104,8 @@ pub enum NetworkActorCommand {
     ControlCfnChannel(ChannelCommandWithId),
     UpdateChannelFunding(Hash256, Transaction, FundingRequest),
     SignTx(PeerId, Hash256, Transaction, Option<Vec<Vec<u8>>>),
+    // Broadcast node/channel information
+    BroadcastNodeAnnouncement(NodeAnnouncement),
 }
 
 #[derive(Debug)]
@@ -749,6 +752,9 @@ where
                     ))
                     .expect("network actor alive");
             }
+            NetworkActorCommand::BroadcastNodeAnnouncement(_) => {
+                todo!("Process node annoucement")
+            }
         };
         Ok(())
     }
@@ -785,7 +791,11 @@ where
 }
 
 pub struct NetworkActorState {
+    // The name of the node to be announced to the network, may be empty.
+    node_name: Option<AnnouncedNodeName>,
     peer_id: PeerId,
+    // We need to keep private key here in order to sign node announcement messages.
+    private_key: Privkey,
     // This is the entropy used to generate various random values.
     // Must be kept secret.
     // TODO: Maybe we should abstract this into a separate trait.
@@ -811,6 +821,12 @@ pub struct NetworkActorState {
 }
 
 impl NetworkActorState {
+    pub fn get_node_announcement_message(&self) -> Option<NodeAnnouncement> {
+        let alias = self.node_name?;
+        let addresses = vec![];
+        Some(NodeAnnouncement::new(alias, addresses, &self.private_key))
+    }
+
     pub fn generate_channel_seed(&mut self) -> [u8; 32] {
         let channel_user_id = self.channels.len();
         let seed = channel_user_id
@@ -1255,6 +1271,10 @@ where
         let kp = config
             .read_or_generate_secret_key()
             .expect("read or generate secret key");
+        let private_key = <[u8; 32]>::try_from(kp.as_ref())
+            .expect("valid length for key")
+            .try_into()
+            .expect("valid secret key");
         let entropy = blake2b_hash_with_salt(
             [kp.as_ref(), now.as_nanos().to_le_bytes().as_ref()]
                 .concat()
@@ -1300,10 +1320,12 @@ where
             debug!("Tentacle service shutdown");
         });
 
-        Ok(NetworkActorState {
+        let state = NetworkActorState {
+            node_name: config.announced_node_name,
             peer_id: my_peer_id,
+            private_key: private_key,
             entropy,
-            network: myself,
+            network: myself.clone(),
             control,
             peer_session_map: Default::default(),
             session_channels_map: Default::default(),
@@ -1314,7 +1336,17 @@ where
             open_channel_auto_accept_min_ckb_funding_amount: config
                 .open_channel_auto_accept_min_ckb_funding_amount(),
             auto_accept_channel_ckb_funding_amount: config.auto_accept_channel_ckb_funding_amount(),
-        })
+        };
+
+        if let Some(message) = state.get_node_announcement_message() {
+            myself
+                .send_message(NetworkActorMessage::new_command(
+                    NetworkActorCommand::BroadcastNodeAnnouncement(message),
+                ))
+                .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+        }
+
+        Ok(state)
     }
 
     async fn handle(
