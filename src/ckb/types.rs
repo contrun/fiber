@@ -1300,6 +1300,9 @@ impl TryFrom<molecule_cfn::CFNMessage> for CFNMessage {
             molecule_cfn::CFNMessageUnion::ReestablishChannel(reestablish_channel) => {
                 CFNMessage::ReestablishChannel(reestablish_channel.try_into()?)
             }
+            molecule_cfn::CFNMessageUnion::NodeAnnouncement(_) => todo!(),
+            molecule_cfn::CFNMessageUnion::ChannelAnnouncement(_) => todo!(),
+            molecule_cfn::CFNMessageUnion::ChannelUpdate(_) => todo!(),
         })
     }
 }
