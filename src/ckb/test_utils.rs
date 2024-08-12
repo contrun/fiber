@@ -252,7 +252,7 @@ impl ChannelActorStateStore for MemoryStore {
             .unwrap()
             .values()
             .filter_map(|state| {
-                if peer_id == &state.peer_id {
+                if peer_id == &state.get_remote_peer_id() {
                     Some(state.id.clone())
                 } else {
                     None
@@ -267,15 +267,25 @@ impl ChannelActorStateStore for MemoryStore {
         match peer_id {
             Some(peer_id) => values
                 .filter_map(|state| {
-                    if peer_id == state.peer_id {
-                        Some((state.peer_id.clone(), state.id.clone(), state.state.clone()))
+                    if peer_id == state.get_remote_peer_id() {
+                        Some((
+                            state.get_remote_peer_id(),
+                            state.id.clone(),
+                            state.state.clone(),
+                        ))
                     } else {
                         None
                     }
                 })
                 .collect(),
             None => values
-                .map(|state| (state.peer_id.clone(), state.id.clone(), state.state.clone()))
+                .map(|state| {
+                    (
+                        state.get_remote_peer_id(),
+                        state.id.clone(),
+                        state.state.clone(),
+                    )
+                })
                 .collect(),
         }
     }
