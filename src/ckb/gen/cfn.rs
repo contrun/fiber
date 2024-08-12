@@ -10535,7 +10535,7 @@ impl CFNMessage {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
-    pub const ITEMS_COUNT: usize = 19;
+    pub const ITEMS_COUNT: usize = 20;
     pub fn item_id(&self) -> molecule::Number {
         molecule::unpack_number(self.as_slice())
     }
@@ -10558,9 +10558,10 @@ impl CFNMessage {
             13 => Shutdown::new_unchecked(inner).into(),
             14 => ClosingSigned::new_unchecked(inner).into(),
             15 => ReestablishChannel::new_unchecked(inner).into(),
-            16 => NodeAnnouncement::new_unchecked(inner).into(),
-            17 => ChannelAnnouncement::new_unchecked(inner).into(),
-            18 => ChannelUpdate::new_unchecked(inner).into(),
+            16 => AnnouncementSignatures::new_unchecked(inner).into(),
+            17 => NodeAnnouncement::new_unchecked(inner).into(),
+            18 => ChannelAnnouncement::new_unchecked(inner).into(),
+            19 => ChannelUpdate::new_unchecked(inner).into(),
             _ => panic!("{}: invalid data", Self::NAME),
         }
     }
@@ -10617,7 +10618,7 @@ impl<'r> ::core::fmt::Display for CFNMessageReader<'r> {
     }
 }
 impl<'r> CFNMessageReader<'r> {
-    pub const ITEMS_COUNT: usize = 19;
+    pub const ITEMS_COUNT: usize = 20;
     pub fn item_id(&self) -> molecule::Number {
         molecule::unpack_number(self.as_slice())
     }
@@ -10640,9 +10641,10 @@ impl<'r> CFNMessageReader<'r> {
             13 => ShutdownReader::new_unchecked(inner).into(),
             14 => ClosingSignedReader::new_unchecked(inner).into(),
             15 => ReestablishChannelReader::new_unchecked(inner).into(),
-            16 => NodeAnnouncementReader::new_unchecked(inner).into(),
-            17 => ChannelAnnouncementReader::new_unchecked(inner).into(),
-            18 => ChannelUpdateReader::new_unchecked(inner).into(),
+            16 => AnnouncementSignaturesReader::new_unchecked(inner).into(),
+            17 => NodeAnnouncementReader::new_unchecked(inner).into(),
+            18 => ChannelAnnouncementReader::new_unchecked(inner).into(),
+            19 => ChannelUpdateReader::new_unchecked(inner).into(),
             _ => panic!("{}: invalid data", Self::NAME),
         }
     }
@@ -10684,9 +10686,10 @@ impl<'r> molecule::prelude::Reader<'r> for CFNMessageReader<'r> {
             13 => ShutdownReader::verify(inner_slice, compatible),
             14 => ClosingSignedReader::verify(inner_slice, compatible),
             15 => ReestablishChannelReader::verify(inner_slice, compatible),
-            16 => NodeAnnouncementReader::verify(inner_slice, compatible),
-            17 => ChannelAnnouncementReader::verify(inner_slice, compatible),
-            18 => ChannelUpdateReader::verify(inner_slice, compatible),
+            16 => AnnouncementSignaturesReader::verify(inner_slice, compatible),
+            17 => NodeAnnouncementReader::verify(inner_slice, compatible),
+            18 => ChannelAnnouncementReader::verify(inner_slice, compatible),
+            19 => ChannelUpdateReader::verify(inner_slice, compatible),
             _ => ve!(Self, UnknownItem, Self::ITEMS_COUNT, item_id),
         }?;
         Ok(())
@@ -10695,7 +10698,7 @@ impl<'r> molecule::prelude::Reader<'r> for CFNMessageReader<'r> {
 #[derive(Clone, Debug, Default)]
 pub struct CFNMessageBuilder(pub(crate) CFNMessageUnion);
 impl CFNMessageBuilder {
-    pub const ITEMS_COUNT: usize = 19;
+    pub const ITEMS_COUNT: usize = 20;
     pub fn set<I>(mut self, v: I) -> Self
     where
         I: ::core::convert::Into<CFNMessageUnion>,
@@ -10739,6 +10742,7 @@ pub enum CFNMessageUnion {
     Shutdown(Shutdown),
     ClosingSigned(ClosingSigned),
     ReestablishChannel(ReestablishChannel),
+    AnnouncementSignatures(AnnouncementSignatures),
     NodeAnnouncement(NodeAnnouncement),
     ChannelAnnouncement(ChannelAnnouncement),
     ChannelUpdate(ChannelUpdate),
@@ -10761,6 +10765,7 @@ pub enum CFNMessageUnionReader<'r> {
     Shutdown(ShutdownReader<'r>),
     ClosingSigned(ClosingSignedReader<'r>),
     ReestablishChannel(ReestablishChannelReader<'r>),
+    AnnouncementSignatures(AnnouncementSignaturesReader<'r>),
     NodeAnnouncement(NodeAnnouncementReader<'r>),
     ChannelAnnouncement(ChannelAnnouncementReader<'r>),
     ChannelUpdate(ChannelUpdateReader<'r>),
@@ -10820,6 +10825,15 @@ impl ::core::fmt::Display for CFNMessageUnion {
             }
             CFNMessageUnion::ReestablishChannel(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, ReestablishChannel::NAME, item)
+            }
+            CFNMessageUnion::AnnouncementSignatures(ref item) => {
+                write!(
+                    f,
+                    "{}::{}({})",
+                    Self::NAME,
+                    AnnouncementSignatures::NAME,
+                    item
+                )
             }
             CFNMessageUnion::NodeAnnouncement(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, NodeAnnouncement::NAME, item)
@@ -10884,6 +10898,15 @@ impl<'r> ::core::fmt::Display for CFNMessageUnionReader<'r> {
             CFNMessageUnionReader::ReestablishChannel(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, ReestablishChannel::NAME, item)
             }
+            CFNMessageUnionReader::AnnouncementSignatures(ref item) => {
+                write!(
+                    f,
+                    "{}::{}({})",
+                    Self::NAME,
+                    AnnouncementSignatures::NAME,
+                    item
+                )
+            }
             CFNMessageUnionReader::NodeAnnouncement(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, NodeAnnouncement::NAME, item)
             }
@@ -10915,6 +10938,7 @@ impl CFNMessageUnion {
             CFNMessageUnion::Shutdown(ref item) => write!(f, "{}", item),
             CFNMessageUnion::ClosingSigned(ref item) => write!(f, "{}", item),
             CFNMessageUnion::ReestablishChannel(ref item) => write!(f, "{}", item),
+            CFNMessageUnion::AnnouncementSignatures(ref item) => write!(f, "{}", item),
             CFNMessageUnion::NodeAnnouncement(ref item) => write!(f, "{}", item),
             CFNMessageUnion::ChannelAnnouncement(ref item) => write!(f, "{}", item),
             CFNMessageUnion::ChannelUpdate(ref item) => write!(f, "{}", item),
@@ -10940,6 +10964,7 @@ impl<'r> CFNMessageUnionReader<'r> {
             CFNMessageUnionReader::Shutdown(ref item) => write!(f, "{}", item),
             CFNMessageUnionReader::ClosingSigned(ref item) => write!(f, "{}", item),
             CFNMessageUnionReader::ReestablishChannel(ref item) => write!(f, "{}", item),
+            CFNMessageUnionReader::AnnouncementSignatures(ref item) => write!(f, "{}", item),
             CFNMessageUnionReader::NodeAnnouncement(ref item) => write!(f, "{}", item),
             CFNMessageUnionReader::ChannelAnnouncement(ref item) => write!(f, "{}", item),
             CFNMessageUnionReader::ChannelUpdate(ref item) => write!(f, "{}", item),
@@ -11024,6 +11049,11 @@ impl ::core::convert::From<ClosingSigned> for CFNMessageUnion {
 impl ::core::convert::From<ReestablishChannel> for CFNMessageUnion {
     fn from(item: ReestablishChannel) -> Self {
         CFNMessageUnion::ReestablishChannel(item)
+    }
+}
+impl ::core::convert::From<AnnouncementSignatures> for CFNMessageUnion {
+    fn from(item: AnnouncementSignatures) -> Self {
+        CFNMessageUnion::AnnouncementSignatures(item)
     }
 }
 impl ::core::convert::From<NodeAnnouncement> for CFNMessageUnion {
@@ -11121,6 +11151,11 @@ impl<'r> ::core::convert::From<ReestablishChannelReader<'r>> for CFNMessageUnion
         CFNMessageUnionReader::ReestablishChannel(item)
     }
 }
+impl<'r> ::core::convert::From<AnnouncementSignaturesReader<'r>> for CFNMessageUnionReader<'r> {
+    fn from(item: AnnouncementSignaturesReader<'r>) -> Self {
+        CFNMessageUnionReader::AnnouncementSignatures(item)
+    }
+}
 impl<'r> ::core::convert::From<NodeAnnouncementReader<'r>> for CFNMessageUnionReader<'r> {
     fn from(item: NodeAnnouncementReader<'r>) -> Self {
         CFNMessageUnionReader::NodeAnnouncement(item)
@@ -11156,6 +11191,7 @@ impl CFNMessageUnion {
             CFNMessageUnion::Shutdown(item) => item.as_bytes(),
             CFNMessageUnion::ClosingSigned(item) => item.as_bytes(),
             CFNMessageUnion::ReestablishChannel(item) => item.as_bytes(),
+            CFNMessageUnion::AnnouncementSignatures(item) => item.as_bytes(),
             CFNMessageUnion::NodeAnnouncement(item) => item.as_bytes(),
             CFNMessageUnion::ChannelAnnouncement(item) => item.as_bytes(),
             CFNMessageUnion::ChannelUpdate(item) => item.as_bytes(),
@@ -11179,6 +11215,7 @@ impl CFNMessageUnion {
             CFNMessageUnion::Shutdown(item) => item.as_slice(),
             CFNMessageUnion::ClosingSigned(item) => item.as_slice(),
             CFNMessageUnion::ReestablishChannel(item) => item.as_slice(),
+            CFNMessageUnion::AnnouncementSignatures(item) => item.as_slice(),
             CFNMessageUnion::NodeAnnouncement(item) => item.as_slice(),
             CFNMessageUnion::ChannelAnnouncement(item) => item.as_slice(),
             CFNMessageUnion::ChannelUpdate(item) => item.as_slice(),
@@ -11202,9 +11239,10 @@ impl CFNMessageUnion {
             CFNMessageUnion::Shutdown(_) => 13,
             CFNMessageUnion::ClosingSigned(_) => 14,
             CFNMessageUnion::ReestablishChannel(_) => 15,
-            CFNMessageUnion::NodeAnnouncement(_) => 16,
-            CFNMessageUnion::ChannelAnnouncement(_) => 17,
-            CFNMessageUnion::ChannelUpdate(_) => 18,
+            CFNMessageUnion::AnnouncementSignatures(_) => 16,
+            CFNMessageUnion::NodeAnnouncement(_) => 17,
+            CFNMessageUnion::ChannelAnnouncement(_) => 18,
+            CFNMessageUnion::ChannelUpdate(_) => 19,
         }
     }
     pub fn item_name(&self) -> &str {
@@ -11225,6 +11263,7 @@ impl CFNMessageUnion {
             CFNMessageUnion::Shutdown(_) => "Shutdown",
             CFNMessageUnion::ClosingSigned(_) => "ClosingSigned",
             CFNMessageUnion::ReestablishChannel(_) => "ReestablishChannel",
+            CFNMessageUnion::AnnouncementSignatures(_) => "AnnouncementSignatures",
             CFNMessageUnion::NodeAnnouncement(_) => "NodeAnnouncement",
             CFNMessageUnion::ChannelAnnouncement(_) => "ChannelAnnouncement",
             CFNMessageUnion::ChannelUpdate(_) => "ChannelUpdate",
@@ -11248,6 +11287,7 @@ impl CFNMessageUnion {
             CFNMessageUnion::Shutdown(item) => item.as_reader().into(),
             CFNMessageUnion::ClosingSigned(item) => item.as_reader().into(),
             CFNMessageUnion::ReestablishChannel(item) => item.as_reader().into(),
+            CFNMessageUnion::AnnouncementSignatures(item) => item.as_reader().into(),
             CFNMessageUnion::NodeAnnouncement(item) => item.as_reader().into(),
             CFNMessageUnion::ChannelAnnouncement(item) => item.as_reader().into(),
             CFNMessageUnion::ChannelUpdate(item) => item.as_reader().into(),
@@ -11274,6 +11314,7 @@ impl<'r> CFNMessageUnionReader<'r> {
             CFNMessageUnionReader::Shutdown(item) => item.as_slice(),
             CFNMessageUnionReader::ClosingSigned(item) => item.as_slice(),
             CFNMessageUnionReader::ReestablishChannel(item) => item.as_slice(),
+            CFNMessageUnionReader::AnnouncementSignatures(item) => item.as_slice(),
             CFNMessageUnionReader::NodeAnnouncement(item) => item.as_slice(),
             CFNMessageUnionReader::ChannelAnnouncement(item) => item.as_slice(),
             CFNMessageUnionReader::ChannelUpdate(item) => item.as_slice(),
@@ -11297,9 +11338,10 @@ impl<'r> CFNMessageUnionReader<'r> {
             CFNMessageUnionReader::Shutdown(_) => 13,
             CFNMessageUnionReader::ClosingSigned(_) => 14,
             CFNMessageUnionReader::ReestablishChannel(_) => 15,
-            CFNMessageUnionReader::NodeAnnouncement(_) => 16,
-            CFNMessageUnionReader::ChannelAnnouncement(_) => 17,
-            CFNMessageUnionReader::ChannelUpdate(_) => 18,
+            CFNMessageUnionReader::AnnouncementSignatures(_) => 16,
+            CFNMessageUnionReader::NodeAnnouncement(_) => 17,
+            CFNMessageUnionReader::ChannelAnnouncement(_) => 18,
+            CFNMessageUnionReader::ChannelUpdate(_) => 19,
         }
     }
     pub fn item_name(&self) -> &str {
@@ -11320,6 +11362,7 @@ impl<'r> CFNMessageUnionReader<'r> {
             CFNMessageUnionReader::Shutdown(_) => "Shutdown",
             CFNMessageUnionReader::ClosingSigned(_) => "ClosingSigned",
             CFNMessageUnionReader::ReestablishChannel(_) => "ReestablishChannel",
+            CFNMessageUnionReader::AnnouncementSignatures(_) => "AnnouncementSignatures",
             CFNMessageUnionReader::NodeAnnouncement(_) => "NodeAnnouncement",
             CFNMessageUnionReader::ChannelAnnouncement(_) => "ChannelAnnouncement",
             CFNMessageUnionReader::ChannelUpdate(_) => "ChannelUpdate",
@@ -11403,6 +11446,11 @@ impl From<ClosingSigned> for CFNMessage {
 }
 impl From<ReestablishChannel> for CFNMessage {
     fn from(value: ReestablishChannel) -> Self {
+        Self::new_builder().set(value).build()
+    }
+}
+impl From<AnnouncementSignatures> for CFNMessage {
+    fn from(value: AnnouncementSignatures) -> Self {
         Self::new_builder().set(value).build()
     }
 }

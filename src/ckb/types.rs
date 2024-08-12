@@ -1156,6 +1156,43 @@ impl TryFrom<molecule_cfn::ReestablishChannel> for ReestablishChannel {
     }
 }
 
+// table AnnouncementSignatures {
+//     channel_id: Byte32,
+//     short_channel_id: Uint64,
+//     partial_signature: Byte32,
+// }
+
+#[derive(Debug, Clone)]
+pub struct AnnouncementSignatures {
+    pub channel_id: Hash256,
+    pub short_channel_id: u64,
+    pub partial_signature: Hash256,
+}
+
+impl From<AnnouncementSignatures> for molecule_cfn::AnnouncementSignatures {
+    fn from(announcement_signatures: AnnouncementSignatures) -> Self {
+        molecule_cfn::AnnouncementSignatures::new_builder()
+            .channel_id(announcement_signatures.channel_id.into())
+            .short_channel_id(announcement_signatures.short_channel_id.pack())
+            .partial_signature(announcement_signatures.partial_signature.into())
+            .build()
+    }
+}
+
+impl TryFrom<molecule_cfn::AnnouncementSignatures> for AnnouncementSignatures {
+    type Error = Error;
+
+    fn try_from(
+        announcement_signatures: molecule_cfn::AnnouncementSignatures,
+    ) -> Result<Self, Self::Error> {
+        Ok(AnnouncementSignatures {
+            channel_id: announcement_signatures.channel_id().into(),
+            short_channel_id: announcement_signatures.short_channel_id().unpack(),
+            partial_signature: announcement_signatures.partial_signature().into(),
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct NodeAnnouncement {
     // Signature to this message.
@@ -1341,6 +1378,7 @@ pub enum CFNMessage {
     RevokeAndAck(RevokeAndAck),
     RemoveTlc(RemoveTlc),
     ReestablishChannel(ReestablishChannel),
+    AnnouncementSignatures(AnnouncementSignatures),
     NodeAnnouncement(NodeAnnouncement),
     ChannelAnnouncement(ChannelAnnouncement),
     ChannelUpdate(ChannelUpdate),
@@ -1403,6 +1441,11 @@ impl From<CFNMessage> for molecule_cfn::CFNMessageUnion {
             }
             CFNMessage::ChannelUpdate(channel_update) => {
                 molecule_cfn::CFNMessageUnion::ChannelUpdate(channel_update.into())
+            }
+            CFNMessage::AnnouncementSignatures(announcement_signatures) => {
+                molecule_cfn::CFNMessageUnion::AnnouncementSignatures(
+                    announcement_signatures.into(),
+                )
             }
         }
     }
@@ -1477,6 +1520,9 @@ impl TryFrom<molecule_cfn::CFNMessage> for CFNMessage {
             }
             molecule_cfn::CFNMessageUnion::ChannelUpdate(channel_update) => {
                 CFNMessage::ChannelUpdate(channel_update.try_into()?)
+            }
+            molecule_cfn::CFNMessageUnion::AnnouncementSignatures(announcement_signatures) => {
+                CFNMessage::AnnouncementSignatures(announcement_signatures.try_into()?)
             }
         })
     }

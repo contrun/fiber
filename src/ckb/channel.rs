@@ -197,11 +197,16 @@ impl<S> ChannelActor<S> {
         message: CFNMessage,
     ) -> Result<(), ProcessingChannelError> {
         match message {
+            CFNMessage::OpenChannel(_) => {
+                panic!("OpenChannel message should be processed while prestarting")
+            }
             CFNMessage::NodeAnnouncement(_)
             | CFNMessage::ChannelAnnouncement(_)
-            | CFNMessage::ChannelUpdate(_)
-            | CFNMessage::OpenChannel(_) => {
-                panic!("OpenChannel message should be processed while prestarting")
+            | CFNMessage::ChannelUpdate(_) => {
+                todo!("handle peer message {:?}", message)
+            }
+            CFNMessage::AnnouncementSignatures(_) => {
+                todo!("handle peer message AnnouncementSignatures {:?}", message)
             }
             CFNMessage::AcceptChannel(accept_channel) => {
                 state.handle_accept_channel_message(accept_channel)?;

@@ -207,6 +207,7 @@ union CFNMessage {
     Shutdown,
     ClosingSigned,
     ReestablishChannel,
+    AnnouncementSignatures,
     NodeAnnouncement,
     ChannelAnnouncement,
     ChannelUpdate,
