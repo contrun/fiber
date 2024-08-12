@@ -310,11 +310,36 @@ where
                     }
                 }
             }
-
-            _ => state.send_message_to_channel_actor(
-                message.get_channel_id(),
-                ChannelActorMessage::PeerMessage(message),
-            ),
+            CFNMessage::NodeAnnouncement(_) => todo!("Process NodeAnnouncement messages"),
+            _ => {
+                let channel_id = match &message {
+                    CFNMessage::AcceptChannel(accept_channel) => accept_channel.channel_id,
+                    CFNMessage::CommitmentSigned(commitment_signed) => commitment_signed.channel_id,
+                    CFNMessage::TxSignatures(tx_signatures) => tx_signatures.channel_id,
+                    CFNMessage::ChannelReady(channel_ready) => channel_ready.channel_id,
+                    CFNMessage::TxUpdate(tx_update) => tx_update.channel_id,
+                    CFNMessage::TxComplete(tx_complete) => tx_complete.channel_id,
+                    CFNMessage::TxAbort(tx_abort) => tx_abort.channel_id,
+                    CFNMessage::TxInitRBF(tx_init_rbf) => tx_init_rbf.channel_id,
+                    CFNMessage::TxAckRBF(tx_ack_rbf) => tx_ack_rbf.channel_id,
+                    CFNMessage::Shutdown(shutdown) => shutdown.channel_id,
+                    CFNMessage::ClosingSigned(closing_signed) => closing_signed.channel_id,
+                    CFNMessage::AddTlc(add_tlc) => add_tlc.channel_id,
+                    CFNMessage::RevokeAndAck(revoke_and_ack) => revoke_and_ack.channel_id,
+                    CFNMessage::RemoveTlc(remove_tlc) => remove_tlc.channel_id,
+                    CFNMessage::ReestablishChannel(reestablish_channel) => {
+                        reestablish_channel.channel_id
+                    }
+                    _ => unreachable!(
+                        "Invalid message type (should have been processed above): {:?}",
+                        message
+                    ),
+                };
+                state.send_message_to_channel_actor(
+                    channel_id,
+                    ChannelActorMessage::PeerMessage(message),
+                );
+            }
         };
         Ok(())
     }

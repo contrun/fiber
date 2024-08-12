@@ -252,6 +252,19 @@ impl From<MByte32> for Hash256 {
     }
 }
 
+fn u8_32_as_byte_32(value: &[u8; 32]) -> MByte32 {
+    MByte32::new_builder()
+        .set(
+            value
+                .iter()
+                .map(|v| Byte::new(*v))
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+        )
+        .build()
+}
+
 impl ::core::fmt::LowerHex for Hash256 {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         if f.alternate() {
@@ -1144,6 +1157,173 @@ impl TryFrom<molecule_cfn::ReestablishChannel> for ReestablishChannel {
 }
 
 #[derive(Debug, Clone)]
+pub struct NodeAnnouncement {
+    // Signature to this message.
+    pub signature: Signature,
+    // Tentatively using 64 bits for features. May change the type later while developing.
+    // rust-lightning uses a Vec<u8> here.
+    pub features: u64,
+    // Timestamp to the node announcement update, later update should have larger timestamp.
+    pub timestamp: u64,
+    pub node_id: Pubkey,
+    // Must be a valid utf-8 string of length maximal length 32 bytes.
+    // If the length is less than 32 bytes, it will be padded with 0.
+    // If the length is more than 32 bytes, it should be truncated.
+    pub alias: String,
+    // All the reachable addresses.
+    pub address: Vec<Vec<u8>>,
+}
+
+impl From<NodeAnnouncement> for molecule_cfn::NodeAnnouncement {
+    fn from(node_announcement: NodeAnnouncement) -> Self {
+        let utf_8_alias = node_announcement.alias.as_bytes();
+        let mut alias = [0u8; 32];
+        let len = std::cmp::min(utf_8_alias.len(), alias.len());
+        alias.copy_from_slice(&utf_8_alias[..len]);
+
+        molecule_cfn::NodeAnnouncement::new_builder()
+            .signature(node_announcement.signature.into())
+            .features(node_announcement.features.pack())
+            .timestamp(node_announcement.timestamp.pack())
+            .node_id(node_announcement.node_id.into())
+            .alias(u8_32_as_byte_32(&alias))
+            .address(
+                BytesVec::new_builder()
+                    .set(
+                        node_announcement
+                            .address
+                            .into_iter()
+                            .map(|address| address.pack())
+                            .collect(),
+                    )
+                    .build(),
+            )
+            .build()
+    }
+}
+
+impl TryFrom<molecule_cfn::NodeAnnouncement> for NodeAnnouncement {
+    type Error = Error;
+
+    fn try_from(node_announcement: molecule_cfn::NodeAnnouncement) -> Result<Self, Self::Error> {
+        Ok(NodeAnnouncement {
+            signature: node_announcement.signature().try_into()?,
+            features: node_announcement.features().unpack(),
+            timestamp: node_announcement.timestamp().unpack(),
+            node_id: node_announcement.node_id().try_into()?,
+            alias: String::from_utf8(node_announcement.alias().as_slice().to_vec())
+                .map_err(|e| Error::AnyHow(e.into()))?,
+            address: node_announcement
+                .address()
+                .into_iter()
+                .map(|address| address.unpack())
+                .collect(),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ChannelAnnouncement {
+    pub node_signature_1: Signature,
+    pub node_signature_2: Signature,
+    // Signature signed by the funding transaction output public key.
+    pub ckb_signature: Signature,
+    // Tentatively using 64 bits for features. May change the type later while developing.
+    // rust-lightning uses a Vec<u8> here.
+    pub features: u64,
+    pub chain_hash: Hash256,
+    pub short_channel_id: u64,
+    pub node_1_id: Pubkey,
+    pub node_2_id: Pubkey,
+    // The aggregated public key of the funding transaction output.
+    pub ckb_key: Pubkey,
+}
+
+impl From<ChannelAnnouncement> for molecule_cfn::ChannelAnnouncement {
+    fn from(channel_announcement: ChannelAnnouncement) -> Self {
+        molecule_cfn::ChannelAnnouncement::new_builder()
+            .node_signature_1(channel_announcement.node_signature_1.into())
+            .node_signature_2(channel_announcement.node_signature_2.into())
+            .ckb_signature(channel_announcement.ckb_signature.into())
+            .features(channel_announcement.features.pack())
+            .chain_hash(channel_announcement.chain_hash.into())
+            .short_channel_id(channel_announcement.short_channel_id.pack())
+            .node_1_id(channel_announcement.node_1_id.into())
+            .node_2_id(channel_announcement.node_2_id.into())
+            .ckb_key(channel_announcement.ckb_key.into())
+            .build()
+    }
+}
+
+impl TryFrom<molecule_cfn::ChannelAnnouncement> for ChannelAnnouncement {
+    type Error = Error;
+
+    fn try_from(
+        channel_announcement: molecule_cfn::ChannelAnnouncement,
+    ) -> Result<Self, Self::Error> {
+        Ok(ChannelAnnouncement {
+            node_signature_1: channel_announcement.node_signature_1().try_into()?,
+            node_signature_2: channel_announcement.node_signature_2().try_into()?,
+            ckb_signature: channel_announcement.ckb_signature().try_into()?,
+            features: channel_announcement.features().unpack(),
+            chain_hash: channel_announcement.chain_hash().into(),
+            short_channel_id: channel_announcement.short_channel_id().unpack(),
+            node_1_id: channel_announcement.node_1_id().try_into()?,
+            node_2_id: channel_announcement.node_2_id().try_into()?,
+            ckb_key: channel_announcement.ckb_key().try_into()?,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ChannelUpdate {
+    // Signature of the node that wants to update the channel information.
+    pub signature: Signature,
+    pub chain_hash: Hash256,
+    pub short_channel_id: u64,
+    pub timestamp: u64,
+    pub message_flags: u32,
+    pub channel_flags: u32,
+    pub cltv_expiry_delta: u64,
+    pub htlc_minimum_value: u128,
+    pub fee_value: u128,
+}
+
+impl From<ChannelUpdate> for molecule_cfn::ChannelUpdate {
+    fn from(channel_update: ChannelUpdate) -> Self {
+        molecule_cfn::ChannelUpdate::new_builder()
+            .signature(channel_update.signature.into())
+            .chain_hash(channel_update.chain_hash.into())
+            .short_channel_id(channel_update.short_channel_id.pack())
+            .timestamp(channel_update.timestamp.pack())
+            .message_flags(channel_update.message_flags.pack())
+            .channel_flags(channel_update.channel_flags.pack())
+            .cltv_expiry_delta(channel_update.cltv_expiry_delta.pack())
+            .htlc_minimum_value(channel_update.htlc_minimum_value.pack())
+            .fee_value(channel_update.fee_value.pack())
+            .build()
+    }
+}
+
+impl TryFrom<molecule_cfn::ChannelUpdate> for ChannelUpdate {
+    type Error = Error;
+
+    fn try_from(channel_update: molecule_cfn::ChannelUpdate) -> Result<Self, Self::Error> {
+        Ok(ChannelUpdate {
+            signature: channel_update.signature().try_into()?,
+            chain_hash: channel_update.chain_hash().into(),
+            short_channel_id: channel_update.short_channel_id().unpack(),
+            timestamp: channel_update.timestamp().unpack(),
+            message_flags: channel_update.message_flags().unpack(),
+            channel_flags: channel_update.channel_flags().unpack(),
+            cltv_expiry_delta: channel_update.cltv_expiry_delta().unpack(),
+            htlc_minimum_value: channel_update.htlc_minimum_value().unpack(),
+            fee_value: channel_update.fee_value().unpack(),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum CFNMessage {
     OpenChannel(OpenChannel),
     AcceptChannel(AcceptChannel),
@@ -1161,29 +1341,9 @@ pub enum CFNMessage {
     RevokeAndAck(RevokeAndAck),
     RemoveTlc(RemoveTlc),
     ReestablishChannel(ReestablishChannel),
-}
-
-impl CFNMessage {
-    pub fn get_channel_id(&self) -> Hash256 {
-        match &self {
-            CFNMessage::OpenChannel(open_channel) => open_channel.channel_id,
-            CFNMessage::AcceptChannel(accept_channel) => accept_channel.channel_id,
-            CFNMessage::CommitmentSigned(commitment_signed) => commitment_signed.channel_id,
-            CFNMessage::TxSignatures(tx_signatures) => tx_signatures.channel_id,
-            CFNMessage::ChannelReady(channel_ready) => channel_ready.channel_id,
-            CFNMessage::TxUpdate(tx_update) => tx_update.channel_id,
-            CFNMessage::TxComplete(tx_complete) => tx_complete.channel_id,
-            CFNMessage::TxAbort(tx_abort) => tx_abort.channel_id,
-            CFNMessage::TxInitRBF(tx_init_rbf) => tx_init_rbf.channel_id,
-            CFNMessage::TxAckRBF(tx_ack_rbf) => tx_ack_rbf.channel_id,
-            CFNMessage::Shutdown(shutdown) => shutdown.channel_id,
-            CFNMessage::ClosingSigned(closing_signed) => closing_signed.channel_id,
-            CFNMessage::AddTlc(add_tlc) => add_tlc.channel_id,
-            CFNMessage::RevokeAndAck(revoke_and_ack) => revoke_and_ack.channel_id,
-            CFNMessage::RemoveTlc(remove_tlc) => remove_tlc.channel_id,
-            CFNMessage::ReestablishChannel(reestablish_channel) => reestablish_channel.channel_id,
-        }
-    }
+    NodeAnnouncement(NodeAnnouncement),
+    ChannelAnnouncement(ChannelAnnouncement),
+    ChannelUpdate(ChannelUpdate),
 }
 
 impl From<CFNMessage> for molecule_cfn::CFNMessageUnion {
@@ -1234,6 +1394,15 @@ impl From<CFNMessage> for molecule_cfn::CFNMessageUnion {
             }
             CFNMessage::ReestablishChannel(reestablish_channel) => {
                 molecule_cfn::CFNMessageUnion::ReestablishChannel(reestablish_channel.into())
+            }
+            CFNMessage::NodeAnnouncement(node_annoucement) => {
+                molecule_cfn::CFNMessageUnion::NodeAnnouncement(node_annoucement.into())
+            }
+            CFNMessage::ChannelAnnouncement(channel_announcement) => {
+                molecule_cfn::CFNMessageUnion::ChannelAnnouncement(channel_announcement.into())
+            }
+            CFNMessage::ChannelUpdate(channel_update) => {
+                molecule_cfn::CFNMessageUnion::ChannelUpdate(channel_update.into())
             }
         }
     }
@@ -1300,9 +1469,15 @@ impl TryFrom<molecule_cfn::CFNMessage> for CFNMessage {
             molecule_cfn::CFNMessageUnion::ReestablishChannel(reestablish_channel) => {
                 CFNMessage::ReestablishChannel(reestablish_channel.try_into()?)
             }
-            molecule_cfn::CFNMessageUnion::NodeAnnouncement(_) => todo!(),
-            molecule_cfn::CFNMessageUnion::ChannelAnnouncement(_) => todo!(),
-            molecule_cfn::CFNMessageUnion::ChannelUpdate(_) => todo!(),
+            molecule_cfn::CFNMessageUnion::NodeAnnouncement(node_announcement) => {
+                CFNMessage::NodeAnnouncement(node_announcement.try_into()?)
+            }
+            molecule_cfn::CFNMessageUnion::ChannelAnnouncement(channel_announcement) => {
+                CFNMessage::ChannelAnnouncement(channel_announcement.try_into()?)
+            }
+            molecule_cfn::CFNMessageUnion::ChannelUpdate(channel_update) => {
+                CFNMessage::ChannelUpdate(channel_update.try_into()?)
+            }
         })
     }
 }
