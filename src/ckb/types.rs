@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use super::config::AnnouncedNodeName;
 use super::gen::cfn::{self as molecule_cfn, PubNonce as Byte66};
 use super::hash_algorithm::{HashAlgorithm, UnknownHashAlgorithmError};
 use super::serde_utils::SliceHex;
@@ -1206,24 +1207,19 @@ pub struct NodeAnnouncement {
     // Must be a valid utf-8 string of length maximal length 32 bytes.
     // If the length is less than 32 bytes, it will be padded with 0.
     // If the length is more than 32 bytes, it should be truncated.
-    pub alias: String,
+    pub alias: AnnouncedNodeName,
     // All the reachable addresses.
     pub address: Vec<Vec<u8>>,
 }
 
 impl From<NodeAnnouncement> for molecule_cfn::NodeAnnouncement {
     fn from(node_announcement: NodeAnnouncement) -> Self {
-        let utf_8_alias = node_announcement.alias.as_bytes();
-        let mut alias = [0u8; 32];
-        let len = std::cmp::min(utf_8_alias.len(), alias.len());
-        alias.copy_from_slice(&utf_8_alias[..len]);
-
         molecule_cfn::NodeAnnouncement::new_builder()
             .signature(node_announcement.signature.into())
             .features(node_announcement.features.pack())
             .timestamp(node_announcement.timestamp.pack())
             .node_id(node_announcement.node_id.into())
-            .alias(u8_32_as_byte_32(&alias))
+            .alias(u8_32_as_byte_32(&node_announcement.alias.0))
             .address(
                 BytesVec::new_builder()
                     .set(
@@ -1248,8 +1244,8 @@ impl TryFrom<molecule_cfn::NodeAnnouncement> for NodeAnnouncement {
             features: node_announcement.features().unpack(),
             timestamp: node_announcement.timestamp().unpack(),
             node_id: node_announcement.node_id().try_into()?,
-            alias: String::from_utf8(node_announcement.alias().as_slice().to_vec())
-                .map_err(|e| Error::AnyHow(e.into()))?,
+            alias: AnnouncedNodeName::from_slice(node_announcement.alias().as_slice())
+                .map_err(|e| Error::AnyHow(anyhow!("Invalid alias: {}", e)))?,
             address: node_announcement
                 .address()
                 .into_iter()
