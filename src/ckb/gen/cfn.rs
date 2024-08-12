@@ -7043,6 +7043,7 @@ impl ::core::fmt::Display for AddTlc {
         write!(f, ", {}: {}", "payment_hash", self.payment_hash())?;
         write!(f, ", {}: {}", "expiry", self.expiry())?;
         write!(f, ", {}: {}", "hash_algorithm", self.hash_algorithm())?;
+        write!(f, ", {}: {}", "onion_packet", self.onion_packet())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
             write!(f, ", .. ({} fields)", extra_count)?;
@@ -7057,14 +7058,14 @@ impl ::core::default::Default for AddTlc {
     }
 }
 impl AddTlc {
-    const DEFAULT_VALUE: [u8; 125] = [
-        125, 0, 0, 0, 28, 0, 0, 0, 60, 0, 0, 0, 68, 0, 0, 0, 84, 0, 0, 0, 116, 0, 0, 0, 124, 0, 0,
+    const DEFAULT_VALUE: [u8; 133] = [
+        133, 0, 0, 0, 32, 0, 0, 0, 64, 0, 0, 0, 72, 0, 0, 0, 88, 0, 0, 0, 120, 0, 0, 0, 128, 0, 0,
+        0, 129, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
-    pub const FIELD_COUNT: usize = 6;
+    pub const FIELD_COUNT: usize = 7;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -7114,11 +7115,17 @@ impl AddTlc {
     pub fn hash_algorithm(&self) -> Byte {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[24..]) as usize;
+        let end = molecule::unpack_number(&slice[28..]) as usize;
+        Byte::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn onion_packet(&self) -> Bytes {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[28..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[28..]) as usize;
-            Byte::new_unchecked(self.0.slice(start..end))
+            let end = molecule::unpack_number(&slice[32..]) as usize;
+            Bytes::new_unchecked(self.0.slice(start..end))
         } else {
-            Byte::new_unchecked(self.0.slice(start..))
+            Bytes::new_unchecked(self.0.slice(start..))
         }
     }
     pub fn as_reader<'r>(&'r self) -> AddTlcReader<'r> {
@@ -7154,6 +7161,7 @@ impl molecule::prelude::Entity for AddTlc {
             .payment_hash(self.payment_hash())
             .expiry(self.expiry())
             .hash_algorithm(self.hash_algorithm())
+            .onion_packet(self.onion_packet())
     }
 }
 #[derive(Clone, Copy)]
@@ -7181,6 +7189,7 @@ impl<'r> ::core::fmt::Display for AddTlcReader<'r> {
         write!(f, ", {}: {}", "payment_hash", self.payment_hash())?;
         write!(f, ", {}: {}", "expiry", self.expiry())?;
         write!(f, ", {}: {}", "hash_algorithm", self.hash_algorithm())?;
+        write!(f, ", {}: {}", "onion_packet", self.onion_packet())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
             write!(f, ", .. ({} fields)", extra_count)?;
@@ -7189,7 +7198,7 @@ impl<'r> ::core::fmt::Display for AddTlcReader<'r> {
     }
 }
 impl<'r> AddTlcReader<'r> {
-    pub const FIELD_COUNT: usize = 6;
+    pub const FIELD_COUNT: usize = 7;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -7239,11 +7248,17 @@ impl<'r> AddTlcReader<'r> {
     pub fn hash_algorithm(&self) -> ByteReader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[24..]) as usize;
+        let end = molecule::unpack_number(&slice[28..]) as usize;
+        ByteReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn onion_packet(&self) -> BytesReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[28..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[28..]) as usize;
-            ByteReader::new_unchecked(&self.as_slice()[start..end])
+            let end = molecule::unpack_number(&slice[32..]) as usize;
+            BytesReader::new_unchecked(&self.as_slice()[start..end])
         } else {
-            ByteReader::new_unchecked(&self.as_slice()[start..])
+            BytesReader::new_unchecked(&self.as_slice()[start..])
         }
     }
 }
@@ -7299,6 +7314,7 @@ impl<'r> molecule::prelude::Reader<'r> for AddTlcReader<'r> {
         Byte32Reader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
         Uint64Reader::verify(&slice[offsets[4]..offsets[5]], compatible)?;
         ByteReader::verify(&slice[offsets[5]..offsets[6]], compatible)?;
+        BytesReader::verify(&slice[offsets[6]..offsets[7]], compatible)?;
         Ok(())
     }
 }
@@ -7310,9 +7326,10 @@ pub struct AddTlcBuilder {
     pub(crate) payment_hash: Byte32,
     pub(crate) expiry: Uint64,
     pub(crate) hash_algorithm: Byte,
+    pub(crate) onion_packet: Bytes,
 }
 impl AddTlcBuilder {
-    pub const FIELD_COUNT: usize = 6;
+    pub const FIELD_COUNT: usize = 7;
     pub fn channel_id(mut self, v: Byte32) -> Self {
         self.channel_id = v;
         self
@@ -7337,6 +7354,10 @@ impl AddTlcBuilder {
         self.hash_algorithm = v;
         self
     }
+    pub fn onion_packet(mut self, v: Bytes) -> Self {
+        self.onion_packet = v;
+        self
+    }
 }
 impl molecule::prelude::Builder for AddTlcBuilder {
     type Entity = AddTlc;
@@ -7349,6 +7370,7 @@ impl molecule::prelude::Builder for AddTlcBuilder {
             + self.payment_hash.as_slice().len()
             + self.expiry.as_slice().len()
             + self.hash_algorithm.as_slice().len()
+            + self.onion_packet.as_slice().len()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
         let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
@@ -7365,6 +7387,8 @@ impl molecule::prelude::Builder for AddTlcBuilder {
         total_size += self.expiry.as_slice().len();
         offsets.push(total_size);
         total_size += self.hash_algorithm.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.onion_packet.as_slice().len();
         writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
         for offset in offsets.into_iter() {
             writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
@@ -7375,6 +7399,7 @@ impl molecule::prelude::Builder for AddTlcBuilder {
         writer.write_all(self.payment_hash.as_slice())?;
         writer.write_all(self.expiry.as_slice())?;
         writer.write_all(self.hash_algorithm.as_slice())?;
+        writer.write_all(self.onion_packet.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -8901,6 +8926,1565 @@ impl molecule::prelude::Builder for ReestablishChannelBuilder {
     }
 }
 #[derive(Clone)]
+pub struct AnnouncementSignatures(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for AnnouncementSignatures {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl ::core::fmt::Debug for AnnouncementSignatures {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl ::core::fmt::Display for AnnouncementSignatures {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "channel_id", self.channel_id())?;
+        write!(f, ", {}: {}", "short_channel_id", self.short_channel_id())?;
+        write!(f, ", {}: {}", "partial_signature", self.partial_signature())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl ::core::default::Default for AnnouncementSignatures {
+    fn default() -> Self {
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        AnnouncementSignatures::new_unchecked(v)
+    }
+}
+impl AnnouncementSignatures {
+    const DEFAULT_VALUE: [u8; 88] = [
+        88, 0, 0, 0, 16, 0, 0, 0, 48, 0, 0, 0, 56, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+    pub const FIELD_COUNT: usize = 3;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn channel_id(&self) -> Byte32 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[4..]) as usize;
+        let end = molecule::unpack_number(&slice[8..]) as usize;
+        Byte32::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn short_channel_id(&self) -> Uint64 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[8..]) as usize;
+        let end = molecule::unpack_number(&slice[12..]) as usize;
+        Uint64::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn partial_signature(&self) -> Byte32 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[12..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&slice[16..]) as usize;
+            Byte32::new_unchecked(self.0.slice(start..end))
+        } else {
+            Byte32::new_unchecked(self.0.slice(start..))
+        }
+    }
+    pub fn as_reader<'r>(&'r self) -> AnnouncementSignaturesReader<'r> {
+        AnnouncementSignaturesReader::new_unchecked(self.as_slice())
+    }
+}
+impl molecule::prelude::Entity for AnnouncementSignatures {
+    type Builder = AnnouncementSignaturesBuilder;
+    const NAME: &'static str = "AnnouncementSignatures";
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        AnnouncementSignatures(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        AnnouncementSignaturesReader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        AnnouncementSignaturesReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::core::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder()
+            .channel_id(self.channel_id())
+            .short_channel_id(self.short_channel_id())
+            .partial_signature(self.partial_signature())
+    }
+}
+#[derive(Clone, Copy)]
+pub struct AnnouncementSignaturesReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for AnnouncementSignaturesReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl<'r> ::core::fmt::Debug for AnnouncementSignaturesReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl<'r> ::core::fmt::Display for AnnouncementSignaturesReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "channel_id", self.channel_id())?;
+        write!(f, ", {}: {}", "short_channel_id", self.short_channel_id())?;
+        write!(f, ", {}: {}", "partial_signature", self.partial_signature())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl<'r> AnnouncementSignaturesReader<'r> {
+    pub const FIELD_COUNT: usize = 3;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn channel_id(&self) -> Byte32Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[4..]) as usize;
+        let end = molecule::unpack_number(&slice[8..]) as usize;
+        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn short_channel_id(&self) -> Uint64Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[8..]) as usize;
+        let end = molecule::unpack_number(&slice[12..]) as usize;
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn partial_signature(&self) -> Byte32Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[12..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&slice[16..]) as usize;
+            Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+        } else {
+            Byte32Reader::new_unchecked(&self.as_slice()[start..])
+        }
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for AnnouncementSignaturesReader<'r> {
+    type Entity = AnnouncementSignatures;
+    const NAME: &'static str = "AnnouncementSignaturesReader";
+    fn to_entity(&self) -> Self::Entity {
+        Self::Entity::new_unchecked(self.as_slice().to_owned().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        AnnouncementSignaturesReader(slice)
+    }
+    fn as_slice(&self) -> &'r [u8] {
+        self.0
+    }
+    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
+        use molecule::verification_error as ve;
+        let slice_len = slice.len();
+        if slice_len < molecule::NUMBER_SIZE {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE, slice_len);
+        }
+        let total_size = molecule::unpack_number(slice) as usize;
+        if slice_len != total_size {
+            return ve!(Self, TotalSizeNotMatch, total_size, slice_len);
+        }
+        if slice_len < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
+        }
+        let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
+        if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        if slice_len < offset_first {
+            return ve!(Self, HeaderIsBroken, offset_first, slice_len);
+        }
+        let field_count = offset_first / molecule::NUMBER_SIZE - 1;
+        if field_count < Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        } else if !compatible && field_count > Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        };
+        let mut offsets: Vec<usize> = slice[molecule::NUMBER_SIZE..offset_first]
+            .chunks_exact(molecule::NUMBER_SIZE)
+            .map(|x| molecule::unpack_number(x) as usize)
+            .collect();
+        offsets.push(total_size);
+        if offsets.windows(2).any(|i| i[0] > i[1]) {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        Byte32Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
+        Uint64Reader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
+        Byte32Reader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        Ok(())
+    }
+}
+#[derive(Clone, Debug, Default)]
+pub struct AnnouncementSignaturesBuilder {
+    pub(crate) channel_id: Byte32,
+    pub(crate) short_channel_id: Uint64,
+    pub(crate) partial_signature: Byte32,
+}
+impl AnnouncementSignaturesBuilder {
+    pub const FIELD_COUNT: usize = 3;
+    pub fn channel_id(mut self, v: Byte32) -> Self {
+        self.channel_id = v;
+        self
+    }
+    pub fn short_channel_id(mut self, v: Uint64) -> Self {
+        self.short_channel_id = v;
+        self
+    }
+    pub fn partial_signature(mut self, v: Byte32) -> Self {
+        self.partial_signature = v;
+        self
+    }
+}
+impl molecule::prelude::Builder for AnnouncementSignaturesBuilder {
+    type Entity = AnnouncementSignatures;
+    const NAME: &'static str = "AnnouncementSignaturesBuilder";
+    fn expected_length(&self) -> usize {
+        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
+            + self.channel_id.as_slice().len()
+            + self.short_channel_id.as_slice().len()
+            + self.partial_signature.as_slice().len()
+    }
+    fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
+        let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
+        let mut offsets = Vec::with_capacity(Self::FIELD_COUNT);
+        offsets.push(total_size);
+        total_size += self.channel_id.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.short_channel_id.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.partial_signature.as_slice().len();
+        writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
+        for offset in offsets.into_iter() {
+            writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
+        }
+        writer.write_all(self.channel_id.as_slice())?;
+        writer.write_all(self.short_channel_id.as_slice())?;
+        writer.write_all(self.partial_signature.as_slice())?;
+        Ok(())
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner)
+            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        AnnouncementSignatures::new_unchecked(inner.into())
+    }
+}
+#[derive(Clone)]
+pub struct NodeAnnouncement(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for NodeAnnouncement {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl ::core::fmt::Debug for NodeAnnouncement {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl ::core::fmt::Display for NodeAnnouncement {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "signature", self.signature())?;
+        write!(f, ", {}: {}", "features", self.features())?;
+        write!(f, ", {}: {}", "timestamp", self.timestamp())?;
+        write!(f, ", {}: {}", "node_id", self.node_id())?;
+        write!(f, ", {}: {}", "alias", self.alias())?;
+        write!(f, ", {}: {}", "address", self.address())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl ::core::default::Default for NodeAnnouncement {
+    fn default() -> Self {
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        NodeAnnouncement::new_unchecked(v)
+    }
+}
+impl NodeAnnouncement {
+    const DEFAULT_VALUE: [u8; 177] = [
+        177, 0, 0, 0, 28, 0, 0, 0, 92, 0, 0, 0, 100, 0, 0, 0, 108, 0, 0, 0, 141, 0, 0, 0, 173, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0,
+        0,
+    ];
+    pub const FIELD_COUNT: usize = 6;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn signature(&self) -> Signature {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[4..]) as usize;
+        let end = molecule::unpack_number(&slice[8..]) as usize;
+        Signature::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn features(&self) -> Uint64 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[8..]) as usize;
+        let end = molecule::unpack_number(&slice[12..]) as usize;
+        Uint64::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn timestamp(&self) -> Uint64 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        Uint64::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn node_id(&self) -> Pubkey {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
+        let end = molecule::unpack_number(&slice[20..]) as usize;
+        Pubkey::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn alias(&self) -> Byte32 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[20..]) as usize;
+        let end = molecule::unpack_number(&slice[24..]) as usize;
+        Byte32::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn address(&self) -> BytesVec {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[24..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&slice[28..]) as usize;
+            BytesVec::new_unchecked(self.0.slice(start..end))
+        } else {
+            BytesVec::new_unchecked(self.0.slice(start..))
+        }
+    }
+    pub fn as_reader<'r>(&'r self) -> NodeAnnouncementReader<'r> {
+        NodeAnnouncementReader::new_unchecked(self.as_slice())
+    }
+}
+impl molecule::prelude::Entity for NodeAnnouncement {
+    type Builder = NodeAnnouncementBuilder;
+    const NAME: &'static str = "NodeAnnouncement";
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        NodeAnnouncement(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        NodeAnnouncementReader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        NodeAnnouncementReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::core::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder()
+            .signature(self.signature())
+            .features(self.features())
+            .timestamp(self.timestamp())
+            .node_id(self.node_id())
+            .alias(self.alias())
+            .address(self.address())
+    }
+}
+#[derive(Clone, Copy)]
+pub struct NodeAnnouncementReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for NodeAnnouncementReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl<'r> ::core::fmt::Debug for NodeAnnouncementReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl<'r> ::core::fmt::Display for NodeAnnouncementReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "signature", self.signature())?;
+        write!(f, ", {}: {}", "features", self.features())?;
+        write!(f, ", {}: {}", "timestamp", self.timestamp())?;
+        write!(f, ", {}: {}", "node_id", self.node_id())?;
+        write!(f, ", {}: {}", "alias", self.alias())?;
+        write!(f, ", {}: {}", "address", self.address())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl<'r> NodeAnnouncementReader<'r> {
+    pub const FIELD_COUNT: usize = 6;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn signature(&self) -> SignatureReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[4..]) as usize;
+        let end = molecule::unpack_number(&slice[8..]) as usize;
+        SignatureReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn features(&self) -> Uint64Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[8..]) as usize;
+        let end = molecule::unpack_number(&slice[12..]) as usize;
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn timestamp(&self) -> Uint64Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn node_id(&self) -> PubkeyReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
+        let end = molecule::unpack_number(&slice[20..]) as usize;
+        PubkeyReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn alias(&self) -> Byte32Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[20..]) as usize;
+        let end = molecule::unpack_number(&slice[24..]) as usize;
+        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn address(&self) -> BytesVecReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[24..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&slice[28..]) as usize;
+            BytesVecReader::new_unchecked(&self.as_slice()[start..end])
+        } else {
+            BytesVecReader::new_unchecked(&self.as_slice()[start..])
+        }
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for NodeAnnouncementReader<'r> {
+    type Entity = NodeAnnouncement;
+    const NAME: &'static str = "NodeAnnouncementReader";
+    fn to_entity(&self) -> Self::Entity {
+        Self::Entity::new_unchecked(self.as_slice().to_owned().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        NodeAnnouncementReader(slice)
+    }
+    fn as_slice(&self) -> &'r [u8] {
+        self.0
+    }
+    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
+        use molecule::verification_error as ve;
+        let slice_len = slice.len();
+        if slice_len < molecule::NUMBER_SIZE {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE, slice_len);
+        }
+        let total_size = molecule::unpack_number(slice) as usize;
+        if slice_len != total_size {
+            return ve!(Self, TotalSizeNotMatch, total_size, slice_len);
+        }
+        if slice_len < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
+        }
+        let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
+        if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        if slice_len < offset_first {
+            return ve!(Self, HeaderIsBroken, offset_first, slice_len);
+        }
+        let field_count = offset_first / molecule::NUMBER_SIZE - 1;
+        if field_count < Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        } else if !compatible && field_count > Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        };
+        let mut offsets: Vec<usize> = slice[molecule::NUMBER_SIZE..offset_first]
+            .chunks_exact(molecule::NUMBER_SIZE)
+            .map(|x| molecule::unpack_number(x) as usize)
+            .collect();
+        offsets.push(total_size);
+        if offsets.windows(2).any(|i| i[0] > i[1]) {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        SignatureReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
+        Uint64Reader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
+        Uint64Reader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        PubkeyReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
+        Byte32Reader::verify(&slice[offsets[4]..offsets[5]], compatible)?;
+        BytesVecReader::verify(&slice[offsets[5]..offsets[6]], compatible)?;
+        Ok(())
+    }
+}
+#[derive(Clone, Debug, Default)]
+pub struct NodeAnnouncementBuilder {
+    pub(crate) signature: Signature,
+    pub(crate) features: Uint64,
+    pub(crate) timestamp: Uint64,
+    pub(crate) node_id: Pubkey,
+    pub(crate) alias: Byte32,
+    pub(crate) address: BytesVec,
+}
+impl NodeAnnouncementBuilder {
+    pub const FIELD_COUNT: usize = 6;
+    pub fn signature(mut self, v: Signature) -> Self {
+        self.signature = v;
+        self
+    }
+    pub fn features(mut self, v: Uint64) -> Self {
+        self.features = v;
+        self
+    }
+    pub fn timestamp(mut self, v: Uint64) -> Self {
+        self.timestamp = v;
+        self
+    }
+    pub fn node_id(mut self, v: Pubkey) -> Self {
+        self.node_id = v;
+        self
+    }
+    pub fn alias(mut self, v: Byte32) -> Self {
+        self.alias = v;
+        self
+    }
+    pub fn address(mut self, v: BytesVec) -> Self {
+        self.address = v;
+        self
+    }
+}
+impl molecule::prelude::Builder for NodeAnnouncementBuilder {
+    type Entity = NodeAnnouncement;
+    const NAME: &'static str = "NodeAnnouncementBuilder";
+    fn expected_length(&self) -> usize {
+        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
+            + self.signature.as_slice().len()
+            + self.features.as_slice().len()
+            + self.timestamp.as_slice().len()
+            + self.node_id.as_slice().len()
+            + self.alias.as_slice().len()
+            + self.address.as_slice().len()
+    }
+    fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
+        let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
+        let mut offsets = Vec::with_capacity(Self::FIELD_COUNT);
+        offsets.push(total_size);
+        total_size += self.signature.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.features.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.timestamp.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.node_id.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.alias.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.address.as_slice().len();
+        writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
+        for offset in offsets.into_iter() {
+            writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
+        }
+        writer.write_all(self.signature.as_slice())?;
+        writer.write_all(self.features.as_slice())?;
+        writer.write_all(self.timestamp.as_slice())?;
+        writer.write_all(self.node_id.as_slice())?;
+        writer.write_all(self.alias.as_slice())?;
+        writer.write_all(self.address.as_slice())?;
+        Ok(())
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner)
+            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        NodeAnnouncement::new_unchecked(inner.into())
+    }
+}
+#[derive(Clone)]
+pub struct ChannelAnnouncement(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for ChannelAnnouncement {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl ::core::fmt::Debug for ChannelAnnouncement {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl ::core::fmt::Display for ChannelAnnouncement {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "node_signature_1", self.node_signature_1())?;
+        write!(f, ", {}: {}", "node_signature_2", self.node_signature_2())?;
+        write!(f, ", {}: {}", "ckb_signature", self.ckb_signature())?;
+        write!(f, ", {}: {}", "features", self.features())?;
+        write!(f, ", {}: {}", "chain_hash", self.chain_hash())?;
+        write!(f, ", {}: {}", "short_channel_id", self.short_channel_id())?;
+        write!(f, ", {}: {}", "node_1_id", self.node_1_id())?;
+        write!(f, ", {}: {}", "node_2_id", self.node_2_id())?;
+        write!(f, ", {}: {}", "ckb_key", self.ckb_key())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl ::core::default::Default for ChannelAnnouncement {
+    fn default() -> Self {
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        ChannelAnnouncement::new_unchecked(v)
+    }
+}
+impl ChannelAnnouncement {
+    const DEFAULT_VALUE: [u8; 379] = [
+        123, 1, 0, 0, 40, 0, 0, 0, 104, 0, 0, 0, 168, 0, 0, 0, 232, 0, 0, 0, 240, 0, 0, 0, 16, 1,
+        0, 0, 24, 1, 0, 0, 57, 1, 0, 0, 90, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+    pub const FIELD_COUNT: usize = 9;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn node_signature_1(&self) -> Signature {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[4..]) as usize;
+        let end = molecule::unpack_number(&slice[8..]) as usize;
+        Signature::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn node_signature_2(&self) -> Signature {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[8..]) as usize;
+        let end = molecule::unpack_number(&slice[12..]) as usize;
+        Signature::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn ckb_signature(&self) -> Signature {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        Signature::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn features(&self) -> Uint64 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
+        let end = molecule::unpack_number(&slice[20..]) as usize;
+        Uint64::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn chain_hash(&self) -> Byte32 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[20..]) as usize;
+        let end = molecule::unpack_number(&slice[24..]) as usize;
+        Byte32::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn short_channel_id(&self) -> Uint64 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[24..]) as usize;
+        let end = molecule::unpack_number(&slice[28..]) as usize;
+        Uint64::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn node_1_id(&self) -> Pubkey {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[28..]) as usize;
+        let end = molecule::unpack_number(&slice[32..]) as usize;
+        Pubkey::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn node_2_id(&self) -> Pubkey {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[32..]) as usize;
+        let end = molecule::unpack_number(&slice[36..]) as usize;
+        Pubkey::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn ckb_key(&self) -> Pubkey {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[36..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&slice[40..]) as usize;
+            Pubkey::new_unchecked(self.0.slice(start..end))
+        } else {
+            Pubkey::new_unchecked(self.0.slice(start..))
+        }
+    }
+    pub fn as_reader<'r>(&'r self) -> ChannelAnnouncementReader<'r> {
+        ChannelAnnouncementReader::new_unchecked(self.as_slice())
+    }
+}
+impl molecule::prelude::Entity for ChannelAnnouncement {
+    type Builder = ChannelAnnouncementBuilder;
+    const NAME: &'static str = "ChannelAnnouncement";
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        ChannelAnnouncement(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        ChannelAnnouncementReader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        ChannelAnnouncementReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::core::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder()
+            .node_signature_1(self.node_signature_1())
+            .node_signature_2(self.node_signature_2())
+            .ckb_signature(self.ckb_signature())
+            .features(self.features())
+            .chain_hash(self.chain_hash())
+            .short_channel_id(self.short_channel_id())
+            .node_1_id(self.node_1_id())
+            .node_2_id(self.node_2_id())
+            .ckb_key(self.ckb_key())
+    }
+}
+#[derive(Clone, Copy)]
+pub struct ChannelAnnouncementReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for ChannelAnnouncementReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl<'r> ::core::fmt::Debug for ChannelAnnouncementReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl<'r> ::core::fmt::Display for ChannelAnnouncementReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "node_signature_1", self.node_signature_1())?;
+        write!(f, ", {}: {}", "node_signature_2", self.node_signature_2())?;
+        write!(f, ", {}: {}", "ckb_signature", self.ckb_signature())?;
+        write!(f, ", {}: {}", "features", self.features())?;
+        write!(f, ", {}: {}", "chain_hash", self.chain_hash())?;
+        write!(f, ", {}: {}", "short_channel_id", self.short_channel_id())?;
+        write!(f, ", {}: {}", "node_1_id", self.node_1_id())?;
+        write!(f, ", {}: {}", "node_2_id", self.node_2_id())?;
+        write!(f, ", {}: {}", "ckb_key", self.ckb_key())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl<'r> ChannelAnnouncementReader<'r> {
+    pub const FIELD_COUNT: usize = 9;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn node_signature_1(&self) -> SignatureReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[4..]) as usize;
+        let end = molecule::unpack_number(&slice[8..]) as usize;
+        SignatureReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn node_signature_2(&self) -> SignatureReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[8..]) as usize;
+        let end = molecule::unpack_number(&slice[12..]) as usize;
+        SignatureReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn ckb_signature(&self) -> SignatureReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        SignatureReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn features(&self) -> Uint64Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
+        let end = molecule::unpack_number(&slice[20..]) as usize;
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn chain_hash(&self) -> Byte32Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[20..]) as usize;
+        let end = molecule::unpack_number(&slice[24..]) as usize;
+        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn short_channel_id(&self) -> Uint64Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[24..]) as usize;
+        let end = molecule::unpack_number(&slice[28..]) as usize;
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn node_1_id(&self) -> PubkeyReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[28..]) as usize;
+        let end = molecule::unpack_number(&slice[32..]) as usize;
+        PubkeyReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn node_2_id(&self) -> PubkeyReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[32..]) as usize;
+        let end = molecule::unpack_number(&slice[36..]) as usize;
+        PubkeyReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn ckb_key(&self) -> PubkeyReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[36..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&slice[40..]) as usize;
+            PubkeyReader::new_unchecked(&self.as_slice()[start..end])
+        } else {
+            PubkeyReader::new_unchecked(&self.as_slice()[start..])
+        }
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for ChannelAnnouncementReader<'r> {
+    type Entity = ChannelAnnouncement;
+    const NAME: &'static str = "ChannelAnnouncementReader";
+    fn to_entity(&self) -> Self::Entity {
+        Self::Entity::new_unchecked(self.as_slice().to_owned().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        ChannelAnnouncementReader(slice)
+    }
+    fn as_slice(&self) -> &'r [u8] {
+        self.0
+    }
+    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
+        use molecule::verification_error as ve;
+        let slice_len = slice.len();
+        if slice_len < molecule::NUMBER_SIZE {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE, slice_len);
+        }
+        let total_size = molecule::unpack_number(slice) as usize;
+        if slice_len != total_size {
+            return ve!(Self, TotalSizeNotMatch, total_size, slice_len);
+        }
+        if slice_len < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
+        }
+        let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
+        if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        if slice_len < offset_first {
+            return ve!(Self, HeaderIsBroken, offset_first, slice_len);
+        }
+        let field_count = offset_first / molecule::NUMBER_SIZE - 1;
+        if field_count < Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        } else if !compatible && field_count > Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        };
+        let mut offsets: Vec<usize> = slice[molecule::NUMBER_SIZE..offset_first]
+            .chunks_exact(molecule::NUMBER_SIZE)
+            .map(|x| molecule::unpack_number(x) as usize)
+            .collect();
+        offsets.push(total_size);
+        if offsets.windows(2).any(|i| i[0] > i[1]) {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        SignatureReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
+        SignatureReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
+        SignatureReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        Uint64Reader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
+        Byte32Reader::verify(&slice[offsets[4]..offsets[5]], compatible)?;
+        Uint64Reader::verify(&slice[offsets[5]..offsets[6]], compatible)?;
+        PubkeyReader::verify(&slice[offsets[6]..offsets[7]], compatible)?;
+        PubkeyReader::verify(&slice[offsets[7]..offsets[8]], compatible)?;
+        PubkeyReader::verify(&slice[offsets[8]..offsets[9]], compatible)?;
+        Ok(())
+    }
+}
+#[derive(Clone, Debug, Default)]
+pub struct ChannelAnnouncementBuilder {
+    pub(crate) node_signature_1: Signature,
+    pub(crate) node_signature_2: Signature,
+    pub(crate) ckb_signature: Signature,
+    pub(crate) features: Uint64,
+    pub(crate) chain_hash: Byte32,
+    pub(crate) short_channel_id: Uint64,
+    pub(crate) node_1_id: Pubkey,
+    pub(crate) node_2_id: Pubkey,
+    pub(crate) ckb_key: Pubkey,
+}
+impl ChannelAnnouncementBuilder {
+    pub const FIELD_COUNT: usize = 9;
+    pub fn node_signature_1(mut self, v: Signature) -> Self {
+        self.node_signature_1 = v;
+        self
+    }
+    pub fn node_signature_2(mut self, v: Signature) -> Self {
+        self.node_signature_2 = v;
+        self
+    }
+    pub fn ckb_signature(mut self, v: Signature) -> Self {
+        self.ckb_signature = v;
+        self
+    }
+    pub fn features(mut self, v: Uint64) -> Self {
+        self.features = v;
+        self
+    }
+    pub fn chain_hash(mut self, v: Byte32) -> Self {
+        self.chain_hash = v;
+        self
+    }
+    pub fn short_channel_id(mut self, v: Uint64) -> Self {
+        self.short_channel_id = v;
+        self
+    }
+    pub fn node_1_id(mut self, v: Pubkey) -> Self {
+        self.node_1_id = v;
+        self
+    }
+    pub fn node_2_id(mut self, v: Pubkey) -> Self {
+        self.node_2_id = v;
+        self
+    }
+    pub fn ckb_key(mut self, v: Pubkey) -> Self {
+        self.ckb_key = v;
+        self
+    }
+}
+impl molecule::prelude::Builder for ChannelAnnouncementBuilder {
+    type Entity = ChannelAnnouncement;
+    const NAME: &'static str = "ChannelAnnouncementBuilder";
+    fn expected_length(&self) -> usize {
+        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
+            + self.node_signature_1.as_slice().len()
+            + self.node_signature_2.as_slice().len()
+            + self.ckb_signature.as_slice().len()
+            + self.features.as_slice().len()
+            + self.chain_hash.as_slice().len()
+            + self.short_channel_id.as_slice().len()
+            + self.node_1_id.as_slice().len()
+            + self.node_2_id.as_slice().len()
+            + self.ckb_key.as_slice().len()
+    }
+    fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
+        let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
+        let mut offsets = Vec::with_capacity(Self::FIELD_COUNT);
+        offsets.push(total_size);
+        total_size += self.node_signature_1.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.node_signature_2.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.ckb_signature.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.features.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.chain_hash.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.short_channel_id.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.node_1_id.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.node_2_id.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.ckb_key.as_slice().len();
+        writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
+        for offset in offsets.into_iter() {
+            writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
+        }
+        writer.write_all(self.node_signature_1.as_slice())?;
+        writer.write_all(self.node_signature_2.as_slice())?;
+        writer.write_all(self.ckb_signature.as_slice())?;
+        writer.write_all(self.features.as_slice())?;
+        writer.write_all(self.chain_hash.as_slice())?;
+        writer.write_all(self.short_channel_id.as_slice())?;
+        writer.write_all(self.node_1_id.as_slice())?;
+        writer.write_all(self.node_2_id.as_slice())?;
+        writer.write_all(self.ckb_key.as_slice())?;
+        Ok(())
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner)
+            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        ChannelAnnouncement::new_unchecked(inner.into())
+    }
+}
+#[derive(Clone)]
+pub struct ChannelUpdate(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for ChannelUpdate {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl ::core::fmt::Debug for ChannelUpdate {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl ::core::fmt::Display for ChannelUpdate {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "signature", self.signature())?;
+        write!(f, ", {}: {}", "chain_hash", self.chain_hash())?;
+        write!(f, ", {}: {}", "short_channel_id", self.short_channel_id())?;
+        write!(f, ", {}: {}", "timestamp", self.timestamp())?;
+        write!(f, ", {}: {}", "message_flags", self.message_flags())?;
+        write!(f, ", {}: {}", "channel_flags", self.channel_flags())?;
+        write!(f, ", {}: {}", "cltv_expiry_delta", self.cltv_expiry_delta())?;
+        write!(
+            f,
+            ", {}: {}",
+            "htlc_minimum_value",
+            self.htlc_minimum_value()
+        )?;
+        write!(f, ", {}: {}", "fee_value", self.fee_value())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl ::core::default::Default for ChannelUpdate {
+    fn default() -> Self {
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        ChannelUpdate::new_unchecked(v)
+    }
+}
+impl ChannelUpdate {
+    const DEFAULT_VALUE: [u8; 200] = [
+        200, 0, 0, 0, 40, 0, 0, 0, 104, 0, 0, 0, 136, 0, 0, 0, 144, 0, 0, 0, 152, 0, 0, 0, 156, 0,
+        0, 0, 160, 0, 0, 0, 168, 0, 0, 0, 184, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+    pub const FIELD_COUNT: usize = 9;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn signature(&self) -> Signature {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[4..]) as usize;
+        let end = molecule::unpack_number(&slice[8..]) as usize;
+        Signature::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn chain_hash(&self) -> Byte32 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[8..]) as usize;
+        let end = molecule::unpack_number(&slice[12..]) as usize;
+        Byte32::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn short_channel_id(&self) -> Uint64 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        Uint64::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn timestamp(&self) -> Uint64 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
+        let end = molecule::unpack_number(&slice[20..]) as usize;
+        Uint64::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn message_flags(&self) -> Uint32 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[20..]) as usize;
+        let end = molecule::unpack_number(&slice[24..]) as usize;
+        Uint32::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn channel_flags(&self) -> Uint32 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[24..]) as usize;
+        let end = molecule::unpack_number(&slice[28..]) as usize;
+        Uint32::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn cltv_expiry_delta(&self) -> Uint64 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[28..]) as usize;
+        let end = molecule::unpack_number(&slice[32..]) as usize;
+        Uint64::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn htlc_minimum_value(&self) -> Uint128 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[32..]) as usize;
+        let end = molecule::unpack_number(&slice[36..]) as usize;
+        Uint128::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn fee_value(&self) -> Uint128 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[36..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&slice[40..]) as usize;
+            Uint128::new_unchecked(self.0.slice(start..end))
+        } else {
+            Uint128::new_unchecked(self.0.slice(start..))
+        }
+    }
+    pub fn as_reader<'r>(&'r self) -> ChannelUpdateReader<'r> {
+        ChannelUpdateReader::new_unchecked(self.as_slice())
+    }
+}
+impl molecule::prelude::Entity for ChannelUpdate {
+    type Builder = ChannelUpdateBuilder;
+    const NAME: &'static str = "ChannelUpdate";
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        ChannelUpdate(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        ChannelUpdateReader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        ChannelUpdateReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::core::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder()
+            .signature(self.signature())
+            .chain_hash(self.chain_hash())
+            .short_channel_id(self.short_channel_id())
+            .timestamp(self.timestamp())
+            .message_flags(self.message_flags())
+            .channel_flags(self.channel_flags())
+            .cltv_expiry_delta(self.cltv_expiry_delta())
+            .htlc_minimum_value(self.htlc_minimum_value())
+            .fee_value(self.fee_value())
+    }
+}
+#[derive(Clone, Copy)]
+pub struct ChannelUpdateReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for ChannelUpdateReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl<'r> ::core::fmt::Debug for ChannelUpdateReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl<'r> ::core::fmt::Display for ChannelUpdateReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "signature", self.signature())?;
+        write!(f, ", {}: {}", "chain_hash", self.chain_hash())?;
+        write!(f, ", {}: {}", "short_channel_id", self.short_channel_id())?;
+        write!(f, ", {}: {}", "timestamp", self.timestamp())?;
+        write!(f, ", {}: {}", "message_flags", self.message_flags())?;
+        write!(f, ", {}: {}", "channel_flags", self.channel_flags())?;
+        write!(f, ", {}: {}", "cltv_expiry_delta", self.cltv_expiry_delta())?;
+        write!(
+            f,
+            ", {}: {}",
+            "htlc_minimum_value",
+            self.htlc_minimum_value()
+        )?;
+        write!(f, ", {}: {}", "fee_value", self.fee_value())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl<'r> ChannelUpdateReader<'r> {
+    pub const FIELD_COUNT: usize = 9;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn signature(&self) -> SignatureReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[4..]) as usize;
+        let end = molecule::unpack_number(&slice[8..]) as usize;
+        SignatureReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn chain_hash(&self) -> Byte32Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[8..]) as usize;
+        let end = molecule::unpack_number(&slice[12..]) as usize;
+        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn short_channel_id(&self) -> Uint64Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn timestamp(&self) -> Uint64Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
+        let end = molecule::unpack_number(&slice[20..]) as usize;
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn message_flags(&self) -> Uint32Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[20..]) as usize;
+        let end = molecule::unpack_number(&slice[24..]) as usize;
+        Uint32Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn channel_flags(&self) -> Uint32Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[24..]) as usize;
+        let end = molecule::unpack_number(&slice[28..]) as usize;
+        Uint32Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn cltv_expiry_delta(&self) -> Uint64Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[28..]) as usize;
+        let end = molecule::unpack_number(&slice[32..]) as usize;
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn htlc_minimum_value(&self) -> Uint128Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[32..]) as usize;
+        let end = molecule::unpack_number(&slice[36..]) as usize;
+        Uint128Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn fee_value(&self) -> Uint128Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[36..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&slice[40..]) as usize;
+            Uint128Reader::new_unchecked(&self.as_slice()[start..end])
+        } else {
+            Uint128Reader::new_unchecked(&self.as_slice()[start..])
+        }
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for ChannelUpdateReader<'r> {
+    type Entity = ChannelUpdate;
+    const NAME: &'static str = "ChannelUpdateReader";
+    fn to_entity(&self) -> Self::Entity {
+        Self::Entity::new_unchecked(self.as_slice().to_owned().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        ChannelUpdateReader(slice)
+    }
+    fn as_slice(&self) -> &'r [u8] {
+        self.0
+    }
+    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
+        use molecule::verification_error as ve;
+        let slice_len = slice.len();
+        if slice_len < molecule::NUMBER_SIZE {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE, slice_len);
+        }
+        let total_size = molecule::unpack_number(slice) as usize;
+        if slice_len != total_size {
+            return ve!(Self, TotalSizeNotMatch, total_size, slice_len);
+        }
+        if slice_len < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
+        }
+        let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
+        if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        if slice_len < offset_first {
+            return ve!(Self, HeaderIsBroken, offset_first, slice_len);
+        }
+        let field_count = offset_first / molecule::NUMBER_SIZE - 1;
+        if field_count < Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        } else if !compatible && field_count > Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        };
+        let mut offsets: Vec<usize> = slice[molecule::NUMBER_SIZE..offset_first]
+            .chunks_exact(molecule::NUMBER_SIZE)
+            .map(|x| molecule::unpack_number(x) as usize)
+            .collect();
+        offsets.push(total_size);
+        if offsets.windows(2).any(|i| i[0] > i[1]) {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        SignatureReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
+        Byte32Reader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
+        Uint64Reader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        Uint64Reader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
+        Uint32Reader::verify(&slice[offsets[4]..offsets[5]], compatible)?;
+        Uint32Reader::verify(&slice[offsets[5]..offsets[6]], compatible)?;
+        Uint64Reader::verify(&slice[offsets[6]..offsets[7]], compatible)?;
+        Uint128Reader::verify(&slice[offsets[7]..offsets[8]], compatible)?;
+        Uint128Reader::verify(&slice[offsets[8]..offsets[9]], compatible)?;
+        Ok(())
+    }
+}
+#[derive(Clone, Debug, Default)]
+pub struct ChannelUpdateBuilder {
+    pub(crate) signature: Signature,
+    pub(crate) chain_hash: Byte32,
+    pub(crate) short_channel_id: Uint64,
+    pub(crate) timestamp: Uint64,
+    pub(crate) message_flags: Uint32,
+    pub(crate) channel_flags: Uint32,
+    pub(crate) cltv_expiry_delta: Uint64,
+    pub(crate) htlc_minimum_value: Uint128,
+    pub(crate) fee_value: Uint128,
+}
+impl ChannelUpdateBuilder {
+    pub const FIELD_COUNT: usize = 9;
+    pub fn signature(mut self, v: Signature) -> Self {
+        self.signature = v;
+        self
+    }
+    pub fn chain_hash(mut self, v: Byte32) -> Self {
+        self.chain_hash = v;
+        self
+    }
+    pub fn short_channel_id(mut self, v: Uint64) -> Self {
+        self.short_channel_id = v;
+        self
+    }
+    pub fn timestamp(mut self, v: Uint64) -> Self {
+        self.timestamp = v;
+        self
+    }
+    pub fn message_flags(mut self, v: Uint32) -> Self {
+        self.message_flags = v;
+        self
+    }
+    pub fn channel_flags(mut self, v: Uint32) -> Self {
+        self.channel_flags = v;
+        self
+    }
+    pub fn cltv_expiry_delta(mut self, v: Uint64) -> Self {
+        self.cltv_expiry_delta = v;
+        self
+    }
+    pub fn htlc_minimum_value(mut self, v: Uint128) -> Self {
+        self.htlc_minimum_value = v;
+        self
+    }
+    pub fn fee_value(mut self, v: Uint128) -> Self {
+        self.fee_value = v;
+        self
+    }
+}
+impl molecule::prelude::Builder for ChannelUpdateBuilder {
+    type Entity = ChannelUpdate;
+    const NAME: &'static str = "ChannelUpdateBuilder";
+    fn expected_length(&self) -> usize {
+        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
+            + self.signature.as_slice().len()
+            + self.chain_hash.as_slice().len()
+            + self.short_channel_id.as_slice().len()
+            + self.timestamp.as_slice().len()
+            + self.message_flags.as_slice().len()
+            + self.channel_flags.as_slice().len()
+            + self.cltv_expiry_delta.as_slice().len()
+            + self.htlc_minimum_value.as_slice().len()
+            + self.fee_value.as_slice().len()
+    }
+    fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
+        let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
+        let mut offsets = Vec::with_capacity(Self::FIELD_COUNT);
+        offsets.push(total_size);
+        total_size += self.signature.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.chain_hash.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.short_channel_id.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.timestamp.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.message_flags.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.channel_flags.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.cltv_expiry_delta.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.htlc_minimum_value.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.fee_value.as_slice().len();
+        writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
+        for offset in offsets.into_iter() {
+            writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
+        }
+        writer.write_all(self.signature.as_slice())?;
+        writer.write_all(self.chain_hash.as_slice())?;
+        writer.write_all(self.short_channel_id.as_slice())?;
+        writer.write_all(self.timestamp.as_slice())?;
+        writer.write_all(self.message_flags.as_slice())?;
+        writer.write_all(self.channel_flags.as_slice())?;
+        writer.write_all(self.cltv_expiry_delta.as_slice())?;
+        writer.write_all(self.htlc_minimum_value.as_slice())?;
+        writer.write_all(self.fee_value.as_slice())?;
+        Ok(())
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner)
+            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        ChannelUpdate::new_unchecked(inner.into())
+    }
+}
+#[derive(Clone)]
 pub struct CFNMessage(molecule::bytes::Bytes);
 impl ::core::fmt::LowerHex for CFNMessage {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
@@ -8951,7 +10535,7 @@ impl CFNMessage {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
-    pub const ITEMS_COUNT: usize = 16;
+    pub const ITEMS_COUNT: usize = 19;
     pub fn item_id(&self) -> molecule::Number {
         molecule::unpack_number(self.as_slice())
     }
@@ -8974,6 +10558,9 @@ impl CFNMessage {
             13 => Shutdown::new_unchecked(inner).into(),
             14 => ClosingSigned::new_unchecked(inner).into(),
             15 => ReestablishChannel::new_unchecked(inner).into(),
+            16 => NodeAnnouncement::new_unchecked(inner).into(),
+            17 => ChannelAnnouncement::new_unchecked(inner).into(),
+            18 => ChannelUpdate::new_unchecked(inner).into(),
             _ => panic!("{}: invalid data", Self::NAME),
         }
     }
@@ -9030,7 +10617,7 @@ impl<'r> ::core::fmt::Display for CFNMessageReader<'r> {
     }
 }
 impl<'r> CFNMessageReader<'r> {
-    pub const ITEMS_COUNT: usize = 16;
+    pub const ITEMS_COUNT: usize = 19;
     pub fn item_id(&self) -> molecule::Number {
         molecule::unpack_number(self.as_slice())
     }
@@ -9053,6 +10640,9 @@ impl<'r> CFNMessageReader<'r> {
             13 => ShutdownReader::new_unchecked(inner).into(),
             14 => ClosingSignedReader::new_unchecked(inner).into(),
             15 => ReestablishChannelReader::new_unchecked(inner).into(),
+            16 => NodeAnnouncementReader::new_unchecked(inner).into(),
+            17 => ChannelAnnouncementReader::new_unchecked(inner).into(),
+            18 => ChannelUpdateReader::new_unchecked(inner).into(),
             _ => panic!("{}: invalid data", Self::NAME),
         }
     }
@@ -9094,6 +10684,9 @@ impl<'r> molecule::prelude::Reader<'r> for CFNMessageReader<'r> {
             13 => ShutdownReader::verify(inner_slice, compatible),
             14 => ClosingSignedReader::verify(inner_slice, compatible),
             15 => ReestablishChannelReader::verify(inner_slice, compatible),
+            16 => NodeAnnouncementReader::verify(inner_slice, compatible),
+            17 => ChannelAnnouncementReader::verify(inner_slice, compatible),
+            18 => ChannelUpdateReader::verify(inner_slice, compatible),
             _ => ve!(Self, UnknownItem, Self::ITEMS_COUNT, item_id),
         }?;
         Ok(())
@@ -9102,7 +10695,7 @@ impl<'r> molecule::prelude::Reader<'r> for CFNMessageReader<'r> {
 #[derive(Clone, Debug, Default)]
 pub struct CFNMessageBuilder(pub(crate) CFNMessageUnion);
 impl CFNMessageBuilder {
-    pub const ITEMS_COUNT: usize = 16;
+    pub const ITEMS_COUNT: usize = 19;
     pub fn set<I>(mut self, v: I) -> Self
     where
         I: ::core::convert::Into<CFNMessageUnion>,
@@ -9146,6 +10739,9 @@ pub enum CFNMessageUnion {
     Shutdown(Shutdown),
     ClosingSigned(ClosingSigned),
     ReestablishChannel(ReestablishChannel),
+    NodeAnnouncement(NodeAnnouncement),
+    ChannelAnnouncement(ChannelAnnouncement),
+    ChannelUpdate(ChannelUpdate),
 }
 #[derive(Debug, Clone, Copy)]
 pub enum CFNMessageUnionReader<'r> {
@@ -9165,6 +10761,9 @@ pub enum CFNMessageUnionReader<'r> {
     Shutdown(ShutdownReader<'r>),
     ClosingSigned(ClosingSignedReader<'r>),
     ReestablishChannel(ReestablishChannelReader<'r>),
+    NodeAnnouncement(NodeAnnouncementReader<'r>),
+    ChannelAnnouncement(ChannelAnnouncementReader<'r>),
+    ChannelUpdate(ChannelUpdateReader<'r>),
 }
 impl ::core::default::Default for CFNMessageUnion {
     fn default() -> Self {
@@ -9222,6 +10821,15 @@ impl ::core::fmt::Display for CFNMessageUnion {
             CFNMessageUnion::ReestablishChannel(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, ReestablishChannel::NAME, item)
             }
+            CFNMessageUnion::NodeAnnouncement(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, NodeAnnouncement::NAME, item)
+            }
+            CFNMessageUnion::ChannelAnnouncement(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, ChannelAnnouncement::NAME, item)
+            }
+            CFNMessageUnion::ChannelUpdate(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, ChannelUpdate::NAME, item)
+            }
         }
     }
 }
@@ -9276,6 +10884,15 @@ impl<'r> ::core::fmt::Display for CFNMessageUnionReader<'r> {
             CFNMessageUnionReader::ReestablishChannel(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, ReestablishChannel::NAME, item)
             }
+            CFNMessageUnionReader::NodeAnnouncement(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, NodeAnnouncement::NAME, item)
+            }
+            CFNMessageUnionReader::ChannelAnnouncement(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, ChannelAnnouncement::NAME, item)
+            }
+            CFNMessageUnionReader::ChannelUpdate(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, ChannelUpdate::NAME, item)
+            }
         }
     }
 }
@@ -9298,6 +10915,9 @@ impl CFNMessageUnion {
             CFNMessageUnion::Shutdown(ref item) => write!(f, "{}", item),
             CFNMessageUnion::ClosingSigned(ref item) => write!(f, "{}", item),
             CFNMessageUnion::ReestablishChannel(ref item) => write!(f, "{}", item),
+            CFNMessageUnion::NodeAnnouncement(ref item) => write!(f, "{}", item),
+            CFNMessageUnion::ChannelAnnouncement(ref item) => write!(f, "{}", item),
+            CFNMessageUnion::ChannelUpdate(ref item) => write!(f, "{}", item),
         }
     }
 }
@@ -9320,6 +10940,9 @@ impl<'r> CFNMessageUnionReader<'r> {
             CFNMessageUnionReader::Shutdown(ref item) => write!(f, "{}", item),
             CFNMessageUnionReader::ClosingSigned(ref item) => write!(f, "{}", item),
             CFNMessageUnionReader::ReestablishChannel(ref item) => write!(f, "{}", item),
+            CFNMessageUnionReader::NodeAnnouncement(ref item) => write!(f, "{}", item),
+            CFNMessageUnionReader::ChannelAnnouncement(ref item) => write!(f, "{}", item),
+            CFNMessageUnionReader::ChannelUpdate(ref item) => write!(f, "{}", item),
         }
     }
 }
@@ -9403,6 +11026,21 @@ impl ::core::convert::From<ReestablishChannel> for CFNMessageUnion {
         CFNMessageUnion::ReestablishChannel(item)
     }
 }
+impl ::core::convert::From<NodeAnnouncement> for CFNMessageUnion {
+    fn from(item: NodeAnnouncement) -> Self {
+        CFNMessageUnion::NodeAnnouncement(item)
+    }
+}
+impl ::core::convert::From<ChannelAnnouncement> for CFNMessageUnion {
+    fn from(item: ChannelAnnouncement) -> Self {
+        CFNMessageUnion::ChannelAnnouncement(item)
+    }
+}
+impl ::core::convert::From<ChannelUpdate> for CFNMessageUnion {
+    fn from(item: ChannelUpdate) -> Self {
+        CFNMessageUnion::ChannelUpdate(item)
+    }
+}
 impl<'r> ::core::convert::From<OpenChannelReader<'r>> for CFNMessageUnionReader<'r> {
     fn from(item: OpenChannelReader<'r>) -> Self {
         CFNMessageUnionReader::OpenChannel(item)
@@ -9483,6 +11121,21 @@ impl<'r> ::core::convert::From<ReestablishChannelReader<'r>> for CFNMessageUnion
         CFNMessageUnionReader::ReestablishChannel(item)
     }
 }
+impl<'r> ::core::convert::From<NodeAnnouncementReader<'r>> for CFNMessageUnionReader<'r> {
+    fn from(item: NodeAnnouncementReader<'r>) -> Self {
+        CFNMessageUnionReader::NodeAnnouncement(item)
+    }
+}
+impl<'r> ::core::convert::From<ChannelAnnouncementReader<'r>> for CFNMessageUnionReader<'r> {
+    fn from(item: ChannelAnnouncementReader<'r>) -> Self {
+        CFNMessageUnionReader::ChannelAnnouncement(item)
+    }
+}
+impl<'r> ::core::convert::From<ChannelUpdateReader<'r>> for CFNMessageUnionReader<'r> {
+    fn from(item: ChannelUpdateReader<'r>) -> Self {
+        CFNMessageUnionReader::ChannelUpdate(item)
+    }
+}
 impl CFNMessageUnion {
     pub const NAME: &'static str = "CFNMessageUnion";
     pub fn as_bytes(&self) -> molecule::bytes::Bytes {
@@ -9503,6 +11156,9 @@ impl CFNMessageUnion {
             CFNMessageUnion::Shutdown(item) => item.as_bytes(),
             CFNMessageUnion::ClosingSigned(item) => item.as_bytes(),
             CFNMessageUnion::ReestablishChannel(item) => item.as_bytes(),
+            CFNMessageUnion::NodeAnnouncement(item) => item.as_bytes(),
+            CFNMessageUnion::ChannelAnnouncement(item) => item.as_bytes(),
+            CFNMessageUnion::ChannelUpdate(item) => item.as_bytes(),
         }
     }
     pub fn as_slice(&self) -> &[u8] {
@@ -9523,6 +11179,9 @@ impl CFNMessageUnion {
             CFNMessageUnion::Shutdown(item) => item.as_slice(),
             CFNMessageUnion::ClosingSigned(item) => item.as_slice(),
             CFNMessageUnion::ReestablishChannel(item) => item.as_slice(),
+            CFNMessageUnion::NodeAnnouncement(item) => item.as_slice(),
+            CFNMessageUnion::ChannelAnnouncement(item) => item.as_slice(),
+            CFNMessageUnion::ChannelUpdate(item) => item.as_slice(),
         }
     }
     pub fn item_id(&self) -> molecule::Number {
@@ -9543,6 +11202,9 @@ impl CFNMessageUnion {
             CFNMessageUnion::Shutdown(_) => 13,
             CFNMessageUnion::ClosingSigned(_) => 14,
             CFNMessageUnion::ReestablishChannel(_) => 15,
+            CFNMessageUnion::NodeAnnouncement(_) => 16,
+            CFNMessageUnion::ChannelAnnouncement(_) => 17,
+            CFNMessageUnion::ChannelUpdate(_) => 18,
         }
     }
     pub fn item_name(&self) -> &str {
@@ -9563,6 +11225,9 @@ impl CFNMessageUnion {
             CFNMessageUnion::Shutdown(_) => "Shutdown",
             CFNMessageUnion::ClosingSigned(_) => "ClosingSigned",
             CFNMessageUnion::ReestablishChannel(_) => "ReestablishChannel",
+            CFNMessageUnion::NodeAnnouncement(_) => "NodeAnnouncement",
+            CFNMessageUnion::ChannelAnnouncement(_) => "ChannelAnnouncement",
+            CFNMessageUnion::ChannelUpdate(_) => "ChannelUpdate",
         }
     }
     pub fn as_reader<'r>(&'r self) -> CFNMessageUnionReader<'r> {
@@ -9583,6 +11248,9 @@ impl CFNMessageUnion {
             CFNMessageUnion::Shutdown(item) => item.as_reader().into(),
             CFNMessageUnion::ClosingSigned(item) => item.as_reader().into(),
             CFNMessageUnion::ReestablishChannel(item) => item.as_reader().into(),
+            CFNMessageUnion::NodeAnnouncement(item) => item.as_reader().into(),
+            CFNMessageUnion::ChannelAnnouncement(item) => item.as_reader().into(),
+            CFNMessageUnion::ChannelUpdate(item) => item.as_reader().into(),
         }
     }
 }
@@ -9606,6 +11274,9 @@ impl<'r> CFNMessageUnionReader<'r> {
             CFNMessageUnionReader::Shutdown(item) => item.as_slice(),
             CFNMessageUnionReader::ClosingSigned(item) => item.as_slice(),
             CFNMessageUnionReader::ReestablishChannel(item) => item.as_slice(),
+            CFNMessageUnionReader::NodeAnnouncement(item) => item.as_slice(),
+            CFNMessageUnionReader::ChannelAnnouncement(item) => item.as_slice(),
+            CFNMessageUnionReader::ChannelUpdate(item) => item.as_slice(),
         }
     }
     pub fn item_id(&self) -> molecule::Number {
@@ -9626,6 +11297,9 @@ impl<'r> CFNMessageUnionReader<'r> {
             CFNMessageUnionReader::Shutdown(_) => 13,
             CFNMessageUnionReader::ClosingSigned(_) => 14,
             CFNMessageUnionReader::ReestablishChannel(_) => 15,
+            CFNMessageUnionReader::NodeAnnouncement(_) => 16,
+            CFNMessageUnionReader::ChannelAnnouncement(_) => 17,
+            CFNMessageUnionReader::ChannelUpdate(_) => 18,
         }
     }
     pub fn item_name(&self) -> &str {
@@ -9646,6 +11320,9 @@ impl<'r> CFNMessageUnionReader<'r> {
             CFNMessageUnionReader::Shutdown(_) => "Shutdown",
             CFNMessageUnionReader::ClosingSigned(_) => "ClosingSigned",
             CFNMessageUnionReader::ReestablishChannel(_) => "ReestablishChannel",
+            CFNMessageUnionReader::NodeAnnouncement(_) => "NodeAnnouncement",
+            CFNMessageUnionReader::ChannelAnnouncement(_) => "ChannelAnnouncement",
+            CFNMessageUnionReader::ChannelUpdate(_) => "ChannelUpdate",
         }
     }
 }
@@ -9726,6 +11403,21 @@ impl From<ClosingSigned> for CFNMessage {
 }
 impl From<ReestablishChannel> for CFNMessage {
     fn from(value: ReestablishChannel) -> Self {
+        Self::new_builder().set(value).build()
+    }
+}
+impl From<NodeAnnouncement> for CFNMessage {
+    fn from(value: NodeAnnouncement) -> Self {
+        Self::new_builder().set(value).build()
+    }
+}
+impl From<ChannelAnnouncement> for CFNMessage {
+    fn from(value: ChannelAnnouncement) -> Self {
+        Self::new_builder().set(value).build()
+    }
+}
+impl From<ChannelUpdate> for CFNMessage {
+    fn from(value: ChannelUpdate) -> Self {
         Self::new_builder().set(value).build()
     }
 }
