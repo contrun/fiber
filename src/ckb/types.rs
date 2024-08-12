@@ -1302,10 +1302,10 @@ impl TryFrom<molecule_cfn::NodeAnnouncement> for NodeAnnouncement {
 
 #[derive(Debug, Clone)]
 pub struct ChannelAnnouncement {
-    pub node_signature_1: Signature,
-    pub node_signature_2: Signature,
+    pub node_1_signature: Option<Signature>,
+    pub node_2_signature: Option<Signature>,
     // Signature signed by the funding transaction output public key.
-    pub ckb_signature: Signature,
+    pub ckb_signature: Option<Signature>,
     // Tentatively using 64 bits for features. May change the type later while developing.
     // rust-lightning uses a Vec<u8> here.
     pub features: u64,
@@ -1320,9 +1320,24 @@ pub struct ChannelAnnouncement {
 impl From<ChannelAnnouncement> for molecule_cfn::ChannelAnnouncement {
     fn from(channel_announcement: ChannelAnnouncement) -> Self {
         molecule_cfn::ChannelAnnouncement::new_builder()
-            .node_signature_1(channel_announcement.node_signature_1.into())
-            .node_signature_2(channel_announcement.node_signature_2.into())
-            .ckb_signature(channel_announcement.ckb_signature.into())
+            .node_signature_1(
+                channel_announcement
+                    .node_1_signature
+                    .expect("channel announcement signed")
+                    .into(),
+            )
+            .node_signature_2(
+                channel_announcement
+                    .node_2_signature
+                    .expect("channel announcement signed")
+                    .into(),
+            )
+            .ckb_signature(
+                channel_announcement
+                    .ckb_signature
+                    .expect("channel announcement signed")
+                    .into(),
+            )
             .features(channel_announcement.features.pack())
             .chain_hash(channel_announcement.chain_hash.into())
             .short_channel_id(channel_announcement.short_channel_id.pack())
@@ -1340,9 +1355,9 @@ impl TryFrom<molecule_cfn::ChannelAnnouncement> for ChannelAnnouncement {
         channel_announcement: molecule_cfn::ChannelAnnouncement,
     ) -> Result<Self, Self::Error> {
         Ok(ChannelAnnouncement {
-            node_signature_1: channel_announcement.node_signature_1().try_into()?,
-            node_signature_2: channel_announcement.node_signature_2().try_into()?,
-            ckb_signature: channel_announcement.ckb_signature().try_into()?,
+            node_1_signature: Some(channel_announcement.node_signature_1().try_into()?),
+            node_2_signature: Some(channel_announcement.node_signature_2().try_into()?),
+            ckb_signature: Some(channel_announcement.ckb_signature().try_into()?),
             features: channel_announcement.features().unpack(),
             chain_hash: channel_announcement.chain_hash().into(),
             short_channel_id: channel_announcement.short_channel_id().unpack(),
@@ -1356,7 +1371,7 @@ impl TryFrom<molecule_cfn::ChannelAnnouncement> for ChannelAnnouncement {
 #[derive(Debug, Clone)]
 pub struct ChannelUpdate {
     // Signature of the node that wants to update the channel information.
-    pub signature: Signature,
+    pub signature: Option<Signature>,
     pub chain_hash: Hash256,
     pub short_channel_id: u64,
     pub timestamp: u64,
@@ -1370,7 +1385,12 @@ pub struct ChannelUpdate {
 impl From<ChannelUpdate> for molecule_cfn::ChannelUpdate {
     fn from(channel_update: ChannelUpdate) -> Self {
         molecule_cfn::ChannelUpdate::new_builder()
-            .signature(channel_update.signature.into())
+            .signature(
+                channel_update
+                    .signature
+                    .expect("channel update signed")
+                    .into(),
+            )
             .chain_hash(channel_update.chain_hash.into())
             .short_channel_id(channel_update.short_channel_id.pack())
             .timestamp(channel_update.timestamp.pack())
@@ -1388,7 +1408,7 @@ impl TryFrom<molecule_cfn::ChannelUpdate> for ChannelUpdate {
 
     fn try_from(channel_update: molecule_cfn::ChannelUpdate) -> Result<Self, Self::Error> {
         Ok(ChannelUpdate {
-            signature: channel_update.signature().try_into()?,
+            signature: Some(channel_update.signature().try_into()?),
             chain_hash: channel_update.chain_hash().into(),
             short_channel_id: channel_update.short_channel_id().unpack(),
             timestamp: channel_update.timestamp().unpack(),
