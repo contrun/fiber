@@ -17,7 +17,10 @@ use musig2::errors::DecodeError;
 use musig2::secp::{Point, Scalar};
 use musig2::{BinaryEncoding, PartialSignature, PubNonce};
 use once_cell::sync::OnceCell;
-use secp256k1::{ecdsa::Signature as Secp256k1Signature, All, PublicKey, Secp256k1, SecretKey};
+use secp256k1::{
+    ecdsa::Signature as Secp256k1Signature, schnorr::Signature as Secp256k1SchnorrSignature, All,
+    PublicKey, Secp256k1, SecretKey,
+};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use tentacle::multiaddr::MultiAddr;
@@ -323,6 +326,12 @@ impl Privkey {
         let sk = Scalar::from(self);
         (scalar + sk).unwrap().into()
     }
+
+    pub fn sign(&self, message: [u8; 32]) -> Signature {
+        let message = secp256k1::Message::from_digest(message);
+        let sig = secp256k1_instance().sign_ecdsa(&message, &self.0);
+        Signature::from(sig)
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -475,6 +484,33 @@ impl TryFrom<molecule_cfn::Signature> for Signature {
     fn try_from(signature: molecule_cfn::Signature) -> Result<Self, Self::Error> {
         let signature = signature.as_slice();
         Secp256k1Signature::from_compact(signature)
+            .map(Into::into)
+            .map_err(Into::into)
+    }
+}
+
+impl From<Secp256k1SchnorrSignature> for molecule_cfn::Signature {
+    fn from(signature: Secp256k1SchnorrSignature) -> molecule_cfn::Signature {
+        molecule_cfn::Signature::new_builder()
+            .set(
+                signature
+                    .serialize()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<Byte>>()
+                    .try_into()
+                    .expect("Signature serialized to corrent length"),
+            )
+            .build()
+    }
+}
+
+impl TryFrom<molecule_cfn::Signature> for Secp256k1SchnorrSignature {
+    type Error = Error;
+
+    fn try_from(signature: molecule_cfn::Signature) -> Result<Self, Self::Error> {
+        let signature = signature.as_slice();
+        Secp256k1SchnorrSignature::from_slice(signature)
             .map(Into::into)
             .map_err(Into::into)
     }
@@ -1215,7 +1251,7 @@ impl TryFrom<molecule_cfn::AnnouncementSignatures> for AnnouncementSignatures {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct NodeAnnouncement {
     // Signature to this message, may be empty the message is not signed yet.
     pub signature: Option<Signature>,
@@ -1247,7 +1283,8 @@ impl NodeAnnouncement {
             alias,
             addresses: addresses.iter().map(|a| a.to_vec()).collect(),
         };
-        unsigned.signature = todo!("Sign the node announcement here");
+        let message = deterministically_hash(&unsigned);
+        unsigned.signature = Some(private_key.sign(message));
         unsigned
     }
 }
@@ -1300,12 +1337,12 @@ impl TryFrom<molecule_cfn::NodeAnnouncement> for NodeAnnouncement {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ChannelAnnouncement {
     pub node_1_signature: Option<Signature>,
     pub node_2_signature: Option<Signature>,
     // Signature signed by the funding transaction output public key.
-    pub ckb_signature: Option<Signature>,
+    pub ckb_signature: Option<Secp256k1SchnorrSignature>,
     // Tentatively using 64 bits for features. May change the type later while developing.
     // rust-lightning uses a Vec<u8> here.
     pub features: u64,
@@ -1315,6 +1352,28 @@ pub struct ChannelAnnouncement {
     pub node_2_id: Pubkey,
     // The aggregated public key of the funding transaction output.
     pub ckb_key: Pubkey,
+}
+
+impl ChannelAnnouncement {
+    pub fn new_unsigned(
+        node_1_pubkey: &Pubkey,
+        node_2_pubkey: &Pubkey,
+        short_channel_id: u64,
+        chain_hash: Hash256,
+        ckb_pubkey: &Pubkey,
+    ) -> Self {
+        Self {
+            node_1_signature: None,
+            node_2_signature: None,
+            ckb_signature: None,
+            features: 0,
+            chain_hash,
+            short_channel_id,
+            node_1_id: node_1_pubkey.clone(),
+            node_2_id: node_2_pubkey.clone(),
+            ckb_key: ckb_pubkey.clone(),
+        }
+    }
 }
 
 impl From<ChannelAnnouncement> for molecule_cfn::ChannelAnnouncement {
@@ -1368,7 +1427,7 @@ impl TryFrom<molecule_cfn::ChannelAnnouncement> for ChannelAnnouncement {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ChannelUpdate {
     // Signature of the node that wants to update the channel information.
     pub signature: Option<Signature>,
@@ -1608,6 +1667,14 @@ macro_rules! impl_traits {
 }
 
 impl_traits!(CFNMessage);
+
+pub(crate) fn deterministically_serialize<T: Serialize>(v: &T) -> Vec<u8> {
+    serde_json::to_vec_pretty(v).expect("serialize value")
+}
+
+pub(crate) fn deterministically_hash<T: Serialize>(v: &T) -> [u8; 32] {
+    ckb_hash::blake2b_256(deterministically_serialize(v))
+}
 
 #[cfg(test)]
 mod tests {

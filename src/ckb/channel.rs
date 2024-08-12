@@ -46,9 +46,10 @@ use super::{
     network::CFNMessageWithPeerId,
     serde_utils::EntityHex,
     types::{
-        AcceptChannel, AddTlc, CFNMessage, ChannelReady, ClosingSigned, CommitmentSigned, Hash256,
-        LockTime, OpenChannel, Privkey, Pubkey, ReestablishChannel, RemoveTlc, RemoveTlcReason,
-        RevokeAndAck, TxCollaborationMsg, TxComplete, TxUpdate,
+        deterministically_hash, AcceptChannel, AddTlc, CFNMessage, ChannelAnnouncement,
+        ChannelReady, ClosingSigned, CommitmentSigned, Hash256, LockTime, OpenChannel, Privkey,
+        Pubkey, ReestablishChannel, RemoveTlc, RemoveTlcReason, RevokeAndAck, Signature,
+        TxCollaborationMsg, TxComplete, TxUpdate,
     },
     NetworkActorCommand, NetworkActorEvent, NetworkActorMessage,
 };
@@ -972,7 +973,7 @@ where
                     ..
                 } = &open_channel;
 
-                if *chain_hash != [0u8; 32].into() {
+                if *chain_hash != Hash256::default().into() {
                     return Err(Box::new(ProcessingChannelError::InvalidParameter(format!(
                         "Invalid chain hash {:?}",
                         chain_hash
@@ -1403,6 +1404,9 @@ pub struct ChannelActorState {
     #[serde_as(as = "Option<EntityHex>")]
     pub funding_tx: Option<Transaction>,
 
+    // The short channel id that represents the on-chain block number and transaction index.
+    pub short_channel_id: Option<u64>,
+
     #[serde_as(as = "Option<EntityHex>")]
     pub funding_udt_type_script: Option<Script>,
 
@@ -1488,6 +1492,12 @@ pub struct ChannelActorState {
 
     // A flag to indicate whether the channel is reestablishing, we won't process any messages until the channel is reestablished.
     pub reestablishing: bool,
+
+    // Channel announcement signatures, may be empty for private channel.
+    // The first signature is signed by the node public key, and
+    // the second signature is partially signed by the funding transaction pubkey.
+    pub local_channel_announcement_signature: Option<(Signature, PartialSignature, PubNonce)>,
+    pub remote_channel_announcement_signature: Option<(Signature, PartialSignature, PubNonce)>,
 
     // A redundant field to record the total amount of the channel.
     // Used only for debugging purposes.
@@ -1661,6 +1671,57 @@ pub fn get_commitment_point(commitment_seed: &[u8; 32], commitment_number: u64) 
 
 // Constructors for the channel actor state.
 impl ChannelActorState {
+    pub fn get_channel_announcement_message(&self) -> Option<ChannelAnnouncement> {
+        let (local_node_signature, local_partial_signature, local_nonce) =
+            self.local_channel_announcement_signature.clone()?;
+        let (remote_node_signature, remote_partial_signature, remote_nonce) =
+            self.remote_channel_announcement_signature.clone()?;
+        let nonces = self.order_things_for_musig2(local_nonce, remote_nonce);
+        let agg_nonce = AggNonce::sum(nonces);
+        let partial_signatures =
+            self.order_things_for_musig2(local_partial_signature, remote_partial_signature);
+
+        let short_channel_id = self.get_short_channel_id()?;
+
+        let (node_1_id, node_1_signature, node_2_id, node_2_signature) =
+            if self.local_pubkey < self.remote_pubkey {
+                (
+                    self.local_pubkey,
+                    local_node_signature,
+                    self.remote_pubkey,
+                    remote_node_signature,
+                )
+            } else {
+                (
+                    self.remote_pubkey,
+                    remote_node_signature,
+                    self.local_pubkey,
+                    local_node_signature,
+                )
+            };
+
+        let mut unsigned = ChannelAnnouncement::new_unsigned(
+            &node_1_id,
+            &node_2_id,
+            short_channel_id,
+            Default::default(),
+            &self.get_musig2_agg_pubkey(),
+        );
+
+        let signature = aggregate_partial_signatures(
+            &self.get_musig2_agg_context(),
+            &agg_nonce,
+            partial_signatures,
+            deterministically_hash(&unsigned),
+        )
+        .expect("aggregate partial signatures");
+
+        unsigned.node_1_signature = Some(node_1_signature);
+        unsigned.node_2_signature = Some(node_2_signature);
+        unsigned.ckb_signature = Some(signature);
+        Some(unsigned)
+    }
+
     pub fn new_inbound_channel<'a>(
         temp_channel_id: Hash256,
         local_value: u128,
@@ -1697,6 +1758,7 @@ impl ChannelActorState {
             local_pubkey,
             remote_pubkey,
             funding_tx: None,
+            short_channel_id: None,
             is_acceptor: true,
             funding_udt_type_script,
             to_local_amount: local_value,
@@ -1729,6 +1791,10 @@ impl ChannelActorState {
             remote_reserved_ckb_amount,
 
             reestablishing: false,
+
+            local_channel_announcement_signature: None,
+            remote_channel_announcement_signature: None,
+
             #[cfg(debug_assertions)]
             total_amount: local_value + remote_value,
         }
@@ -1754,6 +1820,7 @@ impl ChannelActorState {
             local_pubkey,
             remote_pubkey,
             funding_tx: None,
+            short_channel_id: None,
             funding_udt_type_script,
             is_acceptor: false,
             to_local_amount: value,
@@ -1783,6 +1850,10 @@ impl ChannelActorState {
             remote_reserved_ckb_amount: 0,
 
             reestablishing: false,
+
+            local_channel_announcement_signature: None,
+            remote_channel_announcement_signature: None,
+
             #[cfg(debug_assertions)]
             total_amount: value,
         }
@@ -2222,6 +2293,10 @@ impl ChannelActorState {
             .expect("Funding transaction is present")
     }
 
+    pub fn get_short_channel_id(&self) -> Option<u64> {
+        self.short_channel_id
+    }
+
     pub fn get_funding_transaction_outpoint(&self) -> OutPoint {
         let tx = self.get_funding_transaction();
         // By convention, the funding tx output for the channel is the first output.
@@ -2518,6 +2593,10 @@ impl ChannelActorState {
                 || tlc.removal_confirmed_at.is_none()
                 || tlc.removed_at.is_none()
         })
+    }
+
+    pub fn get_local_funding_pubkey(&self) -> &Pubkey {
+        &self.get_local_channel_parameters().pubkeys.funding_pubkey
     }
 
     pub fn get_remote_funding_pubkey(&self) -> &Pubkey {
