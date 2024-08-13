@@ -1504,6 +1504,42 @@ pub enum CFNMessage {
     ChannelUpdate(ChannelUpdate),
 }
 
+impl CFNMessage {
+    pub fn is_broadcast_message(&self) -> bool {
+        match self {
+            CFNMessage::NodeAnnouncement(_)
+            | CFNMessage::ChannelAnnouncement(_)
+            | CFNMessage::ChannelUpdate(_) => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum CFNBroadcastMessage {
+    NodeAnnouncement(NodeAnnouncement),
+    ChannelAnnouncement(ChannelAnnouncement),
+    ChannelUpdate(ChannelUpdate),
+}
+
+impl TryFrom<CFNMessage> for CFNBroadcastMessage {
+    type Error = ();
+    fn try_from(value: CFNMessage) -> Result<Self, Self::Error> {
+        match value {
+            CFNMessage::NodeAnnouncement(node_announcement) => {
+                Ok(CFNBroadcastMessage::NodeAnnouncement(node_announcement))
+            }
+            CFNMessage::ChannelAnnouncement(channel_announcement) => Ok(
+                CFNBroadcastMessage::ChannelAnnouncement(channel_announcement),
+            ),
+            CFNMessage::ChannelUpdate(channel_update) => {
+                Ok(CFNBroadcastMessage::ChannelUpdate(channel_update))
+            }
+            _ => Err(()),
+        }
+    }
+}
+
 impl From<CFNMessage> for molecule_cfn::CFNMessageUnion {
     fn from(cfn_message: CFNMessage) -> Self {
         match cfn_message {

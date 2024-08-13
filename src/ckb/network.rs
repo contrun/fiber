@@ -38,7 +38,7 @@ use super::channel::{
 };
 use super::config::AnnouncedNodeName;
 use super::key::blake2b_hash_with_salt;
-use super::types::{Hash256, NodeAnnouncement, OpenChannel, Privkey, Pubkey};
+use super::types::{CFNBroadcastMessage, Hash256, NodeAnnouncement, OpenChannel, Privkey, Pubkey};
 use super::{
     channel::{ChannelActor, ChannelCommand, ChannelInitializationParameter},
     types::CFNMessage,
@@ -105,7 +105,7 @@ pub enum NetworkActorCommand {
     UpdateChannelFunding(Hash256, Transaction, FundingRequest),
     SignTx(PeerId, Hash256, Transaction, Option<Vec<Vec<u8>>>),
     // Broadcast node/channel information
-    BroadcastNodeAnnouncement(NodeAnnouncement),
+    BroadcastMessage(CFNBroadcastMessage),
 }
 
 #[derive(Debug)]
@@ -313,7 +313,11 @@ where
                     }
                 }
             }
-            CFNMessage::NodeAnnouncement(_) => todo!("Process NodeAnnouncement messages"),
+            _ if message.is_broadcast_message() => {
+                state
+                    .on_broadcasted_message(CFNBroadcastMessage::try_from(message).unwrap())
+                    .await;
+            }
             _ => {
                 let channel_id = match &message {
                     CFNMessage::AcceptChannel(accept_channel) => accept_channel.channel_id,
@@ -752,10 +756,10 @@ where
                     ))
                     .expect("network actor alive");
             }
-            NetworkActorCommand::BroadcastNodeAnnouncement(node_announcement) => {
+            NetworkActorCommand::BroadcastMessage(message) => {
                 warn!(
                     "Broadcasting node announcement is not implemented yet: {:?}",
-                    node_announcement
+                    message
                 );
             }
         };
@@ -1258,6 +1262,13 @@ impl NetworkActorState {
         });
     }
 
+    async fn on_broadcasted_message(&mut self, message: CFNBroadcastMessage) {
+        warn!(
+            "Broadcasted message received but not handled: {:?}",
+            &message
+        );
+    }
+
     async fn on_funding_transaction_confirmed(&mut self, outpoint: OutPoint) {
         let channel_id = match self.pending_channels.remove(&outpoint) {
             Some(channel_id) => channel_id,
@@ -1381,7 +1392,9 @@ where
         if let Some(message) = state.get_node_announcement_message() {
             myself
                 .send_message(NetworkActorMessage::new_command(
-                    NetworkActorCommand::BroadcastNodeAnnouncement(message),
+                    NetworkActorCommand::BroadcastMessage(CFNBroadcastMessage::NodeAnnouncement(
+                        message,
+                    )),
                 ))
                 .expect(ASSUME_NETWORK_MYSELF_ALIVE);
         }
