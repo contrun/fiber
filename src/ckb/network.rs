@@ -1,7 +1,8 @@
-use ckb_jsonrpc_types::Status;
+use ckb_jsonrpc_types::{BlockNumber, Status, TxStatus};
 use ckb_types::core::TransactionView;
 use ckb_types::packed::{OutPoint, Script, Transaction};
 use ckb_types::prelude::{IntoTransactionView, Pack, Unpack};
+use ckb_types::H256;
 use log::{debug, error, info, warn};
 
 use ractor::{
@@ -198,7 +199,7 @@ pub enum NetworkActorEvent {
     FundingTransactionPending(Transaction, OutPoint, Hash256),
 
     /// A funding transaction has been confirmed.
-    FundingTransactionConfirmed(OutPoint),
+    FundingTransactionConfirmed(OutPoint, H256, u64),
 
     /// A funding transaction has been confirmed.
     FundingTransactionFailed(OutPoint),
@@ -513,8 +514,10 @@ where
                     .on_funding_transaction_pending(transaction, outpoint.clone(), channel_id)
                     .await;
             }
-            NetworkActorEvent::FundingTransactionConfirmed(outpoint) => {
-                state.on_funding_transaction_confirmed(outpoint).await;
+            NetworkActorEvent::FundingTransactionConfirmed(outpoint, hash, height) => {
+                state
+                    .on_funding_transaction_confirmed(outpoint, hash, height)
+                    .await;
             }
             NetworkActorEvent::FundingTransactionFailed(_outpoint) => {
                 unimplemented!("handling funding transaction failed");
@@ -753,7 +756,7 @@ where
                     .expect("network actor alive");
             }
             NetworkActorCommand::BroadcastNodeAnnouncement(_) => {
-                todo!("Process node annoucement")
+                debug!("Process node annoucement")
             }
         };
         Ok(())
@@ -1228,9 +1231,14 @@ impl NetworkActorState {
                 DEFAULT_CHAIN_ACTOR_TIMEOUT,
                 request.clone()
             ) {
-                Ok(status) if status.status == Status::Committed => {
+                Ok(TxStatus {
+                    status: Status::Committed,
+                    block_hash: Some(hash),
+                    block_number: Some(height),
+                    ..
+                }) => {
                     info!("Funding transaction {:?} confirmed", &request.tx_hash,);
-                    NetworkActorEvent::FundingTransactionConfirmed(outpoint)
+                    NetworkActorEvent::FundingTransactionConfirmed(outpoint, hash, height.into())
                 }
                 Ok(status) => {
                     error!(
@@ -1255,7 +1263,12 @@ impl NetworkActorState {
         });
     }
 
-    async fn on_funding_transaction_confirmed(&mut self, outpoint: OutPoint) {
+    async fn on_funding_transaction_confirmed(
+        &mut self,
+        outpoint: OutPoint,
+        hash: H256,
+        height: u64,
+    ) {
         let channel_id = match self.pending_channels.remove(&outpoint) {
             Some(channel_id) => channel_id,
             None => {
