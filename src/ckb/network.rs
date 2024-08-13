@@ -752,8 +752,11 @@ where
                     ))
                     .expect("network actor alive");
             }
-            NetworkActorCommand::BroadcastNodeAnnouncement(_) => {
-                todo!("Process node annoucement")
+            NetworkActorCommand::BroadcastNodeAnnouncement(node_announcement) => {
+                warn!(
+                    "Broadcasting node announcement is not implemented yet: {:?}",
+                    node_announcement
+                );
             }
         };
         Ok(())
