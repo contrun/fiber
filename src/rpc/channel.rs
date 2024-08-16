@@ -3,7 +3,7 @@ use std::cmp::Reverse;
 use crate::fiber::{
     channel::{
         AddTlcCommand, ChannelActorStateStore, ChannelCommand, ChannelCommandWithId, ChannelState,
-        RemoveTlcCommand, ShutdownCommand,
+        RemoveTlcCommand, ShutdownCommand, UpdateCommand,
     },
     hash_algorithm::HashAlgorithm,
     network::{AcceptChannelCommand, OpenChannelCommand},
@@ -148,6 +148,18 @@ pub struct ShutdownChannelParams {
     pub fee_rate: u64,
 }
 
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UpdateChannelParams {
+    pub channel_id: Hash256,
+    #[serde_as(as = "Option<U64Hex>")]
+    pub cltv_expiry_delta: Option<u64>,
+    #[serde_as(as = "Option<U128Hex>")]
+    pub htlc_minimum_value: Option<u128>,
+    #[serde_as(as = "Option<U128Hex>")]
+    pub fee_value: Option<u128>,
+}
+
 #[rpc(server)]
 pub trait ChannelRpc {
     #[method(name = "open_channel")]
@@ -183,6 +195,9 @@ pub trait ChannelRpc {
     #[method(name = "shutdown_channel")]
     async fn shutdown_channel(&self, params: ShutdownChannelParams)
         -> Result<(), ErrorObjectOwned>;
+
+    #[method(name = "update_channel")]
+    async fn update_channel(&self, params: UpdateChannelParams) -> Result<(), ErrorObjectOwned>;
 }
 
 pub struct ChannelRpcServerImpl<S> {
@@ -354,6 +369,25 @@ where
                             close_script: params.close_script.clone().into(),
                             fee_rate: FeeRate::from_u64(params.fee_rate),
                             force: params.force.unwrap_or(false),
+                        },
+                        rpc_reply,
+                    ),
+                },
+            ))
+        };
+        handle_actor_call!(self.actor, message, params)
+    }
+
+    async fn update_channel(&self, params: UpdateChannelParams) -> Result<(), ErrorObjectOwned> {
+        let message = |rpc_reply| -> NetworkActorMessage {
+            NetworkActorMessage::Command(NetworkActorCommand::ControlFiberChannel(
+                ChannelCommandWithId {
+                    channel_id: params.channel_id,
+                    command: ChannelCommand::Update(
+                        UpdateCommand {
+                            cltv_expiry_delta: params.cltv_expiry_delta,
+                            tlc_minimum_value: params.htlc_minimum_value,
+                            fee_value: params.fee_value,
                         },
                         rpc_reply,
                     ),

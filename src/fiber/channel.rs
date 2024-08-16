@@ -1,5 +1,6 @@
 use bitflags::bitflags;
 
+use lightning::routing::router::DEFAULT_MAX_TOTAL_CLTV_EXPIRY_DELTA;
 use secp256k1::XOnlyPublicKey;
 use tracing::{debug, error, info, warn};
 
@@ -59,10 +60,10 @@ use super::{
     network::FiberMessageWithPeerId,
     serde_utils::EntityHex,
     types::{
-        AcceptChannel, AddTlc, ChannelAnnouncement, ChannelReady, ClosingSigned, CommitmentSigned,
-        EcdsaSignature, FiberChannelNormalOperationMessage, FiberMessage, Hash256, LockTime,
-        OpenChannel, Privkey, Pubkey, ReestablishChannel, RemoveTlc, RemoveTlcFulfill,
-        RemoveTlcReason, RevokeAndAck, TxCollaborationMsg, TxComplete, TxUpdate,
+        AcceptChannel, AddTlc, ChannelAnnouncement, ChannelReady, ChannelUpdate, ClosingSigned,
+        CommitmentSigned, EcdsaSignature, FiberChannelNormalOperationMessage, FiberMessage,
+        Hash256, LockTime, OpenChannel, Privkey, Pubkey, ReestablishChannel, RemoveTlc,
+        RemoveTlcFulfill, RemoveTlcReason, RevokeAndAck, TxCollaborationMsg, TxComplete, TxUpdate,
     },
     NetworkActorCommand, NetworkActorEvent, NetworkActorMessage,
 };
@@ -111,6 +112,7 @@ pub enum ChannelCommand {
     AddTlc(AddTlcCommand, RpcReplyPort<Result<AddTlcResponse, String>>),
     RemoveTlc(RemoveTlcCommand, RpcReplyPort<Result<(), String>>),
     Shutdown(ShutdownCommand, RpcReplyPort<Result<(), String>>),
+    Update(UpdateCommand, RpcReplyPort<Result<(), String>>),
 }
 
 #[derive(Debug)]
@@ -139,6 +141,13 @@ pub struct ShutdownCommand {
     pub close_script: Script,
     pub fee_rate: FeeRate,
     pub force: bool,
+}
+
+#[derive(Debug)]
+pub struct UpdateCommand {
+    pub cltv_expiry_delta: Option<u64>,
+    pub tlc_minimum_value: Option<u128>,
+    pub fee_value: Option<u128>,
 }
 
 fn get_random_preimage() -> Hash256 {
@@ -969,6 +978,45 @@ impl<S> ChannelActor<S> {
                     }
                 }
             }
+            ChannelCommand::Update(command, reply) => {
+                if command.tlc_minimum_value.is_none() && command.fee_value.is_none() && command.cltv_expiry_delta.is_none() {
+                    error!("Update command with no fields to update");
+                    return Ok(());
+                }
+                match command.tlc_minimum_value {
+                    Some(min_value) => {
+                        state.local_tlc_minimum_value = min_value;
+                    }
+                    None => {}
+                };
+                match command.fee_value {
+                    Some(fee_value) => {
+                        state.local_fee_value = fee_value;
+                    }
+                    None => {}
+                };
+
+                let channel_update = ChannelUpdate::new(
+                    Default::default(),
+                    state.get_funding_transaction_outpoint(),
+                    Default::default(),
+                    if state.is_public {
+                        ChannelUpdateMessageFlags::empty()
+                    } else {
+                        ChannelUpdateMessageFlags::DONTFORWARD
+                    },
+                    if state.is_acceptor {
+                        ChannelUpdateChannelFlags::DIRECTION
+                    } else {
+                        ChannelUpdateChannelFlags::empty()
+                    },
+                    
+                    state.local_tlc_minimum_value,
+                    state.local_fee_value,
+                );
+
+                Ok(())
+            }
         }
     }
 
@@ -1113,7 +1161,7 @@ where
 
                 // TODO: we may reject the channel opening request here
                 // if the peer want to open a public channel, but we don't want to.
-                let public = channel_flags.contains(ChannelFlags::PUBLIC);
+                let public = channel_flags.contains(OpenChannelFlags::PUBLIC);
 
                 let mut state = ChannelActorState::new_inbound_channel(
                     *channel_id,
@@ -1248,9 +1296,9 @@ where
                 ])?;
 
                 let channel_flags = if public {
-                    ChannelFlags::PUBLIC
+                    OpenChannelFlags::PUBLIC
                 } else {
-                    ChannelFlags::empty()
+                    OpenChannelFlags::empty()
                 };
                 let channel_announcement_nonce = if public {
                     Some(channel.get_channel_announcement_musig2_pubnonce())
@@ -1549,7 +1597,7 @@ impl TLCId {
 pub struct ChannelActorState {
     pub state: ChannelState,
     // Whether to broadcast channel information to the network.
-    pub public: bool,
+    pub is_public: bool,
     // The local public key used to establish p2p network connection.
     pub local_pubkey: Pubkey,
     // The remote public key used to establish p2p network connection.
@@ -1663,6 +1711,12 @@ pub struct ChannelActorState {
     #[cfg(debug_assertions)]
     pub total_amount: u128,
 
+    pub local_tlc_minimum_value: u128,
+    pub local_fee_value: u128,
+
+    pub remote_tlc_minimum_value: u128,
+    pub remote_fee_value: u128,
+
     pub created_at: SystemTime,
 }
 
@@ -1698,8 +1752,22 @@ pub enum ProcessingChannelError {
 bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(transparent)]
-    pub struct ChannelFlags: u8 {
+    pub struct OpenChannelFlags: u8 {
         const PUBLIC = 1;
+    }
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(transparent)]
+    pub struct ChannelUpdateMessageFlags: u8 {
+        const DONTFORWARD = 1;
+    }
+
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(transparent)]
+    pub struct ChannelUpdateChannelFlags: u8 {
+        const DIRECTION = 1;
+        const DISABLE = 1 >> 1;
     }
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1862,7 +1930,7 @@ impl ChannelActorState {
         &mut self,
         network: &ActorRef<NetworkActorMessage>,
     ) -> Option<ChannelAnnouncement> {
-        if !self.public {
+        if !self.is_public {
             debug!("Ignoring non-public channel announcement");
             return None;
         }
@@ -2013,7 +2081,7 @@ impl ChannelActorState {
 
         Self {
             state: ChannelState::NegotiatingFunding(NegotiatingFundingFlags::THEIR_INIT_SENT),
-            public,
+            is_public: public,
             local_pubkey,
             remote_pubkey,
             channel_announcement: None,
@@ -2085,7 +2153,7 @@ impl ChannelActorState {
         Self {
             state: ChannelState::NegotiatingFunding(NegotiatingFundingFlags::empty()),
             channel_announcement: None,
-            public,
+            is_public: public,
             local_pubkey,
             remote_pubkey,
             funding_tx: None,

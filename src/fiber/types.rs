@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use super::channel::ChannelFlags;
+use super::channel::{ChannelUpdateChannelFlags, ChannelUpdateMessageFlags, OpenChannelFlags};
 use super::config::AnnouncedNodeName;
 use super::gen::fiber::{self as molecule_fiber, PubNonce as Byte66};
 use super::hash_algorithm::{HashAlgorithm, UnknownHashAlgorithmError};
@@ -614,7 +614,7 @@ pub struct OpenChannel {
     pub second_per_commitment_point: Pubkey,
     pub channel_announcement_nonce: Option<PubNonce>,
     pub next_local_nonce: PubNonce,
-    pub channel_flags: ChannelFlags,
+    pub channel_flags: OpenChannelFlags,
 }
 
 impl OpenChannel {
@@ -692,7 +692,7 @@ impl TryFrom<molecule_fiber::OpenChannel> for OpenChannel {
                 .map(TryInto::try_into)
                 .transpose()
                 .map_err(|err| Error::Musig2(format!("{err}")))?,
-            channel_flags: ChannelFlags::from_bits(open_channel.channel_flags().into()).ok_or(
+            channel_flags: OpenChannelFlags::from_bits(open_channel.channel_flags().into()).ok_or(
                 anyhow!("Invalid channel flags: {}", open_channel.channel_flags()),
             )?,
         })
@@ -1582,14 +1582,39 @@ pub struct ChannelUpdate {
     #[serde_as(as = "EntityHex")]
     pub channel_outpoint: OutPoint,
     pub timestamp: u64,
-    pub message_flags: u32,
-    pub channel_flags: u32,
+    pub message_flags: ChannelUpdateMessageFlags,
+    pub channel_flags: ChannelUpdateChannelFlags,
     pub cltv_expiry_delta: u64,
-    pub htlc_minimum_value: u128,
+    pub tlc_minimum_value: u128,
     pub fee_value: u128,
 }
 
 impl ChannelUpdate {
+    pub fn new(
+        chain_hash: Hash256,
+        channel_outpoint: OutPoint,
+        timestamp: u64,
+        message_flags: ChannelUpdateMessageFlags,
+        channel_flags: ChannelUpdateChannelFlags,
+        cltv_expiry_delta: u64,
+        tlc_minimum_value: u128,
+        fee_value: u128,
+    ) -> Self {
+        Self {
+            signature: None,
+            chain_hash,
+            channel_outpoint,
+            timestamp,
+
+            message_flags,
+            channel_flags,
+            tlc_minimum_value,
+            cltv_expiry_delta,
+
+            fee_value,
+        }
+    }
+
     pub fn message_to_sign(&self) -> [u8; 32] {
         let unsigned_update = ChannelUpdate {
             signature: None,
@@ -1599,7 +1624,7 @@ impl ChannelUpdate {
             message_flags: self.message_flags,
             channel_flags: self.channel_flags,
             cltv_expiry_delta: self.cltv_expiry_delta,
-            htlc_minimum_value: self.htlc_minimum_value,
+            tlc_minimum_value: self.tlc_minimum_value,
             fee_value: self.fee_value,
         };
         deterministically_hash(&unsigned_update)
@@ -1625,7 +1650,7 @@ impl From<ChannelUpdate> for molecule_fiber::ChannelUpdate {
             .message_flags(channel_update.message_flags.pack())
             .channel_flags(channel_update.channel_flags.pack())
             .cltv_expiry_delta(channel_update.cltv_expiry_delta.pack())
-            .htlc_minimum_value(channel_update.htlc_minimum_value.pack())
+            .htlc_minimum_value(channel_update.tlc_minimum_value.pack())
             .fee_value(channel_update.fee_value.pack())
             .build()
     }
@@ -1643,7 +1668,7 @@ impl TryFrom<molecule_fiber::ChannelUpdate> for ChannelUpdate {
             message_flags: channel_update.message_flags().unpack(),
             channel_flags: channel_update.channel_flags().unpack(),
             cltv_expiry_delta: channel_update.cltv_expiry_delta().unpack(),
-            htlc_minimum_value: channel_update.htlc_minimum_value().unpack(),
+            tlc_minimum_value: channel_update.htlc_minimum_value().unpack(),
             fee_value: channel_update.fee_value().unpack(),
         })
     }
