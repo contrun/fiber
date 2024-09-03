@@ -111,7 +111,9 @@ impl Batch {
                 // Save channel announcement block numbers to index, so that we can query channels by block number
                 self.put(
                     [
-                        CHANNEL_ANNOUNCEMENT_INDEX_PREFIX.to_be_bytes().as_slice(),
+                        CHANNEL_ANNOUNCEMENT_INDEX_BLOCKNUMBER_PREFIX
+                            .to_be_bytes()
+                            .as_slice(),
                         channel.funding_tx_block_number.to_be_bytes().as_slice(),
                         channel.funding_tx_index.to_be_bytes().as_slice(),
                     ]
@@ -191,7 +193,7 @@ const CHANNEL_ACTOR_STATE_PREFIX: u8 = 0;
 const CKB_INVOICE_PREFIX: u8 = 32;
 const PEER_ID_CHANNEL_ID_PREFIX: u8 = 64;
 const CHANNEL_INFO_PREFIX: u8 = 96;
-const CHANNEL_ANNOUNCEMENT_INDEX_PREFIX: u8 = 97;
+const CHANNEL_ANNOUNCEMENT_INDEX_BLOCKNUMBER_PREFIX: u8 = 97;
 const CHANNEL_UPDATE_INDEX_PREFIX: u8 = 98;
 const NODE_INFO_PREFIX: u8 = 128;
 const NODE_ANNOUNCEMENT_INDEX_PREFIX: u8 = 129;
