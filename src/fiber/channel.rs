@@ -1529,6 +1529,19 @@ where
                     .expect("channel should exist");
                 channel.reestablishing = true;
 
+                self.network
+                    .send_message(NetworkActorMessage::new_event(
+                        NetworkActorEvent::ChannelCreated(
+                            channel.get_id(),
+                            channel.get_remote_peer_id(),
+                            myself,
+                        ),
+                    ))
+                    .expect(ASSUME_NETWORK_ACTOR_ALIVE);
+
+                // Note that we must send the reestablish_channel message to the peer
+                // after the network actor have processed above message. Otherwise, the
+                // network may not
                 let reestablish_channel = ReestablishChannel {
                     channel_id,
                     local_commitment_number: channel.get_current_commitment_number(true),
@@ -1543,16 +1556,6 @@ where
                 self.network
                     .send_message(NetworkActorMessage::new_command(
                         NetworkActorCommand::SendFiberMessage(command),
-                    ))
-                    .expect(ASSUME_NETWORK_ACTOR_ALIVE);
-
-                self.network
-                    .send_message(NetworkActorMessage::new_event(
-                        NetworkActorEvent::ChannelCreated(
-                            channel.get_id(),
-                            channel.get_remote_peer_id(),
-                            myself,
-                        ),
                     ))
                     .expect(ASSUME_NETWORK_ACTOR_ALIVE);
 

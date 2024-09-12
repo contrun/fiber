@@ -1369,7 +1369,7 @@ where
                     &mut state.broadcasted_message_queue,
                     &mut broadcasted_message_queue,
                 );
-                for message in broadcasted_message_queue.drain(..) {
+                for message in broadcasted_message_queue {
                     let (_peer_id, message) = message;
                     if let Err(e) = self
                         .process_broadcasted_message(&state.network, message)
