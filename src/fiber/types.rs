@@ -1731,10 +1731,16 @@ pub enum FiberQueryInformation {
 
 #[derive(Debug, Clone)]
 pub enum FiberMessage {
-    ChannelInitialization(OpenChannel),
+    ChannelInitialization(ChannelInitialization),
     ChannelNormalOperation(FiberChannelMessage),
     BroadcastMessage(FiberBroadcastMessage),
     QueryInformation(FiberQueryInformation),
+}
+
+#[derive(Debug, Clone)]
+pub enum ChannelInitialization {
+    OpenChannel(OpenChannel),
+    ReestablishChannel(ReestablishChannel),
 }
 
 impl FiberMessage {
@@ -1843,7 +1849,6 @@ pub enum FiberChannelMessage {
     AddTlc(AddTlc),
     RevokeAndAck(RevokeAndAck),
     RemoveTlc(RemoveTlc),
-    ReestablishChannel(ReestablishChannel),
     AnnouncementSignatures(AnnouncementSignatures),
 }
 

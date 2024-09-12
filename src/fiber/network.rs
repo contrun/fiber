@@ -51,10 +51,10 @@ use super::graph::{NetworkGraph, NetworkGraphStateStore};
 use super::graph_syncer::{GraphSyncer, GraphSyncerMessage};
 use super::key::blake2b_hash_with_salt;
 use super::types::{
-    ChannelAnnouncementQuery, ChannelUpdateQuery, EcdsaSignature, FiberBroadcastMessage,
-    FiberBroadcastMessageQuery, FiberMessage, FiberQueryInformation, GetBroadcastMessages,
-    GetBroadcastMessagesResult, Hash256, NodeAnnouncement, NodeAnnouncementQuery, OpenChannel,
-    Privkey, Pubkey, QueryBroadcastMessagesWithinTimeRange,
+    ChannelAnnouncementQuery, ChannelInitialization, ChannelUpdateQuery, EcdsaSignature,
+    FiberBroadcastMessage, FiberBroadcastMessageQuery, FiberMessage, FiberQueryInformation,
+    GetBroadcastMessages, GetBroadcastMessagesResult, Hash256, NodeAnnouncement,
+    NodeAnnouncementQuery, OpenChannel, Privkey, Pubkey, QueryBroadcastMessagesWithinTimeRange,
     QueryBroadcastMessagesWithinTimeRangeResult, QueryChannelsWithinBlockRange,
     QueryChannelsWithinBlockRangeResult,
 };
@@ -430,7 +430,9 @@ where
         match message {
             // We should process OpenChannel message here because there is no channel corresponding
             // to the channel id in the message yet.
-            FiberMessage::ChannelInitialization(open_channel) => {
+            FiberMessage::ChannelInitialization(ChannelInitialization::OpenChannel(
+                open_channel,
+            )) => {
                 let temp_channel_id = open_channel.channel_id;
                 match state
                     .on_open_channel_msg(peer_id, open_channel.clone())
@@ -462,6 +464,9 @@ where
                     }
                 }
             }
+            FiberMessage::ChannelInitialization(ChannelInitialization::ReestablishChannel(
+                open_channel,
+            )) => {}
             FiberMessage::BroadcastMessage(m) => {
                 if let Err(e) = self
                     .process_or_stash_broadcasted_message(state, peer_id, m)
