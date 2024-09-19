@@ -4159,6 +4159,7 @@ impl ChannelActorState {
             network
                 .send_message(NetworkActorMessage::new_command(
                     NetworkActorCommand::BroadcastMessage(
+                        false,
                         vec![self.get_remote_peer_id()],
                         FiberBroadcastMessage::ChannelAnnouncement(channel_annoucement),
                     ),
@@ -4195,6 +4196,7 @@ impl ChannelActorState {
         network
             .send_message(NetworkActorMessage::new_command(
                 NetworkActorCommand::BroadcastMessage(
+                    false,
                     vec![self.get_remote_peer_id()],
                     FiberBroadcastMessage::ChannelUpdate(channel_update),
                 ),

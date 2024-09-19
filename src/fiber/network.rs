@@ -140,11 +140,15 @@ pub enum NetworkActorCommand {
     UpdateChannelFunding(Hash256, Transaction, FundingRequest),
     SignTx(PeerId, Hash256, Transaction, Option<Vec<Vec<u8>>>),
     // Broadcast node/channel information.
+    // The first parameter indicates whether the message should force broadcasted.
+    // Some messages should be re-broadcasted even if they are already broadcasted.
+    // This is some network-level "keep-alive" messages (e.g. NodeAnnouncement
+    // and ChannelUpdate to tell the network nodes/channels are still active).
     // The vector of PeerId is the list of peers that should receive the message.
     // This is useful when some peers are preferred to receive the message.
     // e.g. the ChannelUpdate message should be received by the counterparty of the channel.
     // This message may be broadcasted to other peers if necessary.
-    BroadcastMessage(Vec<PeerId>, FiberBroadcastMessage),
+    BroadcastMessage(bool, Vec<PeerId>, FiberBroadcastMessage),
     // Broadcast local information to the network.
     BroadcastLocalInfo(LocalInfoKind),
     SignMessage([u8; 32], RpcReplyPort<EcdsaSignature>),
@@ -1349,7 +1353,7 @@ where
                     ))
                     .expect("network actor alive");
             }
-            NetworkActorCommand::BroadcastMessage(peers, message) => {
+            NetworkActorCommand::BroadcastMessage(force_broadcast, peers, message) => {
                 // Send message to peers in the list anyway.
                 debug!("Broadcasting message {:?} to peers {:?}", &message, &peers);
                 for peer_id in &peers {
@@ -1374,7 +1378,9 @@ where
                 // The order matters here because should_message_be_broadcasted
                 // will change the state, and we don't want to change the state
                 // if there is not peer to broadcast the message.
-                if !peer_ids.is_empty() && state.should_message_be_broadcasted(&message) {
+                if !peer_ids.is_empty()
+                    && (force_broadcast || state.should_message_be_broadcasted(&message))
+                {
                     debug!(
                         "Broadcasting unseen message {:?} to peers {:?}",
                         &message, &peer_ids
@@ -1416,6 +1422,7 @@ where
                     myself
                         .send_message(NetworkActorMessage::new_command(
                             NetworkActorCommand::BroadcastMessage(
+                                true,
                                 vec![],
                                 FiberBroadcastMessage::NodeAnnouncement(message),
                             ),
@@ -1501,7 +1508,7 @@ where
         state
             .network
             .send_message(NetworkActorMessage::new_command(
-                NetworkActorCommand::BroadcastMessage(vec![], message.clone()),
+                NetworkActorCommand::BroadcastMessage(false, vec![], message.clone()),
             ))
             .expect(ASSUME_NETWORK_MYSELF_ALIVE);
         self.process_broadcasted_message(&state.network, message)
