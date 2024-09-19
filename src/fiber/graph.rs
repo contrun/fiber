@@ -572,6 +572,12 @@ where
         let Some(_target_node) = self.nodes.get(&target) else {
             return Err(GraphError::PathFind("target node not found".to_string()));
         };
+        debug!(
+            "find_route: source: {:?}, target: {:?}, amount: {:?}, max_fee_amount: {:?}",
+            source, target, amount, max_fee_amount
+        );
+        debug!("all the channels in the network: {:?}", self.channels);
+        debug!("all the nodes in the network: {:?}", self.nodes);
         // initialize the target node
         nodes_heap.push(NodeHeapElement {
             node_id: target,
