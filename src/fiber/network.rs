@@ -2565,6 +2565,19 @@ where
         }
 
         for channel_id in store.get_active_channel_ids_by_peer(remote_peer_id) {
+            if let Some(channel_out_point) = store
+                .get_channel_actor_state(&channel_id)
+                .expect("Must have channel state")
+                .get_funding_transaction_outpoint_opt()
+            {
+                debug!(
+                    "Getting channel {:x} with outpoint {:?} for peer {:?}",
+                    &channel_id, &channel_out_point, remote_peer_id
+                );
+                self.outpoint_channel_map
+                    .insert(channel_out_point, channel_id);
+            }
+
             if let Err(e) = self.reestablish_channel(remote_peer_id, channel_id).await {
                 error!("Failed to reestablish channel {:x}: {:?}", &channel_id, &e);
             }

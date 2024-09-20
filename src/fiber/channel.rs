@@ -3217,20 +3217,24 @@ impl ChannelActorState {
         self.remote_channel_parameters.as_ref().unwrap()
     }
 
+    pub fn get_funding_transaction_opt(&self) -> Option<&Transaction> {
+        self.funding_tx.as_ref()
+    }
+
     pub fn get_funding_transaction(&self) -> &Transaction {
-        self.funding_tx
-            .as_ref()
+        self.get_funding_transaction_opt()
             .expect("Funding transaction is present")
     }
 
-    pub fn get_funding_transaction_outpoint(&self) -> OutPoint {
-        let tx = self.get_funding_transaction();
-        debug!(
-            "Funding transaction lock args: {:?}",
-            tx.raw().outputs().get(0).unwrap().lock().args()
-        );
+    pub fn get_funding_transaction_outpoint_opt(&self) -> Option<OutPoint> {
         // By convention, the funding tx output for the channel is the first output.
-        OutPoint::new(tx.calc_tx_hash(), 0)
+        self.get_funding_transaction_opt()
+            .map(|tx| OutPoint::new(tx.calc_tx_hash(), 0))
+    }
+
+    pub fn get_funding_transaction_outpoint(&self) -> OutPoint {
+        self.get_funding_transaction_outpoint_opt()
+            .expect("Funding transaction outpoint is present")
     }
 
     pub fn get_local_shutdown_script(&self) -> &Script {
