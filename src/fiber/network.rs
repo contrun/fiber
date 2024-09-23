@@ -333,6 +333,7 @@ pub enum NetworkServiceEvent {
     ServiceError(ServiceError),
     ServiceEvent(ServiceEvent),
     NetworkStarted(PeerId, MultiAddr, Vec<Multiaddr>),
+    NetworkStopped(PeerId),
     PeerConnected(PeerId, Multiaddr),
     PeerDisConnected(PeerId, Multiaddr),
     // An incoming/outgoing channel is created.
@@ -2008,7 +2009,7 @@ pub struct NetworkActorState<S> {
 }
 
 #[serde_as]
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct PersistentNetworkActorState {
     // when we restarting a node, we will reconnect to these peers
     #[serde_as(as = "Vec<(DisplayFromStr, _)>")]
@@ -3256,6 +3257,10 @@ where
         self.store
             .insert_network_actor_state(&state.peer_id, state.persistent_state.clone());
         debug!("Network service for {:?} shutdown", state.peer_id);
+        self.event_sender
+            .send(NetworkServiceEvent::NetworkStopped(state.peer_id.clone()))
+            .await
+            .expect("send network stopped event");
         Ok(())
     }
 
