@@ -536,6 +536,8 @@ mod test_utils {
                     }
                 }
                 TraceTx(tx, reply_port) => {
+                    debug!("Tracing transaction: {:?}", &tx.tx_hash);
+                    debug!("State tx status: {:?}", state.tx_status);
                     let (tx_view, status) = match state.tx_status.get(&tx.tx_hash).cloned() {
                         Some((tx_view, status)) => (Some(tx_view), status),
                         None => (None, ckb_jsonrpc_types::Status::Unknown),
@@ -576,6 +578,7 @@ mod test_utils {
         mock_actor: ActorRef<CkbChainMessage>,
         tx: TransactionView,
     ) -> ckb_jsonrpc_types::Status {
+        debug!("Submitting tx: {:?}", &tx);
         pub const TIMEOUT: u64 = 1000;
         if let Err(error) = call_t!(mock_actor, CkbChainMessage::SendTx, TIMEOUT, tx.clone())
             .expect("chain actor alive")
@@ -597,6 +600,7 @@ mod test_utils {
         mock_actor: ActorRef<CkbChainMessage>,
         tx_hash: Byte32,
     ) -> ckb_jsonrpc_types::Status {
+        debug!("trace tx hash: {:?}", &tx_hash);
         pub const TIMEOUT: u64 = 1000;
         let request = TraceTxRequest {
             tx_hash,
