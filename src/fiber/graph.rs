@@ -324,6 +324,8 @@ where
         end_block: u64,
     ) -> (impl Iterator<Item = &ChannelInfo>, u64, bool) {
         (
+            // TODO: we need to properly paginate the channels instead of
+            // dumping all of them here.
             self.channels.values().filter(move |channel| {
                 channel.funding_tx_block_number >= start_block
                     && channel.funding_tx_block_number < end_block
