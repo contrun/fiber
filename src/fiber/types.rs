@@ -364,6 +364,7 @@ impl Privkey {
         EcdsaSignature::from(sig)
     }
 
+    #[cfg(test)]
     pub fn x_only_pub_key(&self) -> XOnlyPublicKey {
         let secp256k1_instance = secp256k1_instance();
         let secret_key = self.0;
@@ -371,20 +372,13 @@ impl Privkey {
         XOnlyPublicKey::from_keypair(&keypair).0
     }
 
+    #[cfg(test)]
     pub fn sign_schnorr(&self, message: [u8; 32]) -> SchnorrSignature {
         let secp256k1_instance = secp256k1_instance();
         let secret_key = self.0;
         let keypair = secp256k1::Keypair::from_secret_key(secp256k1_instance, &secret_key);
         let message = secp256k1::Message::from_digest(message);
-        let sig = secp256k1_instance.sign_schnorr(&message, &keypair);
-        trace!(
-            "Schnorr signing message {:?} with private key {:?} (pub key {:?}), Signature: {:?}",
-            message,
-            keypair.secret_key(),
-            keypair.public_key(),
-            &sig
-        );
-        sig
+        secp256k1_instance.sign_schnorr(&message, &keypair)
     }
 }
 
