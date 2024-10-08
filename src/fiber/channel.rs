@@ -4788,10 +4788,8 @@ impl ChannelActorState {
     // signature from the other party), else we are building a commitment transaction
     // for the remote party (we build this commitment transaction
     // normally because we want to send a partial signature to remote).
-    // The function returns a tuple, the first element is the commitment transaction itself,
-    // and the second element is the message to be signed by the each party,
-    // so as to consume the funding cell. The last element is the witnesses for the
-    // commitment transaction.
+    // The function returns a tuple, the first element is the commitment transaction,
+    // and the second element is the settlement transaction.
     pub fn build_commitment_and_settlement_tx(
         &self,
         local: bool,
@@ -5223,28 +5221,6 @@ pub struct ChannelParametersOneParty {
     pub selected_contest_delay: LockTime,
 }
 
-impl ChannelParametersOneParty {
-    pub fn funding_pubkey(&self) -> &Pubkey {
-        &self.pubkeys.funding_pubkey
-    }
-
-    pub fn payment_base_key(&self) -> &Pubkey {
-        &self.pubkeys.payment_base_key
-    }
-
-    pub fn delayed_payment_base_key(&self) -> &Pubkey {
-        &self.pubkeys.delayed_payment_base_key
-    }
-
-    pub fn revocation_base_key(&self) -> &Pubkey {
-        &self.pubkeys.revocation_base_key
-    }
-
-    pub fn tlc_base_key(&self) -> &Pubkey {
-        &self.pubkeys.tlc_base_key
-    }
-}
-
 /// One counterparty's public keys which do not change over the life of a channel.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChannelBasePublicKeys {
@@ -5417,24 +5393,7 @@ fn derive_public_key(base_key: &Pubkey, commitment_point: &Pubkey) -> Pubkey {
     base_key.tweak(get_tweak_by_commitment_point(commitment_point))
 }
 
-pub fn derive_revocation_pubkey(base_key: &Pubkey, commitment_point: &Pubkey) -> Pubkey {
-    let result = derive_public_key(commitment_point, base_key);
-    debug!(
-        "Derived revocation pub key from commitment point {:?}, base_key {:?}, result {:?}",
-        &commitment_point, &base_key, &result
-    );
-    result
-}
-
-pub fn derive_payment_pubkey(base_key: &Pubkey, commitment_point: &Pubkey) -> Pubkey {
-    derive_public_key(base_key, commitment_point)
-}
-
-pub fn derive_delayed_payment_pubkey(base_key: &Pubkey, commitment_point: &Pubkey) -> Pubkey {
-    derive_public_key(base_key, commitment_point)
-}
-
-pub fn derive_tlc_pubkey(base_key: &Pubkey, commitment_point: &Pubkey) -> Pubkey {
+fn derive_tlc_pubkey(base_key: &Pubkey, commitment_point: &Pubkey) -> Pubkey {
     derive_public_key(base_key, commitment_point)
 }
 
@@ -5517,33 +5476,6 @@ impl InMemorySigner {
         get_commitment_secret(&self.commitment_seed, commitment_number)
     }
 
-    pub fn derive_revocation_key(&self, commitment_number: u64) -> Privkey {
-        let per_commitment_secret = self.get_commitment_secret(commitment_number);
-        // Note that here we don't derive private key in the same way as we ususally do.
-        // Instead we use per commitment secret as "master key" and public revocation key
-        // as derivation material. In this way when we reveal the per round "master key",
-        // the counterparty can obtain the secret key for that round.
-        derive_private_key(
-            &per_commitment_secret.into(),
-            &self.revocation_base_key.pubkey(),
-        )
-    }
-
-    pub fn derive_payment_key(&self, new_commitment_number: u64) -> Privkey {
-        let per_commitment_point = self.get_commitment_point(new_commitment_number);
-        derive_private_key(&self.payment_key, &per_commitment_point)
-    }
-
-    pub fn derive_delayed_payment_key(&self, new_commitment_number: u64) -> Privkey {
-        let per_commitment_point = self.get_commitment_point(new_commitment_number);
-        derive_private_key(&self.delayed_payment_base_key, &per_commitment_point)
-    }
-
-    pub fn derive_tlc_key(&self, new_commitment_number: u64) -> Privkey {
-        let per_commitment_point = self.get_commitment_point(new_commitment_number);
-        derive_private_key(&self.tlc_base_key, &per_commitment_point)
-    }
-
     // TODO: Verify that this is a secure way to derive the nonce.
     pub fn derive_musig2_nonce(&self, commitment_number: u64) -> SecNonce {
         let commitment_point = self.get_commitment_point(commitment_number);
@@ -5562,8 +5494,8 @@ mod tests {
         ckb::contracts::{get_cell_deps, Contract},
         fiber::{
             channel::{
-                derive_revocation_pubkey, AddTlcCommand, ChannelCommand, ChannelCommandWithId,
-                RemoveTlcCommand, ShutdownCommand, DEFAULT_COMMITMENT_FEE_RATE,
+                AddTlcCommand, ChannelCommand, ChannelCommandWithId, RemoveTlcCommand,
+                ShutdownCommand, DEFAULT_COMMITMENT_FEE_RATE,
             },
             hash_algorithm::HashAlgorithm,
             network::{AcceptChannelCommand, OpenChannelCommand},
@@ -5611,19 +5543,6 @@ mod tests {
         let per_commitment_point = Privkey::from(&[2; 32]).pubkey();
         let derived_privkey = derive_private_key(&privkey, &per_commitment_point);
         let derived_pubkey = derive_tlc_pubkey(&privkey.pubkey(), &per_commitment_point);
-        assert_eq!(derived_privkey.pubkey(), derived_pubkey);
-    }
-
-    #[test]
-    fn test_derive_private_and_public_revocation_keys() {
-        let base_revocation_key = Privkey::from(&[1; 32]);
-        let per_commitment_secret = Privkey::from(&[2; 32]);
-        let derived_privkey =
-            derive_private_key(&per_commitment_secret, &base_revocation_key.pubkey());
-        let derived_pubkey = derive_revocation_pubkey(
-            &base_revocation_key.pubkey(),
-            &per_commitment_secret.pubkey(),
-        );
         assert_eq!(derived_privkey.pubkey(), derived_pubkey);
     }
 
