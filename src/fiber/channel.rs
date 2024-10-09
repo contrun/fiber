@@ -5385,16 +5385,8 @@ pub fn get_tweak_by_commitment_point(commitment_point: &Pubkey) -> [u8; 32] {
     result
 }
 
-fn derive_private_key(secret: &Privkey, commitment_point: &Pubkey) -> Privkey {
-    secret.tweak(get_tweak_by_commitment_point(commitment_point))
-}
-
-fn derive_public_key(base_key: &Pubkey, commitment_point: &Pubkey) -> Pubkey {
-    base_key.tweak(get_tweak_by_commitment_point(commitment_point))
-}
-
 fn derive_tlc_pubkey(base_key: &Pubkey, commitment_point: &Pubkey) -> Pubkey {
-    derive_public_key(base_key, commitment_point)
+    base_key.tweak(get_tweak_by_commitment_point(commitment_point))
 }
 
 /// A simple implementation of [`WriteableEcdsaChannelSigner`] that just keeps the private keys in memory.
@@ -5479,7 +5471,9 @@ impl InMemorySigner {
     // TODO: Verify that this is a secure way to derive the nonce.
     pub fn derive_musig2_nonce(&self, commitment_number: u64) -> SecNonce {
         let commitment_point = self.get_commitment_point(commitment_number);
-        let seckey = derive_private_key(&self.musig2_base_nonce, &commitment_point);
+        let seckey = self
+            .musig2_base_nonce
+            .tweak(get_tweak_by_commitment_point(&commitment_point));
         debug!(
             "Deriving Musig2 nonce: commitment number: {}, commitment point: {:?}",
             commitment_number, commitment_point
@@ -5500,13 +5494,13 @@ mod tests {
             hash_algorithm::HashAlgorithm,
             network::{AcceptChannelCommand, OpenChannelCommand},
             test_utils::NetworkNode,
-            types::{Hash256, LockTime, RemoveTlcFulfill, RemoveTlcReason},
+            types::{Hash256, LockTime, Pubkey, RemoveTlcFulfill, RemoveTlcReason},
             NetworkActorCommand, NetworkActorMessage,
         },
         NetworkServiceEvent,
     };
 
-    use super::{super::types::Privkey, derive_private_key, derive_tlc_pubkey, InMemorySigner};
+    use super::{super::types::Privkey, derive_tlc_pubkey, get_tweak_by_commitment_point, InMemorySigner};
     use ckb_jsonrpc_types::Status;
     use ckb_types::{
         core::FeeRate,
@@ -5528,6 +5522,10 @@ mod tests {
         });
     }
 
+    fn derive_tlc_key(secret: &Privkey, commitment_point: &Pubkey) -> Privkey {
+        secret.tweak(get_tweak_by_commitment_point(commitment_point))
+    }
+
     #[test]
     fn test_per_commitment_point_and_secret_consistency() {
         let signer = InMemorySigner::generate_from_seed(&[1; 32]);
@@ -5541,7 +5539,7 @@ mod tests {
     fn test_derive_private_and_public_tlc_keys() {
         let privkey = Privkey::from(&[1; 32]);
         let per_commitment_point = Privkey::from(&[2; 32]).pubkey();
-        let derived_privkey = derive_private_key(&privkey, &per_commitment_point);
+        let derived_privkey = derive_tlc_key(&privkey, &per_commitment_point);
         let derived_pubkey = derive_tlc_pubkey(&privkey.pubkey(), &per_commitment_point);
         assert_eq!(derived_privkey.pubkey(), derived_pubkey);
     }
