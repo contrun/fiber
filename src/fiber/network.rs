@@ -1149,6 +1149,8 @@ where
                     .await;
             }
             NetworkActorEvent::ClosingTransactionConfirmed(peer_id, channel_id, tx_hash) => {
+                let graph = self.network_graph.write().await;
+                graph.add_channel(&channel_id);
                 state
                     .on_closing_transaction_confirmed(&peer_id, &channel_id, tx_hash)
                     .await;

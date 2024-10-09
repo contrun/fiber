@@ -37,6 +37,7 @@ pub struct ChannelInfo {
     pub funding_tx_block_number: u64,
     pub funding_tx_index: u32,
     pub announcement_msg: ChannelAnnouncement,
+    pub enabled: bool,
     pub node1_to_node2: Option<ChannelUpdateInfo>,
     pub node2_to_node1: Option<ChannelUpdateInfo>,
     // The time that the channel was announced to the network.
@@ -83,16 +84,13 @@ impl ChannelInfo {
             .max(self.node2_to_node1.as_ref().map(|n| n.timestamp))
     }
 
-    // Whether this channel is explicitly disabled in either direction.
-    // TODO: we currently deem a channel as disabled if one direction is disabled.
-    // Is it possible that one direction is disabled while the other is not?
-    pub fn is_explicitly_disabled(&self) -> bool {
-        dbg!(self.node1_to_node2.as_ref(), self.node2_to_node1.as_ref());
-        match (&self.node1_to_node2, &self.node2_to_node1) {
-            (Some(update1), _) if !update1.enabled => true,
-            (_, Some(update2)) if !update2.enabled => true,
-            _ => false,
-        }
+    pub fn is_disabled(&self) -> bool {
+        !self.enabled
+            || match (&self.node1_to_node2, &self.node2_to_node1) {
+                (Some(update1), _) if !update1.enabled => true,
+                (_, Some(update2)) if !update2.enabled => true,
+                _ => false,
+            }
     }
 
     pub fn capacity(&self) -> u128 {
@@ -295,6 +293,17 @@ where
         self.channels.insert(outpoint.clone(), channel_info.clone());
         self.store.insert_channel(channel_info);
         debug!("Successfully added channel {:?}", outpoint);
+    }
+
+    pub fn disable_channel(&mut self, channel_id: OutPoint) {
+        if let Some(channel) = self.channels.get_mut(&channel_id) {
+            if let Some(info) = channel.node1_to_node2.as_mut() {
+                info.enabled = false;
+            }
+            if let Some(info) = channel.node2_to_node1.as_mut() {
+                info.enabled = false;
+            }
+        }
     }
 
     pub fn nodes(&self) -> impl Iterator<Item = &NodeInfo> {

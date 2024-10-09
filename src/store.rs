@@ -392,7 +392,7 @@ impl NetworkGraphStateStore for Store {
             .filter_map(|(col_key, value)| {
                 let channel: ChannelInfo = serde_json::from_slice(value.as_ref())
                     .expect("deserialize ChannelInfo should be OK");
-                if !channel.is_explicitly_disabled() {
+                if !channel.is_disabled() {
                     last_key = col_key.to_vec();
                     Some(channel)
                 } else {
