@@ -71,6 +71,7 @@ socket2 = "0.5.7"
 lnd-grpc-tonic-client = "0.3.0"
 git-version = "0.3.9"
 fiber-sphinx = "1.0.1"
+tokio-condvar = "0.3.0"
 
 [profile.release]
 panic = "abort"

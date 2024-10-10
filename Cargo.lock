@@ -1612,6 +1612,7 @@ dependencies = [
  "tentacle",
  "thiserror",
  "tokio",
+ "tokio-condvar",
  "tokio-util",
  "tower",
  "tracing",
@@ -4138,6 +4139,15 @@ dependencies = [
  "tokio-macros",
  "tracing",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "tokio-condvar"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8530e402d24f6a65019baa57593f1769557c670302f493cdf8fa3dfbe4d85ac"
+dependencies = [
+ "tokio",
 ]
 
 [[package]]
