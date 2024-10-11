@@ -296,7 +296,10 @@ mod tests {
     use ractor::cast;
 
     use super::*;
-    #[derive(Debug, Clone)]
+
+    const STOPPING_STATE: u8 = 10;
+
+    #[derive(Debug, Copy, Clone, PartialEq)]
     pub enum Message {
         Ping,
         Pong,
@@ -338,6 +341,45 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    pub struct PingPongInspectorPlugin {
+        current_message: Option<Message>,
+        current_state: Option<RealState>,
+        _phantom: std::marker::PhantomData<(RealState, Message)>,
+    }
+
+    impl PingPongInspectorPlugin {
+        pub fn new() -> Self {
+            Self::default()
+        }
+    }
+
+    impl InspectorPlugin for PingPongInspectorPlugin {
+        type ActorState = RealState;
+        type ActorMessage = Message;
+
+        fn actor_started(&mut self, actor_state: &mut Self::ActorState) {
+            self.current_state = Some(*actor_state);
+            self.current_message = Some(Message::Ping);
+        }
+
+        fn message_handled(
+            &mut self,
+            actor_state: &mut Self::ActorState,
+            message: Self::ActorMessage,
+        ) {
+            // Everytime we handle the message, we increment the state by 1.
+            assert_eq!(self.current_state, Some(*actor_state - 1));
+            assert_eq!(self.current_message, Some(message));
+            self.current_message = Some(message.next());
+            self.current_state = Some(*actor_state);
+        }
+
+        fn actor_stopped(&mut self, actor_state: &mut Self::ActorState) {
+            assert_eq!(*actor_state, STOPPING_STATE);
+        }
+    }
+
     #[rasync_trait]
     impl Actor for PingPong {
         type Msg = Message;
@@ -373,10 +415,10 @@ mod tests {
                 Some(harness) => Some((harness, harness.wait_to_handle_message().await)),
                 None => None,
             };
-            if *state < 10u8 {
+            *state += 1;
+            if *state < STOPPING_STATE {
                 println!("{:?}", &message);
                 cast!(myself, message.next())?;
-                *state += 1;
             } else {
                 println!("PingPong: Exiting");
                 myself.stop(None);
@@ -429,6 +471,17 @@ mod tests {
         let actor = PingPong { harness: None };
         let arguments = ();
         let plugin = InspectorPluginDumper::new();
+        let (_actor, handle) = Inspector::start(actor, arguments, plugin)
+            .await
+            .expect("start inspector");
+        handle.await.expect("inspector should not fail");
+    }
+
+    #[tokio::test]
+    async fn test_ping_pong_with_ping_pong_plugin() {
+        let actor = PingPong { harness: None };
+        let arguments = ();
+        let plugin = PingPongInspectorPlugin::new();
         let (_actor, handle) = Inspector::start(actor, arguments, plugin)
             .await
             .expect("start inspector");
