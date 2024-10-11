@@ -62,14 +62,11 @@ where
 
 impl<M, S, T1, T2> ActorTestHarness<M, S, T1, T2> {
     pub async fn wait_to_handle_message(&self) -> MutexGuard<'_, bool> {
-        println!("ActorTestHarness: Waiting to handle message");
         let lock = self.mutex.as_ref();
         let mut can_start_handling_message = lock.lock().await;
         while !*can_start_handling_message {
-            println!("ActorTestHarness: Waiting for message handling loop");
             can_start_handling_message = self.condvar.wait(can_start_handling_message).await;
         }
-        println!("ActorTestHarness: Handling message");
         return can_start_handling_message;
     }
 
@@ -107,7 +104,6 @@ impl<A, S> Inspector<A, S> {
     }
 
     pub async fn wait_to_send_message(&self) -> MutexGuard<'_, bool> {
-        println!("inspector: Waiting to send message");
         let lock = self.mutex.as_ref();
         lock.lock().await
     }
@@ -116,14 +112,11 @@ impl<A, S> Inspector<A, S> {
         &self,
         mut can_start_handling_message: MutexGuard<'_, bool>,
     ) {
-        println!("inspector: Notifying message handling");
         *can_start_handling_message = true;
         self.condvar.notify_one();
         while *can_start_handling_message {
-            println!("inspector: Waiting for message handled loop");
             can_start_handling_message = self.condvar.wait(can_start_handling_message).await;
         }
-        println!("inspector: Message handled");
     }
 }
 
