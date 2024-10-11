@@ -9,42 +9,64 @@ use tokio_condvar::Condvar;
 // 1. inspector sends the message to the actor, notifies the actor to process the message and starts to wait for the message to be handled.
 // 2. actor exits the waiting for message receiving, processes the message, updates the states, notifies the inspector, waits for the inspector's signal to continue processing the next message.
 // 3. inspector awakes from sleeping, introspects the changed states, and sends the next message to the actor. The loop continues.
-pub struct ActorTestHarness<M, S> {
+pub struct ActorTestHarness<M, S, T> {
     // Mutex and Condvar to synchronize the test harness with the actor.
     mutex: Arc<Mutex<bool>>,
     condvar: Arc<Condvar>,
     mediator: ActorRef<M>,
-    state_sender: mpsc::Sender<ManuallyDrop<S>>,
+    state_sender: mpsc::Sender<T>,
+    phantom: std::marker::PhantomData<(M, S)>,
 }
 
-pub trait ActorWithTestHarness<M, S>: Actor {
-    fn with_test_harness(
-        self,
-        harness: ActorTestHarness<<Self as Actor>::Msg, <Self as Actor>::State>,
-    ) -> Self;
+pub trait ActorWithTestHarness<M, S, T>: Actor<Msg = M, State = S> {
+    fn with_test_harness(self, harness: ActorTestHarness<M, S, T>) -> Self;
 
-    fn get_test_harness(
-        &self,
-    ) -> Option<&ActorTestHarness<<Self as Actor>::Msg, <Self as Actor>::State>>;
+    fn get_test_harness(&self) -> Option<&ActorTestHarness<M, S, T>>;
 
-    fn get_mediator(&self) -> Option<&ActorRef<<Self as Actor>::Msg>> {
+    fn get_mediator(&self) -> Option<&ActorRef<M>> {
         self.get_test_harness().map(|harness| &harness.mediator)
     }
 }
 
-impl<M, S> ActorTestHarness<M, Box<S>> {
-    pub async unsafe fn send_boxed_state_reference(&self, state: Box<S>) -> Box<S> {
-        let state_copy = unsafe { Box::from_raw(&*state as *const S as *mut S) };
+trait LeakReference: Sized {
+    type Target: Sized + DerefMut<Target = Self>;
+    fn leak(self) -> (Self, Self::Target);
+}
+
+impl<S> LeakReference for Box<S> {
+    type Target = ManuallyDrop<Self>;
+
+    fn leak(self) -> (Self, Self::Target) {
+        let copy =
+            ManuallyDrop::new(unsafe { Box::from_raw(&*self.as_ref() as *const S as *mut S) });
+        (self, copy)
+    }
+}
+
+impl<S> LeakReference for Arc<S> {
+    type Target = Self;
+
+    fn leak(self) -> (Self, Self) {
+        (self.clone(), self)
+    }
+}
+
+impl<M, S, T> ActorTestHarness<M, S, T>
+where
+    S: LeakReference<Target = T>,
+{
+    pub async fn leak_state(&self, state: S) -> S {
+        let (state, state_copy) = state.leak();
         self.state_sender
             .clone()
-            .send(ManuallyDrop::new(state_copy))
+            .send(state_copy)
             .await
             .expect("Failed to send state");
         state
     }
 }
 
-impl<M, S> ActorTestHarness<M, S> {
+impl<M, S, T> ActorTestHarness<M, S, T> {
     pub async fn wait_to_handle_message(&self) -> MutexGuard<'_, bool> {
         println!("ActorTestHarness: Waiting to handle message");
         let lock = self.mutex.as_ref();
@@ -107,22 +129,6 @@ impl<A, S> Inspector<A, S> {
     }
 }
 
-impl<A, S> Inspector<A, S>
-where
-    A: ActorWithTestHarness<<A as Actor>::Msg, <A as Actor>::State>,
-    <A as Actor>::Msg: Clone,
-    S: InspectorPlugin<ActorState = <A as Actor>::State, ActorMessage = <A as Actor>::Msg>
-        + ractor::State,
-{
-    pub async fn start(
-        actor: A,
-        arguments: <A as Actor>::Arguments,
-        plugin: S,
-    ) -> Result<(ActorRef<<A as Actor>::Msg>, JoinHandle<()>), SpawnErr> {
-        let inspector = Self::new();
-        Actor::spawn(None, inspector, (actor, arguments, plugin)).await
-    }
-}
 pub trait InspectorPlugin {
     type ActorState: ractor::State;
     type ActorMessage: ractor::Message;
@@ -206,22 +212,38 @@ where
     }
 }
 
-#[rasync_trait]
-impl<A, S> Actor for Inspector<A, S>
+impl<M, S, T, A, P> Inspector<A, P>
 where
-    A: ActorWithTestHarness<<A as Actor>::Msg, <A as Actor>::State>,
-    <A as Actor>::Msg: Clone,
-    S: InspectorPlugin<ActorState = <A as Actor>::State, ActorMessage = <A as Actor>::Msg>
-        + ractor::State,
+    A: ActorWithTestHarness<M, S, T>,
+    A: Actor<Msg = M, State = S>,
+    M: Clone + ractor::Message,
+    T: ractor::State,
+    S: LeakReference<Target = T>,
+    P: InspectorPlugin<ActorState = S, ActorMessage = M> + ractor::State,
 {
-    type Msg = <A as Actor>::Msg;
-    type Arguments = (A, <A as Actor>::Arguments, S);
-    type State = (
-        S,
-        ManuallyDrop<<A as Actor>::State>,
-        ActorRef<Self::Msg>,
-        JoinHandle<()>,
-    );
+    pub async fn start(
+        actor: A,
+        arguments: <A as Actor>::Arguments,
+        plugin: P,
+    ) -> Result<(ActorRef<<A as Actor>::Msg>, JoinHandle<()>), SpawnErr> {
+        let inspector = Self::new();
+        Actor::spawn(None, inspector, (actor, arguments, plugin)).await
+    }
+}
+
+#[rasync_trait]
+impl<M, S, T, A, P> Actor for Inspector<A, P>
+where
+    A: ActorWithTestHarness<M, S, T>,
+    A: Actor<Msg = M, State = S>,
+    M: Clone + ractor::Message,
+    T: ractor::State,
+    S: LeakReference<Target = T>,
+    P: InspectorPlugin<ActorState = S, ActorMessage = M> + ractor::State,
+{
+    type Msg = M;
+    type Arguments = (A, <A as Actor>::Arguments, P);
+    type State = (P, T, ActorRef<M>, JoinHandle<()>);
 
     async fn pre_start(
         &self,
@@ -235,6 +257,7 @@ where
             condvar: self.condvar.clone(),
             mediator: myself.clone(),
             state_sender: sender,
+            phantom: std::marker::PhantomData,
         });
         let (actor, handle) = Actor::spawn_linked(None, actor, arguments, myself.get_cell())
             .await
@@ -265,16 +288,19 @@ mod tests {
     use ractor::cast;
 
     use super::*;
-
-    pub struct PingPong {
-        harness: Option<ActorTestHarness<Message, State>>,
-    }
-
     #[derive(Debug, Clone)]
     pub enum Message {
         Ping,
         Pong,
     }
+
+    type State = Box<u8>;
+
+    type TransformedState = ManuallyDrop<State>;
+
+    type Arguments = ();
+
+    type Harness = ActorTestHarness<Message, State, TransformedState>;
 
     impl Message {
         // retrieve the next message in the sequence
@@ -286,18 +312,18 @@ mod tests {
         }
     }
 
-    type State = Box<u8>;
+    pub struct PingPong {
+        harness: Option<Harness>,
+    }
 
-    type Arguments = ();
-
-    impl ActorWithTestHarness<Message, State> for PingPong {
-        fn with_test_harness(self, harness: ActorTestHarness<Message, State>) -> Self {
+    impl ActorWithTestHarness<Message, State, TransformedState> for PingPong {
+        fn with_test_harness(self, harness: Harness) -> Self {
             Self {
                 harness: Some(harness),
             }
         }
 
-        fn get_test_harness(&self) -> Option<&ActorTestHarness<Message, State>> {
+        fn get_test_harness(&self) -> Option<&Harness> {
             self.harness.as_ref()
         }
     }
@@ -320,7 +346,7 @@ mod tests {
             let state = Box::new(0u8);
 
             match self.get_test_harness() {
-                Some(harness) => Ok(unsafe { harness.send_boxed_state_reference(state).await }),
+                Some(harness) => Ok(unsafe { harness.leak_state(state).await }),
                 None => Ok(state),
             }
         }
