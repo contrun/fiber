@@ -80,6 +80,12 @@ impl<M, S, T1, T2> ActorTestHarness<M, S, T1, T2> {
         *can_start_handling_message = false;
         self.condvar.notify_one();
     }
+
+    // Blockingly wait for the lock to be released. Only use this method when we are sure
+    // that the lock will be released, e.g. the other actor is exiting.
+    pub async fn wait_for_lock(&self) -> MutexGuard<'_, bool> {
+        self.mutex.lock().await
+    }
 }
 
 pub struct Inspector<A, S> {
@@ -274,6 +280,16 @@ where
         plugin.message_handled(their_state.deref_mut(), message);
         Ok(())
     }
+
+    async fn post_stop(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        let (plugin, their_state, _actor, _handle) = state;
+        plugin.actor_stopped(their_state.deref_mut());
+        Ok(())
+    }
 }
 
 mod tests {
@@ -367,6 +383,21 @@ mod tests {
             }
             if let Some((harness, guard)) = guard {
                 harness.notify_message_handled(guard).await;
+            }
+            Ok(())
+        }
+
+        async fn post_stop(
+            &self,
+            _myself: ActorRef<Self::Msg>,
+            _state: &mut Self::State,
+        ) -> Result<(), ActorProcessingErr> {
+            if let (Some(mediator), Some(harness)) = (self.get_mediator(), self.get_test_harness())
+            {
+                println!("PingPong: stopping inspector");
+                mediator.stop(Some("sub actor stopped".to_string()));
+                let _ = harness.wait_for_lock().await;
+                println!("PingPong: inspector stopped");
             }
             Ok(())
         }
