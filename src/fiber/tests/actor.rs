@@ -103,26 +103,26 @@ impl<A, S> Introspector<A, S> {
     }
 }
 
-struct IntrospectorArguments<A, AA, AS, AM, S> {
+struct IntrospectorArguments<A, AA, AS, AM, I, S> {
     actor: A,
     arguments: AA,
-    state_initializer: Option<Box<dyn Fn(&Self, &mut AS) -> S>>,
-    state_updater: Option<Box<dyn Fn(&Self, AM, &mut AS, &mut S) -> ()>>,
-    state_finalizer: Option<Box<dyn Fn(&Self, &mut AS, S) -> ()>>,
+    state_initializer: Box<dyn Fn(&I, &mut AS) -> S>,
+    state_updater: Option<Box<dyn Fn(&I, AM, &mut AS, &mut S) -> ()>>,
+    state_finalizer: Option<Box<dyn Fn(&I, &mut AS, S) -> ()>>,
 }
 
-impl<A: Actor, S>
-    IntrospectorArguments<A, <A as Actor>::Arguments, <A as Actor>::State, <A as Actor>::Msg, S>
+impl<A: Actor, I, S>
+    IntrospectorArguments<A, <A as Actor>::Arguments, <A as Actor>::State, <A as Actor>::Msg, I, S>
 {
     fn new(
         actor: A,
         arguments: <A as Actor>::Arguments,
-        state_initializer: impl Fn(&Self, &mut <A as Actor>::State) -> S,
+        state_initializer: impl Fn(&I, &mut <A as Actor>::State) -> S,
     ) -> Self {
         Self {
             actor,
             arguments,
-            state_initializer: Some(Box::new(state_initializer)),
+            state_initializer: Box::new(state_initializer),
             state_updater: None,
             state_finalizer: None,
         }
@@ -130,7 +130,7 @@ impl<A: Actor, S>
 
     fn with_state_updater(
         self,
-        state_updater: impl Fn(&Self, <A as Actor>::Msg, &mut <A as Actor>::State, &mut S) -> (),
+        state_updater: impl Fn(&I, <A as Actor>::Msg, &mut <A as Actor>::State, &mut S) -> (),
     ) -> Self {
         Self {
             state_updater: Some(Box::new(state_updater)),
@@ -140,7 +140,7 @@ impl<A: Actor, S>
 
     fn with_state_finalizer(
         self,
-        state_finalizer: impl Fn(&Self, &mut <A as Actor>::State, S) -> (),
+        state_finalizer: impl Fn(&I, &mut <A as Actor>::State, S) -> (),
     ) -> Self {
         Self {
             state_finalizer: Some(Box::new(state_finalizer)),
@@ -154,6 +154,14 @@ impl<A, S> Actor for Introspector<A, S>
 where
     A: ActorWithTestHarness<<A as Actor>::Msg, <A as Actor>::State>,
     <A as Actor>::Msg: Clone,
+    IntrospectorArguments<
+        A,
+        <A as Actor>::Arguments,
+        <A as Actor>::State,
+        <A as Actor>::Msg,
+        Self,
+        S,
+    >: ractor::State + Sync,
     S: ractor::State + Sync,
 {
     type Msg = <A as Actor>::Msg;
@@ -162,12 +170,19 @@ where
         <A as Actor>::Arguments,
         <A as Actor>::State,
         <A as Actor>::Msg,
+        Self,
         S,
     >;
     type State = (
         S,
-        Option<Box<dyn Fn(&Self, <Self as Actor>::Msg, &mut <A as Actor>::State, &mut S) -> ()>>,
-        Option<Box<dyn Fn(&Self, &mut <A as Actor>::State, S) -> ()>>,
+        Option<
+            Box<
+                dyn Fn(&Self, <Self as Actor>::Msg, &mut <A as Actor>::State, &mut S) -> ()
+                    + Send
+                    + Sync,
+            >,
+        >,
+        Option<Box<dyn Fn(&Self, &mut <A as Actor>::State, S) -> () + Send + Sync>>,
         ManuallyDrop<<A as Actor>::State>,
         ActorRef<Self::Msg>,
         JoinHandle<()>,
