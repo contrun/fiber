@@ -1,13 +1,14 @@
 use ractor::{
     async_trait as rasync_trait, concurrency::JoinHandle, Actor, ActorProcessingErr, ActorRef,
+    SpawnErr,
 };
-use std::{mem::ManuallyDrop, sync::Arc};
+use std::{mem::ManuallyDrop, ops::DerefMut, sync::Arc};
 use tokio::sync::{mpsc, Mutex, MutexGuard};
 use tokio_condvar::Condvar;
 
-// 1. introspector sends the message to the actor, notifies the actor to process the message and starts to wait for the message to be handled.
-// 2. actor exits the waiting for message receiving, processes the message, updates the states, notifies the introspector, waits for the introspector's signal to continue processing the next message.
-// 3. introspector awakes from sleeping, introspects the changed states, and sends the next message to the actor. The loop continues.
+// 1. inspector sends the message to the actor, notifies the actor to process the message and starts to wait for the message to be handled.
+// 2. actor exits the waiting for message receiving, processes the message, updates the states, notifies the inspector, waits for the inspector's signal to continue processing the next message.
+// 3. inspector awakes from sleeping, introspects the changed states, and sends the next message to the actor. The loop continues.
 pub struct ActorTestHarness<M, S> {
     // Mutex and Condvar to synchronize the test harness with the actor.
     mutex: Arc<Mutex<bool>>,
@@ -16,7 +17,7 @@ pub struct ActorTestHarness<M, S> {
     state_sender: mpsc::Sender<ManuallyDrop<S>>,
 }
 
-trait ActorWithTestHarness<M, S>: Actor {
+pub trait ActorWithTestHarness<M, S>: Actor {
     fn with_test_harness(
         self,
         harness: ActorTestHarness<<Self as Actor>::Msg, <Self as Actor>::State>,
@@ -65,14 +66,14 @@ impl<M, S> ActorTestHarness<M, S> {
     }
 }
 
-pub struct Introspector<A, S> {
+pub struct Inspector<A, S> {
     mutex: Arc<Mutex<bool>>,
     condvar: Arc<Condvar>,
     _phantom: std::marker::PhantomData<A>,
     _phantom2: std::marker::PhantomData<S>,
 }
 
-impl<A, S> Introspector<A, S> {
+impl<A, S> Inspector<A, S> {
     pub fn new() -> Self {
         Self {
             mutex: Arc::new(Mutex::new(false)),
@@ -83,7 +84,7 @@ impl<A, S> Introspector<A, S> {
     }
 
     pub async fn wait_to_send_message(&self) -> MutexGuard<'_, bool> {
-        println!("Introspector: Waiting to send message");
+        println!("inspector: Waiting to send message");
         let lock = self.mutex.as_ref();
         lock.lock().await
     }
@@ -92,97 +93,89 @@ impl<A, S> Introspector<A, S> {
         &self,
         mut can_start_handling_message: MutexGuard<'_, bool>,
     ) {
-        println!("Introspector: Notifying message handling");
+        println!("inspector: Notifying message handling");
         *can_start_handling_message = true;
         self.condvar.notify_one();
         while *can_start_handling_message {
-            println!("Introspector: Waiting for message handled loop");
+            println!("inspector: Waiting for message handled loop");
             can_start_handling_message = self.condvar.wait(can_start_handling_message).await;
         }
-        println!("Introspector: Message handled");
+        println!("inspector: Message handled");
     }
 }
 
-struct IntrospectorArguments<A, AA, AS, AM, I, S> {
-    actor: A,
-    arguments: AA,
-    state_initializer: Box<dyn Fn(&I, &mut AS) -> S>,
-    state_updater: Option<Box<dyn Fn(&I, AM, &mut AS, &mut S) -> ()>>,
-    state_finalizer: Option<Box<dyn Fn(&I, &mut AS, S) -> ()>>,
-}
-
-impl<A: Actor, I, S>
-    IntrospectorArguments<A, <A as Actor>::Arguments, <A as Actor>::State, <A as Actor>::Msg, I, S>
-{
-    fn new(
-        actor: A,
-        arguments: <A as Actor>::Arguments,
-        state_initializer: impl Fn(&I, &mut <A as Actor>::State) -> S,
-    ) -> Self {
-        Self {
-            actor,
-            arguments,
-            state_initializer: Box::new(state_initializer),
-            state_updater: None,
-            state_finalizer: None,
-        }
-    }
-
-    fn with_state_updater(
-        self,
-        state_updater: impl Fn(&I, <A as Actor>::Msg, &mut <A as Actor>::State, &mut S) -> (),
-    ) -> Self {
-        Self {
-            state_updater: Some(Box::new(state_updater)),
-            ..self
-        }
-    }
-
-    fn with_state_finalizer(
-        self,
-        state_finalizer: impl Fn(&I, &mut <A as Actor>::State, S) -> (),
-    ) -> Self {
-        Self {
-            state_finalizer: Some(Box::new(state_finalizer)),
-            ..self
-        }
-    }
-}
-
-#[rasync_trait]
-impl<A, S> Actor for Introspector<A, S>
+impl<A, S> Inspector<A, S>
 where
     A: ActorWithTestHarness<<A as Actor>::Msg, <A as Actor>::State>,
     <A as Actor>::Msg: Clone,
-    IntrospectorArguments<
-        A,
-        <A as Actor>::Arguments,
-        <A as Actor>::State,
-        <A as Actor>::Msg,
-        Self,
-        S,
-    >: ractor::State + Sync,
-    S: ractor::State + Sync,
+    S: InspectorPlugin<ActorState = <A as Actor>::State, ActorMessage = <A as Actor>::Msg>
+        + ractor::State
+        + Sync,
+{
+    pub async fn start(
+        actor: A,
+        arguments: <A as Actor>::Arguments,
+        plugin: S,
+    ) -> Result<(ActorRef<<A as Actor>::Msg>, JoinHandle<()>), SpawnErr> {
+        let inspector = Self::new();
+        Actor::spawn(None, inspector, (actor, arguments, plugin)).await
+    }
+}
+pub trait InspectorPlugin {
+    type ActorState: ractor::State;
+    type ActorMessage: ractor::Message;
+
+    fn actor_started(&mut self, actor_state: &mut Self::ActorState);
+    fn message_handled(&mut self, actor_state: &mut Self::ActorState, message: Self::ActorMessage);
+    fn actor_stopped(&mut self, actor_state: &mut Self::ActorState);
+}
+
+#[derive(Default)]
+pub struct InspectorPluginNoop<S, M> {
+    _phantom: std::marker::PhantomData<(S, M)>,
+}
+
+impl<S, M> InspectorPluginNoop<S, M> {
+    pub fn new() -> Self {
+        Self {
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<S, M> InspectorPlugin for InspectorPluginNoop<S, M>
+where
+    S: ractor::State,
+    M: ractor::Message,
+{
+    type ActorState = S;
+    type ActorMessage = M;
+
+    fn actor_started(&mut self, _actor_state: &mut Self::ActorState) {}
+
+    fn message_handled(
+        &mut self,
+        _actor_state: &mut Self::ActorState,
+        _message: Self::ActorMessage,
+    ) {
+    }
+
+    fn actor_stopped(&mut self, _actor_state: &mut Self::ActorState) {}
+}
+
+#[rasync_trait]
+impl<A, S> Actor for Inspector<A, S>
+where
+    A: ActorWithTestHarness<<A as Actor>::Msg, <A as Actor>::State>,
+    <A as Actor>::Msg: Clone,
+    S: InspectorPlugin<ActorState = <A as Actor>::State, ActorMessage = <A as Actor>::Msg>
+        + ractor::State
+        + Sync,
 {
     type Msg = <A as Actor>::Msg;
-    type Arguments = IntrospectorArguments<
-        A,
-        <A as Actor>::Arguments,
-        <A as Actor>::State,
-        <A as Actor>::Msg,
-        Self,
-        S,
-    >;
+    type Arguments = (A, <A as Actor>::Arguments, S);
     type State = (
         S,
-        Option<
-            Box<
-                dyn Fn(&Self, <Self as Actor>::Msg, &mut <A as Actor>::State, &mut S) -> ()
-                    + Send
-                    + Sync,
-            >,
-        >,
-        Option<Box<dyn Fn(&Self, &mut <A as Actor>::State, S) -> () + Send + Sync>>,
         ManuallyDrop<<A as Actor>::State>,
         ActorRef<Self::Msg>,
         JoinHandle<()>,
@@ -191,15 +184,9 @@ where
     async fn pre_start(
         &self,
         myself: ActorRef<Self::Msg>,
-        my_arguments: Self::Arguments,
+        arguments: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        let IntrospectorArguments {
-            actor,
-            arguments,
-            state_initializer,
-            state_updater,
-            state_finalizer,
-        } = my_arguments;
+        let (actor, arguments, mut plugin) = arguments;
         let (sender, mut receiver) = mpsc::channel(1);
         let actor = actor.with_test_harness(ActorTestHarness {
             mutex: self.mutex.clone(),
@@ -210,16 +197,9 @@ where
         let (actor, handle) = Actor::spawn_linked(None, actor, arguments, myself.get_cell())
             .await
             .expect("start actor");
-        let boxed_state = receiver.recv().await.expect("recv boxed state");
-        let state = state_initializer(self, &mut *boxed_state);
-        Ok((
-            state,
-            state_updater,
-            state_finalizer,
-            ManuallyDrop::new(boxed_state),
-            actor,
-            handle,
-        ))
+        let mut actor_state = receiver.recv().await.expect("recv boxed state");
+        plugin.actor_started(actor_state.deref_mut());
+        Ok((plugin, actor_state, actor, handle))
     }
 
     async fn handle(
@@ -229,14 +209,12 @@ where
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         let guard = self.wait_to_send_message().await;
-        let (our_state, state_updater, _state_finalizer, their_state, actor, _handle) = state;
+        let (plugin, their_state, actor, _handle) = state;
         actor
             .send_message(message.clone())
             .expect("Failed to send message");
         self.notify_and_wait_for_message_handling(guard).await;
-        if let Some(state_updater) = self.state_updater {
-            state_updater(self, message, their_state.as_mut(), our_state);
-        }
+        plugin.message_handled(their_state.deref_mut(), message);
         Ok(())
     }
 }
@@ -336,18 +314,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_ping_pong_with_harness() {
-        let introspector = Introspector::new();
         let actor = PingPong { harness: None };
-        let (_actor, handle) = Actor::spawn(None, introspector, (actor, ()))
+        let arguments = ();
+        let plugin = InspectorPluginNoop::new();
+        let (_actor, handle) = Inspector::start(actor, arguments, plugin)
             .await
-            .expect("start introspector");
-        handle.await.expect("introspector should not fail");
+            .expect("start inspector");
+        handle.await.expect("inspector should not fail");
     }
 
     #[tokio::test]
     async fn test_ping_pong_without_harness() {
         let actor = PingPong { harness: None };
-        let (_actor, handle) = Actor::spawn(None, actor, ()).await.expect("start actor");
+        let arguments = ();
+        let (_actor, handle) = Actor::spawn(None, actor, arguments)
+            .await
+            .expect("start actor");
         handle.await.expect("actor should not fail");
     }
 }
