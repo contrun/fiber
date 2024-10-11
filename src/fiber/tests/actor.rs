@@ -132,7 +132,6 @@ pub trait InspectorPlugin {
     fn actor_stopped(&mut self, actor_state: &mut Self::ActorState);
 }
 
-#[derive(Default)]
 pub struct InspectorPluginNoop<S, M> {
     _phantom: std::marker::PhantomData<(S, M)>,
 }
@@ -163,6 +162,48 @@ where
     }
 
     fn actor_stopped(&mut self, _actor_state: &mut Self::ActorState) {}
+}
+
+pub struct InspectorPluginDumper<S, M> {
+    _phantom: std::marker::PhantomData<(S, M)>,
+}
+
+impl<S, M> InspectorPluginDumper<S, M> {
+    pub fn new() -> Self {
+        Self {
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<S, M> InspectorPlugin for InspectorPluginDumper<S, M>
+where
+    S: ractor::State + std::fmt::Debug,
+    M: ractor::Message + std::fmt::Debug,
+{
+    type ActorState = S;
+    type ActorMessage = M;
+
+    fn actor_started(&mut self, actor_state: &mut Self::ActorState) {
+        println!(
+            "InspectorPluginDumper: Actor started with state {:?}",
+            actor_state
+        );
+    }
+
+    fn message_handled(&mut self, actor_state: &mut Self::ActorState, message: Self::ActorMessage) {
+        println!(
+            "InspectorPluginDumper: Message handled {:?} with final state {:?}",
+            message, actor_state
+        );
+    }
+
+    fn actor_stopped(&mut self, actor_state: &mut Self::ActorState) {
+        println!(
+            "InspectorPluginDumper: Actor stopped with state {:?}",
+            actor_state
+        );
+    }
 }
 
 #[rasync_trait]
@@ -262,7 +303,6 @@ mod tests {
     }
 
     #[rasync_trait]
-    // the implementation of our actor's "logic"
     impl Actor for PingPong {
         type Msg = Message;
         type State = State;
@@ -275,7 +315,6 @@ mod tests {
         ) -> Result<Self::State, ActorProcessingErr> {
             let myself = self.get_mediator().cloned().unwrap_or(myself);
 
-            // startup the event processing
             cast!(myself, Message::Ping)?;
 
             let state = Box::new(0u8);
@@ -314,7 +353,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ping_pong_with_harness() {
+    async fn test_ping_pong_without_harness() {
+        let actor = PingPong { harness: None };
+        let arguments = ();
+        let (_actor, handle) = Actor::spawn(None, actor, arguments)
+            .await
+            .expect("start actor");
+        handle.await.expect("actor should not fail");
+    }
+
+    #[tokio::test]
+    async fn test_ping_pong_with_noop() {
         let actor = PingPong { harness: None };
         let arguments = ();
         let plugin = InspectorPluginNoop::new();
@@ -325,12 +374,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ping_pong_without_harness() {
+    async fn test_ping_pong_with_dumper() {
         let actor = PingPong { harness: None };
         let arguments = ();
-        let (_actor, handle) = Actor::spawn(None, actor, arguments)
+        let plugin = InspectorPluginDumper::new();
+        let (_actor, handle) = Inspector::start(actor, arguments, plugin)
             .await
-            .expect("start actor");
-        handle.await.expect("actor should not fail");
+            .expect("start inspector");
+        handle.await.expect("inspector should not fail");
     }
 }
