@@ -65,18 +65,20 @@ impl<M, S> ActorTestHarness<M, S> {
     }
 }
 
-pub struct Introspector<A> {
+pub struct Introspector<A, S> {
     mutex: Arc<Mutex<bool>>,
     condvar: Arc<Condvar>,
     _phantom: std::marker::PhantomData<A>,
+    _phantom2: std::marker::PhantomData<S>,
 }
 
-impl<A> Introspector<A> {
+impl<A, S> Introspector<A, S> {
     pub fn new() -> Self {
         Self {
             mutex: Arc::new(Mutex::new(false)),
             condvar: Arc::new(Condvar::new()),
             _phantom: std::marker::PhantomData,
+            _phantom2: std::marker::PhantomData,
         }
     }
 
@@ -101,21 +103,88 @@ impl<A> Introspector<A> {
     }
 }
 
+struct IntrospectorArguments<A, AA, AS, AM, S> {
+    actor: A,
+    arguments: AA,
+    state_initializer: Option<Box<dyn Fn(&Self, &mut AS) -> S>>,
+    state_updater: Option<Box<dyn Fn(&Self, AM, &mut AS, &mut S) -> ()>>,
+    state_finalizer: Option<Box<dyn Fn(&Self, &mut AS, S) -> ()>>,
+}
+
+impl<A: Actor, S>
+    IntrospectorArguments<A, <A as Actor>::Arguments, <A as Actor>::State, <A as Actor>::Msg, S>
+{
+    fn new(
+        actor: A,
+        arguments: <A as Actor>::Arguments,
+        state_initializer: impl Fn(&Self, &mut <A as Actor>::State) -> S,
+    ) -> Self {
+        Self {
+            actor,
+            arguments,
+            state_initializer: Some(Box::new(state_initializer)),
+            state_updater: None,
+            state_finalizer: None,
+        }
+    }
+
+    fn with_state_updater(
+        self,
+        state_updater: impl Fn(&Self, <A as Actor>::Msg, &mut <A as Actor>::State, &mut S) -> (),
+    ) -> Self {
+        Self {
+            state_updater: Some(Box::new(state_updater)),
+            ..self
+        }
+    }
+
+    fn with_state_finalizer(
+        self,
+        state_finalizer: impl Fn(&Self, &mut <A as Actor>::State, S) -> (),
+    ) -> Self {
+        Self {
+            state_finalizer: Some(Box::new(state_finalizer)),
+            ..self
+        }
+    }
+}
+
 #[rasync_trait]
-impl<A: ActorWithTestHarness<<A as Actor>::Msg, <A as Actor>::State>> Actor for Introspector<A> {
+impl<A, S> Actor for Introspector<A, S>
+where
+    A: ActorWithTestHarness<<A as Actor>::Msg, <A as Actor>::State>,
+    <A as Actor>::Msg: Clone,
+    S: ractor::State + Sync,
+{
     type Msg = <A as Actor>::Msg;
+    type Arguments = IntrospectorArguments<
+        A,
+        <A as Actor>::Arguments,
+        <A as Actor>::State,
+        <A as Actor>::Msg,
+        S,
+    >;
     type State = (
+        S,
+        Option<Box<dyn Fn(&Self, <Self as Actor>::Msg, &mut <A as Actor>::State, &mut S) -> ()>>,
+        Option<Box<dyn Fn(&Self, &mut <A as Actor>::State, S) -> ()>>,
         ManuallyDrop<<A as Actor>::State>,
         ActorRef<Self::Msg>,
         JoinHandle<()>,
     );
-    type Arguments = (A, <A as Actor>::Arguments);
 
     async fn pre_start(
         &self,
         myself: ActorRef<Self::Msg>,
-        (actor, arguments): Self::Arguments,
+        my_arguments: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
+        let IntrospectorArguments {
+            actor,
+            arguments,
+            state_initializer,
+            state_updater,
+            state_finalizer,
+        } = my_arguments;
         let (sender, mut receiver) = mpsc::channel(1);
         let actor = actor.with_test_harness(ActorTestHarness {
             mutex: self.mutex.clone(),
@@ -127,8 +196,15 @@ impl<A: ActorWithTestHarness<<A as Actor>::Msg, <A as Actor>::State>> Actor for 
             .await
             .expect("start actor");
         let boxed_state = receiver.recv().await.expect("recv boxed state");
-
-        Ok((boxed_state, actor, handle))
+        let state = state_initializer(self, &mut *boxed_state);
+        Ok((
+            state,
+            state_updater,
+            state_finalizer,
+            ManuallyDrop::new(boxed_state),
+            actor,
+            handle,
+        ))
     }
 
     async fn handle(
@@ -138,9 +214,14 @@ impl<A: ActorWithTestHarness<<A as Actor>::Msg, <A as Actor>::State>> Actor for 
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         let guard = self.wait_to_send_message().await;
-        let (_state, actor, _handle) = state;
-        actor.send_message(message).expect("Failed to send message");
+        let (our_state, state_updater, _state_finalizer, their_state, actor, _handle) = state;
+        actor
+            .send_message(message.clone())
+            .expect("Failed to send message");
         self.notify_and_wait_for_message_handling(guard).await;
+        if let Some(state_updater) = self.state_updater {
+            state_updater(self, message, their_state.as_mut(), our_state);
+        }
         Ok(())
     }
 }
