@@ -73,6 +73,9 @@ pub struct Inspector<A, S> {
     _phantom2: std::marker::PhantomData<S>,
 }
 
+// We will actually never access the actor state from multiple threads, so we can safely implement Sync for the inspector.
+unsafe impl<A: Actor, S: ractor::State> Sync for Inspector<A, S> {}
+
 impl<A, S> Inspector<A, S> {
     pub fn new() -> Self {
         Self {
@@ -109,8 +112,7 @@ where
     A: ActorWithTestHarness<<A as Actor>::Msg, <A as Actor>::State>,
     <A as Actor>::Msg: Clone,
     S: InspectorPlugin<ActorState = <A as Actor>::State, ActorMessage = <A as Actor>::Msg>
-        + ractor::State
-        + Sync,
+        + ractor::State,
 {
     pub async fn start(
         actor: A,
@@ -169,8 +171,7 @@ where
     A: ActorWithTestHarness<<A as Actor>::Msg, <A as Actor>::State>,
     <A as Actor>::Msg: Clone,
     S: InspectorPlugin<ActorState = <A as Actor>::State, ActorMessage = <A as Actor>::Msg>
-        + ractor::State
-        + Sync,
+        + ractor::State,
 {
     type Msg = <A as Actor>::Msg;
     type Arguments = (A, <A as Actor>::Arguments, S);
