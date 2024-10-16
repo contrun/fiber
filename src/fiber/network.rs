@@ -82,7 +82,7 @@ use crate::invoice::{CkbInvoice, InvoiceStore};
 use crate::{unwrap_or_return, Error};
 
 #[cfg(test)]
-use crate::tests::inspector::{ActorTestHarness, ActorWithTestHarness};
+use crate::tests::inspector::{ActorTestHarness, ActorWithTestHarness, MaybeCloneMessage};
 
 #[cfg(test)]
 impl<S>
@@ -129,6 +129,9 @@ where
         self.harness.as_ref()
     }
 }
+
+#[cfg(test)]
+impl MaybeCloneMessage for NetworkActorMessage {}
 
 pub const FIBER_PROTOCOL_ID: ProtocolId = ProtocolId::new(42);
 
@@ -3687,10 +3690,8 @@ where
 
         #[cfg(test)]
         if let (Some(mediator), Some(harness)) = (self.get_mediator(), self.get_test_harness()) {
-            println!("PingPong: stopping inspector");
             mediator.stop(Some("sub actor stopped".to_string()));
             let _ = harness.wait_for_lock().await;
-            println!("PingPong: inspector stopped");
         }
 
         Ok(())
