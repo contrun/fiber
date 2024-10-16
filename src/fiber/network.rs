@@ -81,6 +81,55 @@ use crate::fiber::KeyPair;
 use crate::invoice::{CkbInvoice, InvoiceStore};
 use crate::{unwrap_or_return, Error};
 
+#[cfg(test)]
+use crate::tests::inspector::{ActorTestHarness, ActorWithTestHarness};
+
+#[cfg(test)]
+impl<S>
+    ActorWithTestHarness<
+        NetworkActorMessage,
+        NetworkActorState<S>,
+        Box<NetworkActorState<S>>,
+        std::mem::ManuallyDrop<Box<NetworkActorState<S>>>,
+    > for NetworkActor<S>
+where
+    S: NetworkActorStateStore
+        + ChannelActorStateStore
+        + NetworkGraphStateStore
+        + InvoiceStore
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+{
+    fn with_test_harness(
+        self,
+        harness: ActorTestHarness<
+            NetworkActorMessage,
+            NetworkActorState<S>,
+            Box<NetworkActorState<S>>,
+            std::mem::ManuallyDrop<Box<NetworkActorState<S>>>,
+        >,
+    ) -> Self {
+        let mut new = self;
+        new.harness = Some(harness);
+        new
+    }
+
+    fn get_test_harness(
+        &self,
+    ) -> Option<
+        &ActorTestHarness<
+            NetworkActorMessage,
+            NetworkActorState<S>,
+            Box<NetworkActorState<S>>,
+            std::mem::ManuallyDrop<Box<NetworkActorState<S>>>,
+        >,
+    > {
+        self.harness.as_ref()
+    }
+}
+
 pub const FIBER_PROTOCOL_ID: ProtocolId = ProtocolId::new(42);
 
 pub const DEFAULT_CHAIN_ACTOR_TIMEOUT: u64 = 300000;
@@ -535,6 +584,16 @@ pub struct NetworkActor<S> {
     chain_actor: ActorRef<CkbChainMessage>,
     store: S,
     network_graph: Arc<RwLock<NetworkGraph<S>>>,
+    // The struct below is used to inspect network messages and states in tests.
+    #[cfg(test)]
+    harness: Option<
+        ActorTestHarness<
+            NetworkActorMessage,
+            NetworkActorState<S>,
+            Box<NetworkActorState<S>>,
+            std::mem::ManuallyDrop<Box<NetworkActorState<S>>>,
+        >,
+    >,
 }
 
 impl<S> NetworkActor<S>
@@ -559,6 +618,8 @@ where
             chain_actor,
             store: store.clone(),
             network_graph,
+            #[cfg(test)]
+            harness: None,
         }
     }
 
@@ -3373,7 +3434,7 @@ where
         + 'static,
 {
     type Msg = NetworkActorMessage;
-    type State = NetworkActorState<S>;
+    type State = Box<NetworkActorState<S>>;
     type Arguments = NetworkActorStartArguments;
 
     async fn pre_start(
@@ -3381,6 +3442,9 @@ where
         myself: ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
+        #[cfg(test)]
+        let myself = self.get_mediator().unwrap_or(myself);
+
         let NetworkActorStartArguments {
             config,
             tracker,
@@ -3556,15 +3620,32 @@ where
             });
         }
 
+        let state = Box::new(state);
+
+        #[cfg(test)]
+        match self.get_test_harness() {
+            Some(harness) => return Ok(harness.leak_state(state).await),
+            _ => {}
+        }
+
         Ok(state)
     }
 
     async fn handle(
         &self,
-        myself: ActorRef<Self::Msg>,
+        #[allow(unused_variables)] myself: ActorRef<Self::Msg>,
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        #[cfg(test)]
+        let myself = self.get_mediator().unwrap_or(myself);
+
+        #[cfg(test)]
+        let guard = match self.get_test_harness() {
+            Some(harness) => Some((harness, harness.wait_to_handle_message().await)),
+            None => None,
+        };
+
         match message {
             NetworkActorMessage::Event(event) => {
                 if let Err(err) = self.handle_event(myself, state, event).await {
@@ -3577,6 +3658,12 @@ where
                 }
             }
         }
+
+        #[cfg(test)]
+        if let Some((harness, guard)) = guard {
+            harness.notify_message_handled(guard).await;
+        }
+
         Ok(())
     }
 
@@ -3597,6 +3684,15 @@ where
             .event_sender
             .send(NetworkServiceEvent::NetworkStopped(state.peer_id.clone()))
             .await;
+
+        #[cfg(test)]
+        if let (Some(mediator), Some(harness)) = (self.get_mediator(), self.get_test_harness()) {
+            println!("PingPong: stopping inspector");
+            mediator.stop(Some("sub actor stopped".to_string()));
+            let _ = harness.wait_for_lock().await;
+            println!("PingPong: inspector stopped");
+        }
+
         Ok(())
     }
 

@@ -15,13 +15,15 @@ use std::{
 };
 use tempfile::TempDir as OldTempDir;
 use tentacle::{multiaddr::MultiAddr, secio::PeerId};
-use tokio::sync::RwLock as TokioRwLock;
+use tokio::sync::{Mutex, RwLock as TokioRwLock};
 use tokio::{
     select,
     sync::{mpsc, OnceCell},
     time::sleep,
 };
 
+use crate::fiber::network::NetworkActorState;
+use crate::tests::inspector::{InspectorPlugin, InspectorPluginNoop};
 use crate::{
     actors::{RootActor, RootActorMessage},
     ckb::tests::test_utils::{submit_tx, trace_tx, trace_tx_hash, MockChainActor},
@@ -39,6 +41,32 @@ use crate::{
     tasks::{new_tokio_cancellation_token, new_tokio_task_tracker},
     FiberConfig, NetworkServiceEvent,
 };
+
+pub type NetworkActorInspector = Arc<
+    Mutex<
+        Box<
+            dyn InspectorPlugin<
+                ActorMessage = NetworkActorMessage,
+                ActorState = NetworkActorState<MemoryStore>,
+            >,
+        >,
+    >,
+>;
+
+pub fn new_nework_actor_inspector(
+    plugin: Box<
+        dyn InspectorPlugin<
+            ActorMessage = NetworkActorMessage,
+            ActorState = NetworkActorState<MemoryStore>,
+        >,
+    >,
+) -> NetworkActorInspector {
+    Arc::new(Mutex::new(plugin))
+}
+
+pub fn new_default_network_actor_inspector() -> NetworkActorInspector {
+    new_nework_actor_inspector(Box::new(InspectorPluginNoop::new()))
+}
 
 static RETAIN_VAR: &str = "TEST_TEMP_RETAIN";
 
@@ -147,6 +175,7 @@ pub struct NetworkNode {
     /// The base directory of the node, will be deleted after this struct dropped.
     pub base_dir: Arc<TempDir>,
     pub node_name: Option<String>,
+    pub actor_inspector: NetworkActorInspector,
     pub store: MemoryStore,
     pub fiber_config: FiberConfig,
     pub listening_addrs: Vec<MultiAddr>,
@@ -165,12 +194,13 @@ impl NetworkNode {
 pub struct NetworkNodeConfig {
     base_dir: Arc<TempDir>,
     node_name: Option<String>,
+    actor_inspector: NetworkActorInspector,
     store: MemoryStore,
     fiber_config: FiberConfig,
 }
 
 impl NetworkNodeConfig {
-    pub fn builder() -> NetworkNodeConfigBuilder {
+    pub fn new() -> NetworkNodeConfigBuilder {
         NetworkNodeConfigBuilder::new()
     }
 }
@@ -178,6 +208,7 @@ impl NetworkNodeConfig {
 pub struct NetworkNodeConfigBuilder {
     base_dir: Option<Arc<TempDir>>,
     node_name: Option<String>,
+    actor_inspector: Option<NetworkActorInspector>,
     store: Option<MemoryStore>,
     // We may generate a FiberConfig based on the base_dir and node_name,
     // but allow user to override it.
@@ -189,6 +220,7 @@ impl NetworkNodeConfigBuilder {
         Self {
             base_dir: None,
             node_name: None,
+            actor_inspector: None,
             store: None,
             fiber_config_updater: None,
         }
@@ -217,17 +249,34 @@ impl NetworkNodeConfigBuilder {
         self
     }
 
+    pub fn actor_inspector(
+        mut self,
+        actor_inspector: Box<
+            dyn InspectorPlugin<
+                ActorMessage = NetworkActorMessage,
+                ActorState = NetworkActorState<MemoryStore>,
+            >,
+        >,
+    ) -> Self {
+        self.actor_inspector = Some(new_nework_actor_inspector(actor_inspector));
+        self
+    }
+
     pub fn build(self) -> NetworkNodeConfig {
         let base_dir = self
             .base_dir
             .clone()
             .unwrap_or_else(|| Arc::new(TempDir::new("fnn-test")));
         let node_name = self.node_name.clone();
+        let actor_inspector = self
+            .actor_inspector
+            .unwrap_or(new_default_network_actor_inspector());
         let store = self.store.clone().unwrap_or_default();
         let fiber_config = get_fiber_config(base_dir.as_ref(), node_name.as_deref());
         let mut config = NetworkNodeConfig {
             base_dir,
             node_name,
+            actor_inspector,
             store,
             fiber_config,
         };
@@ -259,6 +308,7 @@ impl NetworkNode {
         let NetworkNodeConfig {
             base_dir,
             node_name,
+            actor_inspector,
             store,
             fiber_config,
         } = config;
@@ -319,6 +369,7 @@ impl NetworkNode {
             base_dir,
             node_name,
             store,
+            actor_inspector: actor_inspector.clone(),
             fiber_config,
             listening_addrs: announced_addrs,
             network_actor,
@@ -332,6 +383,7 @@ impl NetworkNode {
         NetworkNodeConfig {
             base_dir: self.base_dir.clone(),
             node_name: self.node_name.clone(),
+            actor_inspector: self.actor_inspector.clone(),
             store: self.store.clone(),
             fiber_config: self.fiber_config.clone(),
         }
