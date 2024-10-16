@@ -10,12 +10,12 @@ use std::{
     ffi::OsStr,
     mem::ManuallyDrop,
     path::{Path, PathBuf},
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
     time::Duration,
 };
 use tempfile::TempDir as OldTempDir;
 use tentacle::{multiaddr::MultiAddr, secio::PeerId};
-use tokio::sync::{Mutex, RwLock as TokioRwLock};
+use tokio::sync::RwLock as TokioRwLock;
 use tokio::{
     select,
     sync::{mpsc, OnceCell},
@@ -23,7 +23,7 @@ use tokio::{
 };
 
 use crate::fiber::network::NetworkActorState;
-use crate::tests::inspector::{InspectorPlugin, InspectorPluginNoop};
+use crate::tests::inspector::{Inspector, InspectorPlugin, InspectorPluginNoop};
 use crate::{
     actors::{RootActor, RootActorMessage},
     ckb::tests::test_utils::{submit_tx, trace_tx, trace_tx_hash, MockChainActor},
@@ -46,26 +46,57 @@ pub type NetworkActorInspector = Arc<
     Mutex<
         Box<
             dyn InspectorPlugin<
-                ActorMessage = NetworkActorMessage,
-                ActorState = NetworkActorState<MemoryStore>,
-            >,
+                    ActorMessage = NetworkActorMessage,
+                    ActorState = NetworkActorState<MemoryStore>,
+                > + Send
+                + 'static,
         >,
     >,
 >;
 
-pub fn new_nework_actor_inspector(
-    plugin: Box<
-        dyn InspectorPlugin<
+impl InspectorPlugin for NetworkActorInspector {
+    type ActorMessage = NetworkActorMessage;
+    type ActorState = NetworkActorState<MemoryStore>;
+
+    fn actor_started(&mut self, actor_state: &mut Self::ActorState) {
+        self.lock().unwrap().actor_started(actor_state);
+    }
+
+    fn actor_stopped(&mut self, actor_state: &mut Self::ActorState) {
+        self.lock().unwrap().actor_stopped(actor_state);
+    }
+
+    fn handling_message(
+        &mut self,
+        actor_state: &mut Self::ActorState,
+        message: &Self::ActorMessage,
+    ) {
+        self.lock().unwrap().handling_message(actor_state, message);
+    }
+
+    fn message_handled(
+        &mut self,
+        actor_state: &mut Self::ActorState,
+        message: Option<Self::ActorMessage>,
+    ) {
+        self.lock().unwrap().message_handled(actor_state, message);
+    }
+}
+
+pub fn new_network_actor_inspector<
+    P: InspectorPlugin<
             ActorMessage = NetworkActorMessage,
             ActorState = NetworkActorState<MemoryStore>,
-        >,
-    >,
+        > + Send
+        + 'static,
+>(
+    plugin: P,
 ) -> NetworkActorInspector {
-    Arc::new(Mutex::new(plugin))
+    Arc::new(Mutex::new(Box::new(plugin)))
 }
 
 pub fn new_default_network_actor_inspector() -> NetworkActorInspector {
-    new_nework_actor_inspector(Box::new(InspectorPluginNoop::new()))
+    new_network_actor_inspector(InspectorPluginNoop::new())
 }
 
 static RETAIN_VAR: &str = "TEST_TEMP_RETAIN";
@@ -249,16 +280,17 @@ impl NetworkNodeConfigBuilder {
         self
     }
 
-    pub fn actor_inspector(
-        mut self,
-        actor_inspector: Box<
-            dyn InspectorPlugin<
+    pub fn actor_inspector<
+        P: InspectorPlugin<
                 ActorMessage = NetworkActorMessage,
                 ActorState = NetworkActorState<MemoryStore>,
-            >,
-        >,
+            > + Send
+            + 'static,
+    >(
+        mut self,
+        actor_inspector: P,
     ) -> Self {
-        self.actor_inspector = Some(new_nework_actor_inspector(actor_inspector));
+        self.actor_inspector = Some(new_network_actor_inspector(actor_inspector));
         self
     }
 
@@ -327,7 +359,7 @@ impl NetworkNode {
             store.clone(),
             public_key.into(),
         )));
-        let network_actor = Actor::spawn_linked(
+        let network_actor = Inspector::spawn_linked(
             Some(format!("network actor at {:?}", base_dir.as_ref())),
             NetworkActor::new(
                 event_sender,
@@ -341,6 +373,7 @@ impl NetworkNode {
                 channel_subscribers: Default::default(),
                 default_shutdown_script: Default::default(),
             },
+            actor_inspector.clone(),
             root.get_cell(),
         )
         .await
@@ -379,10 +412,10 @@ impl NetworkNode {
         }
     }
 
-    pub fn get_node_config(&self) -> NetworkNodeConfig {
+    pub fn take_node_config(&mut self) -> NetworkNodeConfig {
         NetworkNodeConfig {
             base_dir: self.base_dir.clone(),
-            node_name: self.node_name.clone(),
+            node_name: self.node_name.take(),
             actor_inspector: self.actor_inspector.clone(),
             store: self.store.clone(),
             fiber_config: self.fiber_config.clone(),
@@ -390,7 +423,7 @@ impl NetworkNode {
     }
 
     pub async fn start(&mut self) {
-        let config = self.get_node_config();
+        let config = self.take_node_config();
         let new = Self::new_with_config(config).await;
         *self = new;
     }
