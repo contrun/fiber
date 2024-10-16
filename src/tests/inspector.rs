@@ -120,13 +120,49 @@ impl<A, S> Inspector<A, S> {
     }
 }
 
+pub trait MaybeCloneMessage: ractor::Message {
+    fn maybe_clone_message(self) -> (Self, Option<Self>) {
+        (self, None)
+    }
+}
+
+impl<M> MaybeCloneMessage for M
+where
+    M: Copy + ractor::Message,
+{
+    fn maybe_clone_message(self) -> (Self, Option<Self>) {
+        (self, Some(self))
+    }
+}
+
 pub trait InspectorPlugin {
     type ActorState: ractor::State;
     type ActorMessage: ractor::Message;
 
-    fn actor_started(&mut self, actor_state: &mut Self::ActorState);
-    fn message_handled(&mut self, actor_state: &mut Self::ActorState, message: Self::ActorMessage);
-    fn actor_stopped(&mut self, actor_state: &mut Self::ActorState);
+    // This function will run when the actor has finished running pre_start.
+    fn actor_started(&mut self, _actor_state: &mut Self::ActorState) {}
+
+    // This function will run when the actor is about to handle a message.
+    fn handling_message(
+        &mut self,
+        _actor_state: &mut Self::ActorState,
+        _message: &Self::ActorMessage,
+    ) {
+    }
+
+    // This function will run when the actor has finished handling a message.
+    // Depending on the message type, it may has been consumed by the actor.
+    // But in some cases when it is cheap to clone the message, we can still have access to it.
+    // For message that implements Copy or Clone, we will clone the message and pass it down.
+    fn message_handled(
+        &mut self,
+        _actor_state: &mut Self::ActorState,
+        _maybe_cloned_message: Option<Self::ActorMessage>,
+    ) {
+    }
+
+    // This function will run when the actor is stopped.
+    fn actor_stopped(&mut self, _actor_state: &mut Self::ActorState) {}
 }
 
 pub struct InspectorPluginNoop<S, M> {
@@ -148,17 +184,6 @@ where
 {
     type ActorState = S;
     type ActorMessage = M;
-
-    fn actor_started(&mut self, _actor_state: &mut Self::ActorState) {}
-
-    fn message_handled(
-        &mut self,
-        _actor_state: &mut Self::ActorState,
-        _message: Self::ActorMessage,
-    ) {
-    }
-
-    fn actor_stopped(&mut self, _actor_state: &mut Self::ActorState) {}
 }
 
 pub struct InspectorPluginDumper<S, M> {
@@ -188,7 +213,22 @@ where
         );
     }
 
-    fn message_handled(&mut self, actor_state: &mut Self::ActorState, message: Self::ActorMessage) {
+    fn handling_message(
+        &mut self,
+        actor_state: &mut Self::ActorState,
+        message: &Self::ActorMessage,
+    ) {
+        println!(
+            "InspectorPluginDumper: Handling message {:?} from initial state {:?}",
+            message, actor_state
+        );
+    }
+
+    fn message_handled(
+        &mut self,
+        actor_state: &mut Self::ActorState,
+        message: Option<Self::ActorMessage>,
+    ) {
         println!(
             "InspectorPluginDumper: Message handled {:?} with final state {:?}",
             message, actor_state
@@ -207,7 +247,7 @@ impl<M, S, T1, T2, A, P> Inspector<A, P>
 where
     A: ActorWithTestHarness<M, S, T1, T2>,
     A: Actor<Msg = M, State = T1>,
-    M: Clone + ractor::Message,
+    M: MaybeCloneMessage,
     T1: ractor::State + DerefMut<Target = S> + LeakReference<NewPointer = T2>,
     T2: ractor::State + DerefMut<Target = T1>,
     P: InspectorPlugin<ActorState = S, ActorMessage = M> + ractor::State,
@@ -227,7 +267,7 @@ impl<M, S, T1, T2, A, P> Actor for Inspector<A, P>
 where
     A: ActorWithTestHarness<M, S, T1, T2>,
     A: Actor<Msg = M, State = T1>,
-    M: Clone + ractor::Message,
+    M: MaybeCloneMessage,
     T1: ractor::State + DerefMut<Target = S> + LeakReference<NewPointer = T2>,
     T2: ractor::State + DerefMut<Target = T1>,
     P: InspectorPlugin<ActorState = S, ActorMessage = M> + ractor::State,
@@ -265,12 +305,12 @@ where
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         let guard = self.wait_to_send_message().await;
+        let (message, cloned_message) = message.maybe_clone_message();
         let (plugin, their_state, actor, _handle) = state;
-        actor
-            .send_message(message.clone())
-            .expect("Failed to send message");
+        plugin.handling_message(their_state.deref_mut(), &message);
+        actor.send_message(message).expect("Failed to send message");
         self.notify_and_wait_for_message_handling(guard).await;
-        plugin.message_handled(their_state.deref_mut(), message);
+        plugin.message_handled(their_state.deref_mut(), cloned_message);
         Ok(())
     }
 
@@ -356,11 +396,21 @@ mod tests {
             self.current_message = Some(Message::Ping);
         }
 
+        fn handling_message(
+            &mut self,
+            actor_state: &mut Self::ActorState,
+            message: &Self::ActorMessage,
+        ) {
+            assert_eq!(self.current_state, Some(*actor_state));
+            assert_eq!(self.current_message, Some(*message));
+        }
+
         fn message_handled(
             &mut self,
             actor_state: &mut Self::ActorState,
-            message: Self::ActorMessage,
+            message: Option<Self::ActorMessage>,
         ) {
+            let message = message.unwrap();
             // Everytime we handle the message, we increment the state by 1.
             assert_eq!(self.current_state, Some(*actor_state - 1));
             assert_eq!(self.current_message, Some(message));
