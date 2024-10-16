@@ -1,6 +1,6 @@
 use ractor::{
-    async_trait as rasync_trait, concurrency::JoinHandle, Actor, ActorProcessingErr, ActorRef,
-    SpawnErr,
+    async_trait as rasync_trait, concurrency::JoinHandle, Actor, ActorCell, ActorProcessingErr,
+    ActorRef, SpawnErr, SupervisionEvent,
 };
 use std::{mem::ManuallyDrop, ops::DerefMut, sync::Arc};
 use tokio::sync::{mpsc, Mutex, MutexGuard};
@@ -126,15 +126,7 @@ pub trait MaybeCloneMessage: ractor::Message {
     }
 }
 
-impl<M> MaybeCloneMessage for M
-where
-    M: Copy + ractor::Message,
-{
-    fn maybe_clone_message(self) -> (Self, Option<Self>) {
-        (self, Some(self))
-    }
-}
-
+// InspectorPlugin is saved to Inspector state, so it must implement ractor::State.
 pub trait InspectorPlugin {
     type ActorState: ractor::State;
     type ActorMessage: ractor::Message;
@@ -252,13 +244,31 @@ where
     T2: ractor::State + DerefMut<Target = T1>,
     P: InspectorPlugin<ActorState = S, ActorMessage = M> + ractor::State,
 {
-    pub async fn start(
+    pub async fn spawn(
+        actor_name: Option<String>,
         actor: A,
         arguments: <A as Actor>::Arguments,
         plugin: P,
     ) -> Result<(ActorRef<<A as Actor>::Msg>, JoinHandle<()>), SpawnErr> {
         let inspector = Self::new();
-        Actor::spawn(None, inspector, (actor, arguments, plugin)).await
+        Actor::spawn(actor_name, inspector, (actor, arguments, plugin)).await
+    }
+
+    pub async fn spawn_linked(
+        actor_name: Option<String>,
+        actor: A,
+        arguments: <A as Actor>::Arguments,
+        plugin: P,
+        supervisor: ActorCell,
+    ) -> Result<(ActorRef<<A as Actor>::Msg>, JoinHandle<()>), SpawnErr> {
+        let inspector = Self::new();
+        Actor::spawn_linked(
+            actor_name,
+            inspector,
+            (actor, arguments, plugin),
+            supervisor,
+        )
+        .await
     }
 }
 
@@ -323,6 +333,15 @@ where
         plugin.actor_stopped(their_state.deref_mut());
         Ok(())
     }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        Ok(())
+    }
 }
 
 mod tests {
@@ -347,6 +366,12 @@ mod tests {
     type Arguments = ();
 
     type Harness = ActorTestHarness<Message, RealState, ActorState, InspectorState>;
+
+    impl MaybeCloneMessage for Message {
+        fn maybe_clone_message(self) -> (Self, Option<Self>) {
+            (self, Some(self))
+        }
+    }
 
     impl Message {
         // retrieve the next message in the sequence
@@ -503,7 +528,7 @@ mod tests {
         let actor = PingPong { harness: None };
         let arguments = ();
         let plugin = InspectorPluginNoop::new();
-        let (_actor, handle) = Inspector::start(actor, arguments, plugin)
+        let (_actor, handle) = Inspector::spawn(None, actor, arguments, plugin)
             .await
             .expect("start inspector");
         handle.await.expect("inspector should not fail");
@@ -514,7 +539,7 @@ mod tests {
         let actor = PingPong { harness: None };
         let arguments = ();
         let plugin = InspectorPluginDumper::new();
-        let (_actor, handle) = Inspector::start(actor, arguments, plugin)
+        let (_actor, handle) = Inspector::spawn(None, actor, arguments, plugin)
             .await
             .expect("start inspector");
         handle.await.expect("inspector should not fail");
@@ -525,7 +550,7 @@ mod tests {
         let actor = PingPong { harness: None };
         let arguments = ();
         let plugin = PingPongInspectorPlugin::new();
-        let (_actor, handle) = Inspector::start(actor, arguments, plugin)
+        let (_actor, handle) = Inspector::spawn(None, actor, arguments, plugin)
             .await
             .expect("start inspector");
         handle.await.expect("inspector should not fail");
