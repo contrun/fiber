@@ -1,7 +1,7 @@
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_types::packed::OutPoint;
 use ckb_types::{core::TransactionView, packed::Byte32};
-use ractor::{Actor, ActorRef};
+use ractor::{async_trait as rasync_trait, Actor, ActorRef};
 use rand::Rng;
 use secp256k1::{rand, PublicKey, Secp256k1, SecretKey};
 use std::{
@@ -54,19 +54,20 @@ pub type NetworkActorInspector = Arc<
     >,
 >;
 
+#[rasync_trait]
 impl InspectorPlugin for NetworkActorInspector {
     type ActorMessage = NetworkActorMessage;
     type ActorState = NetworkActorState<MemoryStore>;
 
-    fn actor_started(&mut self, actor_state: &mut Self::ActorState) {
+    async fn actor_started(&mut self, actor_state: &mut Self::ActorState) {
         self.lock().unwrap().actor_started(actor_state);
     }
 
-    fn actor_stopped(&mut self, actor_state: &mut Self::ActorState) {
+    async fn actor_stopped(&mut self, actor_state: &mut Self::ActorState) {
         self.lock().unwrap().actor_stopped(actor_state);
     }
 
-    fn handling_message(
+    async fn handling_message(
         &mut self,
         actor_state: &mut Self::ActorState,
         message: &Self::ActorMessage,
@@ -74,7 +75,7 @@ impl InspectorPlugin for NetworkActorInspector {
         self.lock().unwrap().handling_message(actor_state, message);
     }
 
-    fn message_handled(
+    async fn message_handled(
         &mut self,
         actor_state: &mut Self::ActorState,
         message: Option<Self::ActorMessage>,

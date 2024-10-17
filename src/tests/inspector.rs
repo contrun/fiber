@@ -127,15 +127,16 @@ pub trait MaybeCloneMessage: ractor::Message {
 }
 
 // InspectorPlugin is saved to Inspector state, so it must implement ractor::State.
+#[rasync_trait]
 pub trait InspectorPlugin {
     type ActorState: ractor::State;
     type ActorMessage: ractor::Message;
 
     // This function will run when the actor has finished running pre_start.
-    fn actor_started(&mut self, _actor_state: &mut Self::ActorState) {}
+    async fn actor_started(&mut self, _actor_state: &mut Self::ActorState) {}
 
     // This function will run when the actor is about to handle a message.
-    fn handling_message(
+    async fn handling_message(
         &mut self,
         _actor_state: &mut Self::ActorState,
         _message: &Self::ActorMessage,
@@ -146,7 +147,7 @@ pub trait InspectorPlugin {
     // Depending on the message type, it may has been consumed by the actor.
     // But in some cases when it is cheap to clone the message, we can still have access to it.
     // For message that implements Copy or Clone, we will clone the message and pass it down.
-    fn message_handled(
+    async fn message_handled(
         &mut self,
         _actor_state: &mut Self::ActorState,
         _maybe_cloned_message: Option<Self::ActorMessage>,
@@ -154,7 +155,7 @@ pub trait InspectorPlugin {
     }
 
     // This function will run when the actor is stopped.
-    fn actor_stopped(&mut self, _actor_state: &mut Self::ActorState) {}
+    async fn actor_stopped(&mut self, _actor_state: &mut Self::ActorState) {}
 }
 
 pub struct InspectorPluginNoop<S, M> {
@@ -169,6 +170,7 @@ impl<S, M> InspectorPluginNoop<S, M> {
     }
 }
 
+#[rasync_trait]
 impl<S, M> InspectorPlugin for InspectorPluginNoop<S, M>
 where
     S: ractor::State,
@@ -190,6 +192,7 @@ impl<S, M> InspectorPluginDumper<S, M> {
     }
 }
 
+#[rasync_trait]
 impl<S, M> InspectorPlugin for InspectorPluginDumper<S, M>
 where
     S: ractor::State + std::fmt::Debug,
@@ -198,17 +201,17 @@ where
     type ActorState = S;
     type ActorMessage = M;
 
-    fn actor_started(&mut self, actor_state: &mut Self::ActorState) {
+    async fn actor_started(&mut self, actor_state: &mut Self::ActorState) {
         println!(
             "InspectorPluginDumper: Actor started with state {:?}",
             actor_state
         );
     }
 
-    fn handling_message(
+    async fn handling_message(
         &mut self,
         actor_state: &mut Self::ActorState,
-        message: &Self::ActorMessage,
+        message: Self::ActorMessage,
     ) {
         println!(
             "InspectorPluginDumper: Handling message {:?} from initial state {:?}",
@@ -216,7 +219,7 @@ where
         );
     }
 
-    fn message_handled(
+    async fn message_handled(
         &mut self,
         actor_state: &mut Self::ActorState,
         message: Option<Self::ActorMessage>,
@@ -227,7 +230,7 @@ where
         );
     }
 
-    fn actor_stopped(&mut self, actor_state: &mut Self::ActorState) {
+    async fn actor_stopped(&mut self, actor_state: &mut Self::ActorState) {
         println!(
             "InspectorPluginDumper: Actor stopped with state {:?}",
             actor_state
@@ -412,16 +415,17 @@ mod tests {
         }
     }
 
+    #[rasync_trait]
     impl InspectorPlugin for PingPongInspectorPlugin {
         type ActorState = RealState;
         type ActorMessage = Message;
 
-        fn actor_started(&mut self, actor_state: &mut Self::ActorState) {
+        async fn actor_started(&mut self, actor_state: &mut Self::ActorState) {
             self.current_state = Some(*actor_state);
             self.current_message = Some(Message::Ping);
         }
 
-        fn handling_message(
+        async fn handling_message(
             &mut self,
             actor_state: &mut Self::ActorState,
             message: &Self::ActorMessage,
@@ -430,7 +434,7 @@ mod tests {
             assert_eq!(self.current_message, Some(*message));
         }
 
-        fn message_handled(
+        async fn message_handled(
             &mut self,
             actor_state: &mut Self::ActorState,
             message: Option<Self::ActorMessage>,
@@ -443,7 +447,7 @@ mod tests {
             self.current_state = Some(*actor_state);
         }
 
-        fn actor_stopped(&mut self, actor_state: &mut Self::ActorState) {
+        async fn actor_stopped(&mut self, actor_state: &mut Self::ActorState) {
             assert_eq!(*actor_state, STOPPING_STATE);
         }
     }
