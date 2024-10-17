@@ -8,10 +8,12 @@ use crate::{
         },
         config::DEFAULT_CHANNEL_MINIMAL_CKB_AMOUNT,
         hash_algorithm::HashAlgorithm,
-        network::{AcceptChannelCommand, OpenChannelCommand},
+        network::{AcceptChannelCommand, NetworkActorState, OpenChannelCommand},
+        tests::test_utils::MemoryStore,
         types::{Hash256, LockTime, Privkey, RemoveTlcFulfill, RemoveTlcReason},
         NetworkActorCommand, NetworkActorMessage,
     },
+    tests::inspector::InspectorPlugin,
     NetworkServiceEvent,
 };
 use ckb_jsonrpc_types::Status;
@@ -156,6 +158,31 @@ async fn test_create_public_channel() {
     init_tracing();
 
     let _span = tracing::info_span!("node", node = "test").entered();
+
+    let node_a_funding_amount = 100000000000;
+    let node_b_funding_amount = 6200000000;
+
+    let (_node_a, _node_b, _new_channel_id) =
+        create_nodes_with_established_channel(node_a_funding_amount, node_b_funding_amount, true)
+            .await;
+    // Wait for the channel announcement to be broadcasted
+    tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
+    // FIXME: add assertion
+}
+
+#[tokio::test]
+async fn test_have_public_channel_in_network_graph() {
+    struct MustProcessChannelAnnouncement(bool);
+    impl InspectorPlugin for MustProcessChannelAnnouncement {
+        type ActorState = NetworkActorState<MemoryStore>;
+        type ActorMessage = NetworkActorMessage;
+        fn actor_stopped(&mut self, actor_state: &mut Self::ActorState) {
+            let graph = actor_state.network_graph.read();
+            let channels = graph.channels();
+            asssert!()
+        }
+    }
+    let [mut node_a, mut node_b] = NetworkNode::new_n_interconnected_nodes().await;
 
     let node_a_funding_amount = 100000000000;
     let node_b_funding_amount = 6200000000;
@@ -383,13 +410,13 @@ async fn test_channel_commitment_tx_after_add_tlc_sha256() {
     do_test_channel_commitment_tx_after_add_tlc(HashAlgorithm::Sha256).await
 }
 
-async fn create_nodes_with_established_channel(
+async fn establish_channel_between_nodes(
+    node_a: &mut NetworkNode,
+    node_b: &mut NetworkNode,
     node_a_funding_amount: u128,
     node_b_funding_amount: u128,
     public: bool,
-) -> (NetworkNode, NetworkNode, Hash256) {
-    let [mut node_a, mut node_b] = NetworkNode::new_n_interconnected_nodes().await;
-
+) -> Hash256 {
     let message = |rpc_reply| {
         NetworkActorMessage::Command(NetworkActorCommand::OpenChannel(
             OpenChannelCommand {
@@ -468,6 +495,24 @@ async fn create_nodes_with_established_channel(
             _ => false,
         })
         .await;
+
+    new_channel_id
+}
+
+async fn create_nodes_with_established_channel(
+    node_a_funding_amount: u128,
+    node_b_funding_amount: u128,
+    public: bool,
+) -> (NetworkNode, NetworkNode, Hash256) {
+    let [mut node_a, mut node_b] = NetworkNode::new_n_interconnected_nodes().await;
+    let new_channel_id = establish_channel_between_nodes(
+        &mut node_a,
+        &mut node_b,
+        node_a_funding_amount,
+        node_b_funding_amount,
+        public,
+    )
+    .await;
     (node_a, node_b, new_channel_id)
 }
 

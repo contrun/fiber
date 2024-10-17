@@ -2236,6 +2236,7 @@ enum RequestState {
 
 pub struct NetworkActorState<S> {
     store: S,
+    network_graph: Arc<RwLock<NetworkGraph<S>>>,
     persistent_state: PersistentNetworkActorState,
     // The name of the node to be announced to the network, may be empty.
     node_name: Option<AnnouncedNodeName>,
@@ -3519,6 +3520,7 @@ where
             debug!("Tentacle service shutdown");
         });
 
+        let state_network_graph = self.network_graph.clone();
         let mut graph = self.network_graph.write().await;
 
         let persistent_state = self
@@ -3567,6 +3569,7 @@ where
 
         let mut state = NetworkActorState {
             store: self.store.clone(),
+            network_graph: state_network_graph,
             persistent_state,
             node_name: config.announced_node_name,
             peer_id: my_peer_id,
