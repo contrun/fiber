@@ -4,8 +4,8 @@ use anyhow::anyhow;
 use ckb_jsonrpc_types::TxStatus;
 use ckb_types::{
     core::TransactionView,
-    packed::{CellOutput, OutPoint},
-    prelude::{Builder, Entity, Pack, PackVec, Unpack},
+    packed::{CellOutput, OutPoint, Transaction},
+    prelude::{Builder, Entity, IntoTransactionView, Pack, PackVec, Unpack},
 };
 
 use crate::ckb::{TraceTxRequest, TraceTxResponse};
@@ -321,4 +321,24 @@ pub async fn trace_tx_hash(
     .expect("chain actor alive")
     .status
     .status
+}
+
+pub async fn get_tx_from_hash(
+    mock_actor: ActorRef<CkbChainMessage>,
+    tx_hash: Byte32,
+) -> Result<TransactionView, anyhow::Error> {
+    pub const TIMEOUT: u64 = 1000;
+    let request = TraceTxRequest {
+        tx_hash,
+        confirmations: 1,
+    };
+    call_t!(
+        mock_actor,
+        CkbChainMessage::TraceTx,
+        TIMEOUT,
+        request.clone()
+    )?
+    .tx
+    .map(|tx| Transaction::from(tx.inner).into_view())
+    .ok_or(anyhow!("tx not found in trace tx response"))
 }

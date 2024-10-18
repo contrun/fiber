@@ -1,3 +1,4 @@
+use crate::ckb::tests::test_utils::get_tx_from_hash;
 use crate::fiber::graph::{ChannelInfo, NetworkGraph, NodeInfo};
 use crate::fiber::types::Pubkey;
 use crate::invoice::{CkbInvoice, InvoiceError, InvoiceStore};
@@ -474,6 +475,13 @@ impl NetworkNode {
 
     pub async fn trace_tx_hash(&mut self, tx_hash: Byte32) -> ckb_jsonrpc_types::Status {
         trace_tx_hash(self.chain_actor.clone(), tx_hash).await
+    }
+
+    pub async fn get_tx_from_hash(
+        &mut self,
+        tx_hash: Byte32,
+    ) -> Result<TransactionView, anyhow::Error> {
+        get_tx_from_hash(self.chain_actor.clone(), tx_hash).await
     }
 }
 
