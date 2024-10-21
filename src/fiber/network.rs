@@ -3499,6 +3499,7 @@ where
         message: SupervisionEvent,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        debug!("Network actor supervisor event: {:?}", message);
         match message {
             SupervisionEvent::ActorTerminated(who, _, _) => {
                 debug!("Actor {:?} terminated", who);

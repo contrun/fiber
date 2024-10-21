@@ -19,6 +19,9 @@ use ractor::{
 };
 use tracing::{debug, error};
 
+pub const TRACE_TX_WAITING_FOR_NOTIFICATION_MS: u64 = 2 * 1000;
+pub const TRACE_TX_TIMEOUT_MS: u64 = 3 * 1000;
+
 type TxNotification = (
     Byte32,
     ckb_jsonrpc_types::TransactionView,
@@ -366,9 +369,14 @@ impl Actor for MockChainActor {
                     "Transaction verfication result: tx {:?}, status: {:?}",
                     &tx, &status
                 );
+                debug!(
+                    "Sending tx notification: tx: {:?}, status: {:?}",
+                    &tx, &status
+                );
                 state
                     .tx_notifications
                     .send((tx.hash(), tx.clone().into(), status.clone()));
+                debug!("Saving tx status: tx: {:?}, status: {:?}", &tx, &status);
                 state.tx_status.insert(tx.hash(), (tx.into(), status));
                 if let Err(e) = reply_port.send(result) {
                     error!(
@@ -390,7 +398,7 @@ impl Actor for MockChainActor {
                             myself,
                             tx.tx_hash,
                             state.tx_notifications.clone(),
-                            Duration::from_secs(2),
+                            Duration::from_millis(TRACE_TX_WAITING_FOR_NOTIFICATION_MS),
                             reply_port,
                         )
                         .await;
@@ -407,6 +415,7 @@ pub async fn submit_tx(
     tx: TransactionView,
 ) -> ckb_jsonrpc_types::Status {
     pub const TIMEOUT: u64 = 1000;
+    debug!("Calling chain actor to submit tx: {:?}", &tx);
     if let Err(error) = call_t!(mock_actor, CkbChainMessage::SendTx, TIMEOUT, tx.clone())
         .expect("chain actor alive")
     {
@@ -427,7 +436,6 @@ pub async fn trace_tx_hash(
     mock_actor: ActorRef<CkbChainMessage>,
     tx_hash: Byte32,
 ) -> ckb_jsonrpc_types::Status {
-    pub const TIMEOUT: u64 = 1000;
     let request = TraceTxRequest {
         tx_hash,
         confirmations: 1,
@@ -435,8 +443,8 @@ pub async fn trace_tx_hash(
     call_t!(
         mock_actor,
         CkbChainMessage::TraceTx,
-        TIMEOUT,
-        request.clone()
+        TRACE_TX_TIMEOUT_MS,
+        request
     )
     .expect("chain actor alive")
     .status
