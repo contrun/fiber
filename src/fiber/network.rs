@@ -586,6 +586,7 @@ where
         peer_id: PeerId,
         message: FiberMessage,
     ) -> crate::Result<()> {
+        debug!("Received message from peer {:?}: {:?}", &peer_id, &message);
         match message {
             // We should process OpenChannel message here because there is no channel corresponding
             // to the channel id in the message yet.
@@ -2304,7 +2305,7 @@ pub struct NetworkActorState<S> {
 }
 
 #[serde_as]
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Clone, Serialize, Deserialize, Debug)]
 pub struct PersistentNetworkActorState {
     // These addresses are announced by the peer itself to the network.
     // When a new NodeAnnouncement message is received, we will overwrite the old addresses.
@@ -2380,7 +2381,7 @@ impl PersistentNetworkActorState {
             .saved_peer_addresses
             .keys()
             .into_iter()
-            .chain(self.saved_peer_addresses.keys().into_iter())
+            .chain(self.announced_peer_addresses.keys().into_iter())
             .collect::<HashSet<_, RandomState>>();
 
         nodes
@@ -3666,6 +3667,7 @@ where
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        debug!("Network actor received message: {:?}", message);
         match message {
             NetworkActorMessage::Event(event) => {
                 if let Err(err) = self.handle_event(myself, state, event).await {
