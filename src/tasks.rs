@@ -21,9 +21,14 @@ impl TaskTrackerWithCancellation {
     }
 
     pub async fn close(&self) {
+        tracing::debug!("TaskTrackerWithCancellation::close");
+        tracing::debug!("Canceling tasks");
         self.token.cancel();
+        tracing::debug!("Closing tracker");
         self.tracker.close();
+        tracing::debug!("Waiting for tasks to complete");
         self.tracker.wait().await;
+        tracing::debug!("All tasks completed");
     }
 }
 
@@ -32,11 +37,13 @@ static TOKIO_TASK_TRACKER_WITH_CANCELLATION: once_cell::sync::Lazy<TaskTrackerWi
 
 /// Create a new CancellationToken for exit signal
 pub fn new_tokio_cancellation_token() -> CancellationToken {
+    tracing::debug!("new_tokio_cancellation_token");
     TOKIO_TASK_TRACKER_WITH_CANCELLATION.token.clone()
 }
 
 /// Create a new TaskTracker to track task progress
 pub fn new_tokio_task_tracker() -> TaskTracker {
+    tracing::debug!("new_tokio_task_tracker");
     TOKIO_TASK_TRACKER_WITH_CANCELLATION.tracker.clone()
 }
 

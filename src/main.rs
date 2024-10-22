@@ -55,9 +55,9 @@ pub async fn main() {
     let config = Config::parse();
     debug!("Parsed config: {:?}", &config);
 
-    let tracker = new_tokio_task_tracker();
-    let token = new_tokio_cancellation_token();
-    let root_actor = RootActor::start(tracker, token).await;
+    debug!("Starting root actor");
+    let root_actor =
+        RootActor::start(new_tokio_task_tracker(), new_tokio_cancellation_token()).await;
 
     let store = Store::new(config.fiber.as_ref().unwrap().store_path());
     let subscribers = ChannelSubscribers::default();
@@ -98,7 +98,7 @@ pub async fn main() {
             let default_shutdown_script =
                 get_script_by_contract(Contract::Secp256k1Lock, &pubkey_hash[0..20]);
 
-            info!("Starting fiber");
+            info!("Starting fiber service");
             let network_actor = start_network(
                 fiber_config,
                 ckb_actor,
@@ -135,6 +135,7 @@ pub async fn main() {
             watchtower_actor
                 .send_interval(Duration::from_secs(60), || WatchtowerMessage::PeriodicCheck);
 
+            debug!("Starting event processing service");
             new_tokio_task_tracker().spawn(async move {
                 let token = new_tokio_cancellation_token();
                 loop {
@@ -166,7 +167,7 @@ pub async fn main() {
 
     let cch_actor = match config.cch {
         Some(cch_config) => {
-            info!("Starting cch");
+            info!("Starting cch service");
             let ignore_startup_failure = cch_config.ignore_startup_failure;
             match start_cch(
                 cch_config,
@@ -215,7 +216,7 @@ pub async fn main() {
                 return;
             }
 
-            info!("Starting rpc");
+            info!("Starting rpc service");
             let handle = start_rpc(
                 rpc_config,
                 config.fiber,
@@ -234,7 +235,9 @@ pub async fn main() {
     info!("Received Ctrl-C, shutting down");
     if let Some(handle) = rpc_server_handle {
         handle.stop().unwrap();
+        debug!("Waiting for rpc server to stop");
         handle.stopped().await;
+        debug!("Rpc server stopped");
     }
     cancel_tasks_and_wait_for_completion().await;
 }

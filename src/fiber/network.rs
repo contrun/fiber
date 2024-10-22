@@ -3515,6 +3515,7 @@ where
             });
         }
 
+        debug!("Network actor started");
         Ok(state)
     }
 
@@ -3544,6 +3545,7 @@ where
         _myself: ActorRef<Self::Msg>,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        debug!("Shutting down network service for {:?}", state.peer_id);
         if let Err(err) = state.control.close().await {
             error!("Failed to close tentacle service: {}", err);
         }
@@ -3563,6 +3565,7 @@ where
         message: SupervisionEvent,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        debug!("Network service supervisor event: {:?}", &message);
         match message {
             SupervisionEvent::ActorTerminated(who, _, _) => {
                 debug!("Actor {:?} terminated", who);

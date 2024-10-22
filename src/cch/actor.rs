@@ -176,6 +176,7 @@ impl Actor for CchActor {
         self.tracker
             .spawn(async move { payments_tracker.run().await });
 
+        tracing::debug!("CCH actor started");
         Ok(CchState {
             lnd_connection,
             orders_db: Default::default(),
@@ -250,6 +251,15 @@ impl Actor for CchActor {
                 Ok(())
             }
         }
+    }
+
+    async fn post_stop(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        tracing::debug!("cch actor stopped");
+        Ok(())
     }
 }
 
