@@ -3,6 +3,7 @@ use crate::{
     fiber::{
         graph::{ChannelInfo, NetworkGraphStateStore},
         network::get_chain_hash,
+        tests::channel::test_create_public_channel,
         types::{
             ChannelAnnouncement, ChannelUpdate, FiberBroadcastMessage, FiberMessage,
             NodeAnnouncement, Privkey, Pubkey,
@@ -519,4 +520,10 @@ async fn test_sync_node_announcement_after_restart() {
 
     let node = node2.store.get_nodes(Some(test_pub_key));
     assert!(!node.is_empty());
+}
+
+// This test will dump all the messages received by the peer.
+#[tokio::test]
+async fn dump_peer_messages() {
+    test_create_public_channel();
 }

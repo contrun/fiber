@@ -3649,6 +3649,12 @@ impl ServiceProtocol for Handle {
 
     async fn received(&mut self, context: ProtocolContextMutRef<'_>, data: Bytes) {
         let msg = unwrap_or_return!(FiberMessage::from_molecule_slice(&data), "parse message");
+        #[cfg(test)]
+        trace!(
+            "Tentacle received message: message: {:?}, raw data: {:?}",
+            &msg,
+            &data
+        );
         match context.session.remote_pubkey.as_ref() {
             Some(pubkey) => {
                 let peer_id = PeerId::from_public_key(pubkey);

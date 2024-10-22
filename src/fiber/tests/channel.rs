@@ -152,7 +152,7 @@ async fn test_open_and_accept_channel() {
 }
 
 #[tokio::test]
-async fn test_create_public_channel() {
+pub async fn test_create_public_channel() {
     init_tracing();
 
     let _span = tracing::info_span!("node", node = "test").entered();
