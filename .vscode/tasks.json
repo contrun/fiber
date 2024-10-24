@@ -1,0 +1,75 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "shell",
+      "command": "./tests/nodes/start.sh",
+      "problemMatcher": [
+        "$rustc"
+      ],
+      "label": "start 3 nodes",
+      "options": {
+        "env": {
+          "RUST_BACKTRACE": "full",
+          "RUST_LOG": "trace"
+        }
+      }
+    },
+    {
+      "type": "shell",
+      "command": "./tests/nodes/start.sh",
+      "problemMatcher": [
+        "$rustc"
+      ],
+      "label": "start 3 nodes (all new)",
+      "options": {
+        "env": {
+          "REMOVE_OLD_STATE": "y",
+          "RUST_BACKTRACE": "full",
+          "RUST_LOG": "trace"
+        }
+      }
+    },
+    {
+      "type": "shell",
+      "command": "./tests/deploy/lnd-init/setup-lnd.sh",
+      "label": "lnd init"
+    },
+    {
+      "type": "cargo",
+      "command": "run",
+      "args": [
+        "--manifest-path",
+        "./tests/deploy/udt-init/Cargo.toml",
+      ],
+      "problemMatcher": [
+        "$rustc"
+      ],
+      "label": "udt init"
+    },
+    {
+      "type": "cargo",
+      "command": "run",
+      "args": [
+        "--",
+        "-d",
+        "tests/nodes/1"
+      ],
+      "problemMatcher": [
+        "$rustc"
+      ],
+      "label": "rust: cargo run node 1"
+    },
+    {
+      "type": "shell",
+      "command": "ckb",
+      "args": [
+        "run",
+        "-C",
+        "tests/deploy/node-data",
+        "--indexer"
+      ],
+      "label": "run ckb node"
+    },
+  ]
+}
