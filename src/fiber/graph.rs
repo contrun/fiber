@@ -43,6 +43,15 @@ pub struct ChannelInfo {
     pub timestamp: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PrivateChannelInfo {
+    pub funding_tx_block_number: u64,
+    pub funding_tx_index: u32,
+    pub announcement_msg: ChannelAnnouncement,
+    pub node1_to_node2: Option<ChannelUpdateInfo>,
+    pub node2_to_node1: Option<ChannelUpdateInfo>,
+}
+
 impl ChannelInfo {
     pub fn out_point(&self) -> OutPoint {
         self.announcement_msg.channel_outpoint.clone()
@@ -141,6 +150,13 @@ pub struct NetworkGraph<S> {
     nodes: HashMap<Pubkey, NodeInfo>,
     store: S,
     chain_hash: Hash256,
+}
+
+// Just a wrapper of (Pubkey, &ChannelInfo, &ChannelUpdateInfo) yet
+pub(crate) struct InboundChannelInfo<'a> {
+    pub from: Pubkey,
+    pub channel_info: &'a ChannelInfo,
+    pub channel_update: &'a ChannelUpdateInfo,
 }
 
 #[derive(Error, Debug)]
@@ -424,20 +440,28 @@ where
         self.chain_hash == chain_hash
     }
 
-    pub fn get_node_inbounds(
+    pub(crate) fn get_node_inbounds(
         &self,
         node_id: Pubkey,
-    ) -> impl Iterator<Item = (Pubkey, &ChannelInfo, &ChannelUpdateInfo)> {
+    ) -> impl Iterator<Item = InboundChannelInfo<'_>> {
         self.channels.values().filter_map(move |channel| {
             if let Some(info) = channel.node1_to_node2.as_ref() {
                 if info.enabled && channel.node2() == node_id {
-                    return Some((channel.node1(), channel, info));
+                    return Some(InboundChannelInfo {
+                        from: channel.node1(),
+                        channel_info: channel,
+                        channel_update: info,
+                    });
                 }
             }
 
             if let Some(info) = channel.node2_to_node1.as_ref() {
                 if info.enabled && channel.node1() == node_id {
-                    return Some((channel.node2(), channel, info));
+                    return Some(InboundChannelInfo {
+                        from: channel.node2(),
+                        channel_info: channel,
+                        channel_update: info,
+                    });
                 }
             }
             None
@@ -640,7 +664,12 @@ where
         while let Some(cur_hop) = nodes_heap.pop() {
             nodes_visited += 1;
 
-            for (from, channel_info, channel_update) in self.get_node_inbounds(cur_hop.node_id) {
+            for InboundChannelInfo {
+                from,
+                channel_info,
+                channel_update,
+            } in self.get_node_inbounds(cur_hop.node_id)
+            {
                 if from == target && !route_to_self {
                     continue;
                 }
