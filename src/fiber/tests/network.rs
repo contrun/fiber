@@ -1,7 +1,7 @@
 use super::test_utils::{init_tracing, NetworkNode};
 use crate::{
     fiber::{
-        graph::{ChannelInfo, NetworkGraphStateStore},
+        graph::{CompactChannelInfo, NetworkGraphStateStore},
         network::{get_chain_hash, NetworkActorStateStore},
         tests::test_utils::NetworkNodeConfigBuilder,
         types::{
@@ -180,7 +180,7 @@ async fn test_sync_channel_announcement_on_startup() {
     assert!(!channels.is_empty());
 }
 
-async fn create_a_channel() -> (NetworkNode, ChannelInfo, Privkey, Privkey, Privkey) {
+async fn create_a_channel() -> (NetworkNode, CompactChannelInfo, Privkey, Privkey, Privkey) {
     init_tracing();
 
     let mut node1 = new_synced_node("node1").await;

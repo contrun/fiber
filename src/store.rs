@@ -1,7 +1,7 @@
 use crate::{
     fiber::{
         channel::{ChannelActorState, ChannelActorStateStore, ChannelState},
-        graph::{ChannelInfo, NetworkGraphStateStore, NodeInfo, PaymentSession},
+        graph::{CompactChannelInfo, NetworkGraphStateStore, CompactNodeInfo, PaymentSession},
         network::{NetworkActorStateStore, PersistentNetworkActorState},
         types::{Hash256, Pubkey},
     },
@@ -237,8 +237,8 @@ enum KeyValue {
     CkbInvoicePreimage(Hash256, Hash256),
     CkbInvoiceStatus(Hash256, CkbInvoiceStatus),
     PeerIdChannelId((PeerId, Hash256), ChannelState),
-    NodeInfo(Pubkey, NodeInfo),
-    ChannelInfo(OutPoint, ChannelInfo),
+    NodeInfo(Pubkey, CompactNodeInfo),
+    ChannelInfo(OutPoint, CompactChannelInfo),
     WatchtowerChannel(Hash256, ChannelData),
     PaymentSession(Hash256, PaymentSession),
     NetworkActorState(PeerId, PersistentNetworkActorState),
@@ -412,7 +412,7 @@ impl InvoiceStore for Store {
 }
 
 impl NetworkGraphStateStore for Store {
-    fn get_channels(&self, channel_id: Option<OutPoint>) -> Vec<ChannelInfo> {
+    fn get_channels(&self, channel_id: Option<OutPoint>) -> Vec<CompactChannelInfo> {
         let (channels, _) = self.get_channels_with_params(usize::MAX, None, channel_id);
         channels
     }
@@ -422,7 +422,7 @@ impl NetworkGraphStateStore for Store {
         limit: usize,
         after: Option<JsonBytes>,
         outpoint: Option<OutPoint>,
-    ) -> (Vec<ChannelInfo>, JsonBytes) {
+    ) -> (Vec<CompactChannelInfo>, JsonBytes) {
         let channel_prefix = vec![CHANNEL_INFO_PREFIX];
         let (prefix, skip) = after
             .as_ref()
@@ -450,7 +450,7 @@ impl NetworkGraphStateStore for Store {
                         return None;
                     }
                 }
-                let channel: ChannelInfo = serde_json::from_slice(value.as_ref())
+                let channel: CompactChannelInfo = serde_json::from_slice(value.as_ref())
                     .expect("deserialize ChannelInfo should be OK");
                 if !channel.is_explicitly_disabled() {
                     last_key = col_key.to_vec();
@@ -465,7 +465,7 @@ impl NetworkGraphStateStore for Store {
         (channels, JsonBytes::from_bytes(last_key.into()))
     }
 
-    fn get_nodes(&self, node_id: Option<Pubkey>) -> Vec<NodeInfo> {
+    fn get_nodes(&self, node_id: Option<Pubkey>) -> Vec<CompactNodeInfo> {
         let (nodes, _) = self.get_nodes_with_params(usize::MAX, None, node_id);
         nodes
     }
@@ -475,7 +475,7 @@ impl NetworkGraphStateStore for Store {
         limit: usize,
         after: Option<JsonBytes>,
         node_id: Option<Pubkey>,
-    ) -> (Vec<NodeInfo>, JsonBytes) {
+    ) -> (Vec<CompactNodeInfo>, JsonBytes) {
         let node_prefix = vec![NODE_INFO_PREFIX];
         let (prefix, skip) = after.as_ref().map_or((vec![NODE_INFO_PREFIX], 0), |after| {
             let mut key = Vec::with_capacity(34);
@@ -512,13 +512,13 @@ impl NetworkGraphStateStore for Store {
         (nodes, JsonBytes::from_bytes(last_key.into()))
     }
 
-    fn insert_channel(&self, channel: ChannelInfo) {
+    fn insert_channel(&self, channel: CompactChannelInfo) {
         let mut batch = self.batch();
         batch.put_kv(KeyValue::ChannelInfo(channel.out_point(), channel.clone()));
         batch.commit();
     }
 
-    fn insert_node(&self, node: NodeInfo) {
+    fn insert_node(&self, node: CompactNodeInfo) {
         let mut batch = self.batch();
         batch.put_kv(KeyValue::NodeInfo(node.node_id, node.clone()));
         batch.commit();

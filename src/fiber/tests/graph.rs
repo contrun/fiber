@@ -1,7 +1,7 @@
 use crate::fiber::types::Pubkey;
 use crate::{
     fiber::{
-        graph::{ChannelInfo, GraphError, NetworkGraph, NodeInfo, PathEdge},
+        graph::{CompactChannelInfo, CompactNodeInfo, GraphError, NetworkGraph, PathEdge},
         network::{get_chain_hash, SendPaymentCommand, SendPaymentData},
         types::{ChannelAnnouncement, ChannelUpdate, Hash256, NodeAnnouncement},
     },
@@ -36,7 +36,7 @@ impl MockNetworkGraph {
         let keypairs = generate_key_pairs(node_num + 1);
         let (secret_key1, public_key1) = keypairs[0];
         let mut graph = NetworkGraph::new(store, public_key1.into());
-        graph.add_node(NodeInfo {
+        graph.add_node(CompactNodeInfo {
             node_id: public_key1.into(),
             timestamp: 0,
             anouncement_msg: NodeAnnouncement::new(
@@ -49,7 +49,7 @@ impl MockNetworkGraph {
         });
         for i in 1..keypairs.len() {
             let (sk, pk) = keypairs[i];
-            let node = NodeInfo {
+            let node = CompactNodeInfo {
                 node_id: pk.into(),
                 timestamp: 0,
                 anouncement_msg: NodeAnnouncement::new(
@@ -98,7 +98,7 @@ impl MockNetworkGraph {
         let idx = self.edges.len() + 1;
         let channel_outpoint = OutPoint::from_slice(&[idx as u8; 36]).unwrap();
         self.edges.push((node_a, node_b, channel_outpoint.clone()));
-        let channel_info = ChannelInfo {
+        let channel_info = CompactChannelInfo {
             funding_tx_block_number: 0,
             funding_tx_index: 0,
             announcement_msg: ChannelAnnouncement {
@@ -229,7 +229,7 @@ fn test_graph_channel_info() {
 
         let channel_info = channel_info.unwrap();
         let channel_info_ser = serde_json::to_string(&channel_info).unwrap();
-        let channel_info_de: ChannelInfo = serde_json::from_str(&channel_info_ser).unwrap();
+        let channel_info_de: CompactChannelInfo = serde_json::from_str(&channel_info_ser).unwrap();
         assert_eq!(*channel_info, channel_info_de);
     }
 }

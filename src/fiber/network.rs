@@ -74,7 +74,7 @@ use crate::ckb::{CkbChainMessage, FundingRequest, FundingTx, TraceTxRequest, Tra
 use crate::fiber::channel::{
     AddTlcCommand, AddTlcResponse, TxCollaborationCommand, TxUpdateCommand,
 };
-use crate::fiber::graph::{ChannelInfo, PaymentSession, PaymentSessionStatus};
+use crate::fiber::graph::{CompactChannelInfo, PaymentSession, PaymentSessionStatus};
 use crate::fiber::serde_utils::EntityHex;
 use crate::fiber::types::{
     secp256k1_instance, FiberChannelMessage, PaymentOnionPacket, PeeledPaymentOnionPacket,
@@ -928,7 +928,7 @@ where
         &self,
         start_block: u64,
         end_block: u64,
-    ) -> (Vec<ChannelInfo>, u64, bool) {
+    ) -> (Vec<CompactChannelInfo>, u64, bool) {
         let network_graph = self.network_graph.read().await;
         let (channels, next_offset, is_finished) =
             network_graph.get_channels_within_block_range(start_block, end_block);
@@ -1736,7 +1736,7 @@ where
                     &channel_announcement
                 );
                 // Adding this owned channel to the network graph.
-                let channel_info = ChannelInfo {
+                let channel_info = CompactChannelInfo {
                     funding_tx_block_number: block_number.into(),
                     funding_tx_index: tx_index,
                     announcement_msg: channel_announcement.clone(),
@@ -2037,7 +2037,7 @@ where
                 );
 
                 // Add the channel to the network graph.
-                let channel_info = ChannelInfo {
+                let channel_info = CompactChannelInfo {
                     funding_tx_block_number: block_number,
                     funding_tx_index: tx_index,
                     announcement_msg: channel_announcement.clone(),

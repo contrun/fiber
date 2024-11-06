@@ -1,7 +1,7 @@
 use crate::fiber::config::AnnouncedNodeName;
-use crate::fiber::graph::ChannelInfo;
+use crate::fiber::graph::CompactChannelInfo;
 use crate::fiber::graph::NetworkGraphStateStore;
-use crate::fiber::graph::NodeInfo;
+use crate::fiber::graph::CompactNodeInfo;
 use crate::fiber::tests::test_utils::gen_sha256_hash;
 use crate::fiber::types::ChannelAnnouncement;
 use crate::fiber::types::Hash256;
@@ -30,9 +30,9 @@ fn gen_rand_public_key() -> PublicKey {
     PublicKey::from_keypair(&key_pair)
 }
 
-fn mock_node() -> (Pubkey, NodeInfo) {
+fn mock_node() -> (Pubkey, CompactNodeInfo) {
     let node_id: Pubkey = gen_rand_public_key().into();
-    let node = NodeInfo {
+    let node = CompactNodeInfo {
         node_id,
         anouncement_msg: NodeAnnouncement::new_unsigned(
             AnnouncedNodeName::from_str("node1").expect("invalid name"),
@@ -46,14 +46,14 @@ fn mock_node() -> (Pubkey, NodeInfo) {
     (node_id, node)
 }
 
-fn mock_channel() -> ChannelInfo {
+fn mock_channel() -> CompactChannelInfo {
     let node1: Pubkey = gen_rand_public_key().into();
     let node2: Pubkey = gen_rand_public_key().into();
     let secp = Secp256k1::new();
     let keypair = Keypair::new(&secp, &mut rand::thread_rng());
     let (xonly, _parity) = keypair.x_only_public_key();
     let rand_hash256 = gen_sha256_hash();
-    ChannelInfo {
+    CompactChannelInfo {
         funding_tx_block_number: 0,
         funding_tx_index: 0,
         timestamp: 0,

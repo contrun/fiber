@@ -29,7 +29,7 @@ use crate::{
     fiber::channel::{ChannelActorState, ChannelActorStateStore, ChannelState},
     fiber::graph::NetworkGraphStateStore,
     fiber::graph::PaymentSession,
-    fiber::graph::{ChannelInfo, NetworkGraph, NodeInfo},
+    fiber::graph::{CompactChannelInfo, NetworkGraph, CompactNodeInfo},
     fiber::network::NetworkActorStartArguments,
     fiber::network::{NetworkActor, NetworkActorCommand, NetworkActorMessage},
     fiber::network::{NetworkActorStateStore, PersistentNetworkActorState},
@@ -464,8 +464,8 @@ impl NetworkNode {
 pub struct MemoryStore {
     network_actor_sate_map: Arc<RwLock<HashMap<PeerId, PersistentNetworkActorState>>>,
     channel_actor_state_map: Arc<RwLock<HashMap<Hash256, ChannelActorState>>>,
-    channels_map: Arc<RwLock<HashMap<OutPoint, ChannelInfo>>>,
-    nodes_map: Arc<RwLock<HashMap<Pubkey, NodeInfo>>>,
+    channels_map: Arc<RwLock<HashMap<OutPoint, CompactChannelInfo>>>,
+    nodes_map: Arc<RwLock<HashMap<Pubkey, CompactNodeInfo>>>,
     payment_sessions: Arc<RwLock<HashMap<Hash256, PaymentSession>>>,
     invoice_store: Arc<RwLock<HashMap<Hash256, CkbInvoice>>>,
     invoice_hash_to_preimage: Arc<RwLock<HashMap<Hash256, Hash256>>>,
@@ -485,7 +485,7 @@ impl NetworkActorStateStore for MemoryStore {
 }
 
 impl NetworkGraphStateStore for MemoryStore {
-    fn get_channels(&self, outpoint: Option<OutPoint>) -> Vec<ChannelInfo> {
+    fn get_channels(&self, outpoint: Option<OutPoint>) -> Vec<CompactChannelInfo> {
         if let Some(outpoint) = outpoint {
             let mut res = vec![];
 
@@ -503,14 +503,14 @@ impl NetworkGraphStateStore for MemoryStore {
         }
     }
 
-    fn insert_channel(&self, channel: ChannelInfo) {
+    fn insert_channel(&self, channel: CompactChannelInfo) {
         self.channels_map
             .write()
             .unwrap()
             .insert(channel.out_point(), channel);
     }
 
-    fn get_nodes(&self, node_id: Option<Pubkey>) -> Vec<NodeInfo> {
+    fn get_nodes(&self, node_id: Option<Pubkey>) -> Vec<CompactNodeInfo> {
         if let Some(node_id) = node_id {
             let mut res = vec![];
 
@@ -528,7 +528,7 @@ impl NetworkGraphStateStore for MemoryStore {
         _limit: usize,
         _after: Option<JsonBytes>,
         _node_id: Option<Pubkey>,
-    ) -> (Vec<NodeInfo>, JsonBytes) {
+    ) -> (Vec<CompactNodeInfo>, JsonBytes) {
         unimplemented!("currently not used in mock store");
     }
 
@@ -537,11 +537,11 @@ impl NetworkGraphStateStore for MemoryStore {
         _limit: usize,
         _after: Option<JsonBytes>,
         _ooutpoint: Option<OutPoint>,
-    ) -> (Vec<ChannelInfo>, JsonBytes) {
+    ) -> (Vec<CompactChannelInfo>, JsonBytes) {
         unimplemented!("currently not used in mock store");
     }
 
-    fn insert_node(&self, node: NodeInfo) {
+    fn insert_node(&self, node: CompactNodeInfo) {
         self.nodes_map
             .write()
             .unwrap()

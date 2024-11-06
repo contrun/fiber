@@ -22,7 +22,7 @@ const DEFAULT_MIN_PROBABILITY: f64 = 0.01;
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// Details about a node in the network, known from the network announcement.
-pub struct NodeInfo {
+pub struct CompactNodeInfo {
     pub node_id: Pubkey,
 
     // The time when the node was last updated. This is the time of processing the message,
@@ -33,17 +33,17 @@ pub struct NodeInfo {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ChannelInfo {
+pub struct CompactChannelInfo {
     pub funding_tx_block_number: u64,
     pub funding_tx_index: u32,
     pub announcement_msg: ChannelAnnouncement,
-    pub node1_to_node2: Option<ChannelUpdateInfo>,
-    pub node2_to_node1: Option<ChannelUpdateInfo>,
+    pub node1_to_node2: Option<CompactChannelUpdateInfo>,
+    pub node2_to_node1: Option<CompactChannelUpdateInfo>,
     // The time that the channel was announced to the network.
     pub timestamp: u64,
 }
 
-impl ChannelInfo {
+impl CompactChannelInfo {
     pub fn out_point(&self) -> OutPoint {
         self.announcement_msg.channel_outpoint.clone()
     }
@@ -105,7 +105,7 @@ impl ChannelInfo {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ChannelUpdateInfo {
+pub struct CompactChannelUpdateInfo {
     // The version is a number that represents the newness of the channel update.
     // It is set by the node that sends the channel update. Larger number means newer update.
     pub version: u64,
@@ -188,7 +188,7 @@ impl LiquidityInfo {
 #[derive(Clone, Debug)]
 pub struct NetworkGraph<S> {
     source: Pubkey,
-    channels: HashMap<OutPoint, ChannelInfo>,
+    channels: HashMap<OutPoint, CompactChannelInfo>,
     // This is the best height of the network graph, every time the
     // node restarts, we will try to sync the graph from this height - ASSUME_MAX_CHANNEL_HEIGHT_GAP.
     // We assume that we have already synced the graph up to this height - ASSUME_MAX_CHANNEL_HEIGHT_GAP.
@@ -196,7 +196,7 @@ pub struct NetworkGraph<S> {
     // Similar to the best_height, this is the last update time of the network graph.
     // We assume that we have already synced the graph up to this time - ASSUME_MAX_MESSAGE_TIMESTAMP_GAP.
     last_update_timestamp: u64,
-    nodes: HashMap<Pubkey, NodeInfo>,
+    nodes: HashMap<Pubkey, CompactNodeInfo>,
     store: S,
     chain_hash: Hash256,
 }
@@ -279,7 +279,7 @@ where
 
     pub(crate) fn process_node_announcement(&mut self, node_announcement: NodeAnnouncement) {
         let node_id = node_announcement.node_id;
-        let node_info = NodeInfo {
+        let node_info = CompactNodeInfo {
             node_id,
             timestamp: std::time::UNIX_EPOCH.elapsed().unwrap().as_millis() as u64,
             anouncement_msg: node_announcement,
@@ -287,7 +287,7 @@ where
         self.add_node(node_info);
     }
 
-    pub fn add_node(&mut self, node_info: NodeInfo) {
+    pub fn add_node(&mut self, node_info: CompactNodeInfo) {
         debug!("Adding node to network graph: {:?}", node_info);
 
         let node_id = node_info.node_id;
@@ -315,7 +315,7 @@ where
     // not process channels here. Because if the node may restart while syncing is
     // is still ongoing, the next time when the node starts, it may falsely believe
     // that we have already processed channels before the height of this channel.
-    pub fn add_channel(&mut self, channel_info: ChannelInfo) {
+    pub fn add_channel(&mut self, channel_info: CompactChannelInfo) {
         assert_ne!(channel_info.node1(), channel_info.node2());
         debug!("Adding channel to network graph: {:?}", channel_info);
         if self.best_height < channel_info.funding_tx_block_number {
@@ -359,7 +359,7 @@ where
         debug!("Successfully added channel {:?}", outpoint);
     }
 
-    pub fn nodes(&self) -> impl Iterator<Item = &NodeInfo> {
+    pub fn nodes(&self) -> impl Iterator<Item = &CompactNodeInfo> {
         self.nodes.values()
     }
 
@@ -367,7 +367,7 @@ where
         &self,
         limit: usize,
         after: Option<JsonBytes>,
-    ) -> (Vec<NodeInfo>, JsonBytes) {
+    ) -> (Vec<CompactNodeInfo>, JsonBytes) {
         self.store.get_nodes_with_params(limit, after, None)
     }
 
@@ -375,23 +375,26 @@ where
         &self,
         limit: usize,
         after: Option<JsonBytes>,
-    ) -> (Vec<ChannelInfo>, JsonBytes) {
+    ) -> (Vec<CompactChannelInfo>, JsonBytes) {
         self.store.get_channels_with_params(limit, after, None)
     }
 
-    pub fn get_node(&self, node_id: Pubkey) -> Option<&NodeInfo> {
+    pub fn get_node(&self, node_id: Pubkey) -> Option<&CompactNodeInfo> {
         self.nodes.get(&node_id)
     }
 
-    pub fn channels(&self) -> impl Iterator<Item = &ChannelInfo> {
+    pub fn channels(&self) -> impl Iterator<Item = &CompactChannelInfo> {
         self.channels.values()
     }
 
-    pub fn get_channel(&self, outpoint: &OutPoint) -> Option<&ChannelInfo> {
+    pub fn get_channel(&self, outpoint: &OutPoint) -> Option<&CompactChannelInfo> {
         self.channels.get(outpoint)
     }
 
-    pub fn get_channels_by_peer(&self, node_id: Pubkey) -> impl Iterator<Item = &ChannelInfo> {
+    pub fn get_channels_by_peer(
+        &self,
+        node_id: Pubkey,
+    ) -> impl Iterator<Item = &CompactChannelInfo> {
         self.channels
             .values()
             .filter(move |channel| channel.node1() == node_id || channel.node2() == node_id)
@@ -400,7 +403,7 @@ where
     pub fn get_mut_channels_by_peer(
         &mut self,
         node_id: Pubkey,
-    ) -> impl Iterator<Item = &mut ChannelInfo> {
+    ) -> impl Iterator<Item = &mut CompactChannelInfo> {
         self.channels
             .values_mut()
             .filter(move |channel| channel.node1() == node_id || channel.node2() == node_id)
@@ -410,7 +413,7 @@ where
         &self,
         start_block: u64,
         end_block: u64,
-    ) -> (impl Iterator<Item = &ChannelInfo>, u64, bool) {
+    ) -> (impl Iterator<Item = &CompactChannelInfo>, u64, bool) {
         (
             self.channels.values().filter(move |channel| {
                 channel.funding_tx_block_number >= start_block
@@ -456,7 +459,7 @@ where
         }
         let disabled = update.channel_flags & CHANNEL_DISABLED_FLAG == CHANNEL_DISABLED_FLAG;
 
-        *update_info = Some(ChannelUpdateInfo {
+        *update_info = Some(CompactChannelUpdateInfo {
             version: update.version,
             timestamp: std::time::UNIX_EPOCH.elapsed().unwrap().as_millis() as u64,
             enabled: !disabled,
@@ -887,22 +890,22 @@ where
 }
 
 pub trait NetworkGraphStateStore {
-    fn get_channels(&self, outpoint: Option<OutPoint>) -> Vec<ChannelInfo>;
-    fn get_nodes(&self, peer_id: Option<Pubkey>) -> Vec<NodeInfo>;
+    fn get_channels(&self, outpoint: Option<OutPoint>) -> Vec<CompactChannelInfo>;
+    fn get_nodes(&self, peer_id: Option<Pubkey>) -> Vec<CompactNodeInfo>;
     fn get_nodes_with_params(
         &self,
         limit: usize,
         after: Option<JsonBytes>,
         node_id: Option<Pubkey>,
-    ) -> (Vec<NodeInfo>, JsonBytes);
+    ) -> (Vec<CompactNodeInfo>, JsonBytes);
     fn get_channels_with_params(
         &self,
         limit: usize,
         after: Option<JsonBytes>,
         outpoint: Option<OutPoint>,
-    ) -> (Vec<ChannelInfo>, JsonBytes);
-    fn insert_channel(&self, channel: ChannelInfo);
-    fn insert_node(&self, node: NodeInfo);
+    ) -> (Vec<CompactChannelInfo>, JsonBytes);
+    fn insert_channel(&self, channel: CompactChannelInfo);
+    fn insert_node(&self, node: CompactNodeInfo);
     fn get_payment_session(&self, payment_hash: Hash256) -> Option<PaymentSession>;
     fn insert_payment_session(&self, session: PaymentSession);
 }
