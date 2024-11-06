@@ -1,5 +1,6 @@
 use ckb_types::packed::OutPoint;
 
+use super::graph::LiquidityInfo;
 use super::types::Pubkey;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -112,7 +113,7 @@ impl ProbabilityEvaluator {
         _from: Pubkey,
         _to: Pubkey,
         _amount_sent: u128,
-        _capacity: u128,
+        _liquidity_info: LiquidityInfo,
     ) -> f64 {
         //FIXME(yukang): to because
         return 0.5;

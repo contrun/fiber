@@ -1,4 +1,5 @@
 mod channel;
+mod fee;
 mod graph;
 mod hash_algorithm;
 mod network;

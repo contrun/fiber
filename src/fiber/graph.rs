@@ -127,16 +127,62 @@ pub struct ChannelUpdateInfo {
     pub last_update_message: ChannelUpdate,
 }
 
-// All the channel information for a inbound payment.
-pub struct InboundChannelInfo<'a> {
-    pub from: Pubkey,
-    pub capacity: u128,
-    pub udt_type_script: &'a Option<Script>,
-    pub channel_outpoint: OutPoint,
+/// Directed information about a channel that is public and can be used for routing.
+/// We normally get this information from the broadcasted channel update messages.
+/// It normally contains imprecise information about the channel (e.g. the balance of
+/// one party in a channel is not known, only the total capacity of the channel is known).
+pub struct PublicChannelInfo {
+    // We may (if, for example, we own the channel) or we may not know the exact balance of the channel.
+    pub liquidity_info: LiquidityInfo,
     pub htlc_expiry_delta: u64,
     pub htlc_minimum_value: u128,
     pub htlc_maximum_value: u128,
     pub fee_rate: u64,
+}
+
+/// Directed information about a channel that is private and cannot be used for routing.
+/// This channel is normally owned by the node itself and is used for receiving payments.
+pub struct PrivateChannelInfo {
+    /// The precise balance of the channel.
+    pub balance: u128,
+}
+
+/// Directed information about a channel that can be either public or private.
+pub enum PublicOrPrivateChannelInfo {
+    Public(PublicChannelInfo),
+    Private(PrivateChannelInfo),
+}
+
+/// All the channel information for a payment from `from` to `to`.
+pub struct DirectedChannelInfo {
+    pub from: Pubkey,
+    pub to: Pubkey,
+    pub udt_type_script: Option<Script>,
+    pub channel_outpoint: OutPoint,
+    pub channel_info: PublicOrPrivateChannelInfo,
+}
+
+/// The liquidity (with direction) of a channel. This may be the upper bound of the liquidity of the channel
+/// (normally obtained from broadcasted channel capacity) or the precise liquidity of the channel
+/// (normally we get this information because this is a channel owned by ourselves).
+#[derive(Debug)]
+pub enum LiquidityInfo {
+    /// The upper bound of the liquidity of the channel. This is the maximum amount that can be sent through the channel.
+    /// Normally we can only send a fraction of this amount through the channel. This amount is normally obtained from
+    /// the channel update messages.
+    UpperBound(u128),
+    /// The precise liquidity of the channel. It is guaranteed that a payment of this amount can be sent through the channel.
+    /// We know this amount because we own the channel and we know the exact balance of the channel.
+    Precise(u128),
+}
+
+impl LiquidityInfo {
+    pub fn upper_bound(&self) -> u128 {
+        match self {
+            LiquidityInfo::UpperBound(upper_bound) => *upper_bound,
+            LiquidityInfo::Precise(precise) => *precise,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -436,37 +482,43 @@ where
         self.chain_hash == chain_hash
     }
 
-    pub fn get_node_inbounds<'a>(
-        &'a self,
-        node_id: Pubkey,
-    ) -> impl Iterator<Item = InboundChannelInfo<'a>> {
+    pub fn get_inbound_channel_info(
+        &self,
+        to: Pubkey,
+    ) -> impl Iterator<Item = DirectedChannelInfo> + '_ {
         self.channels.values().filter_map(move |channel| {
             if let Some(info) = channel.node1_to_node2.as_ref() {
-                if info.enabled && channel.node2() == node_id {
-                    return Some(InboundChannelInfo {
+                if info.enabled && channel.node2() == to {
+                    return Some(DirectedChannelInfo {
                         from: channel.node1(),
-                        capacity: channel.capacity(),
-                        udt_type_script: &channel.announcement_msg.udt_type_script,
+                        to,
+                        udt_type_script: channel.announcement_msg.udt_type_script.clone(),
                         channel_outpoint: channel.out_point(),
-                        htlc_expiry_delta: info.htlc_expiry_delta,
-                        htlc_minimum_value: info.htlc_minimum_value,
-                        htlc_maximum_value: info.htlc_maximum_value,
-                        fee_rate: info.fee_rate,
+                        channel_info: PublicOrPrivateChannelInfo::Public(PublicChannelInfo {
+                            liquidity_info: LiquidityInfo::UpperBound(channel.capacity()),
+                            htlc_expiry_delta: info.htlc_expiry_delta,
+                            htlc_minimum_value: info.htlc_minimum_value,
+                            htlc_maximum_value: info.htlc_maximum_value,
+                            fee_rate: info.fee_rate,
+                        }),
                     });
                 }
             }
 
             if let Some(info) = channel.node2_to_node1.as_ref() {
-                if info.enabled && channel.node1() == node_id {
-                    return Some(InboundChannelInfo {
+                if info.enabled && channel.node1() == to {
+                    return Some(DirectedChannelInfo {
                         from: channel.node2(),
-                        capacity: channel.capacity(),
-                        udt_type_script: &channel.announcement_msg.udt_type_script,
+                        to,
+                        udt_type_script: channel.announcement_msg.udt_type_script.clone(),
                         channel_outpoint: channel.out_point(),
-                        htlc_expiry_delta: info.htlc_expiry_delta,
-                        htlc_minimum_value: info.htlc_minimum_value,
-                        htlc_maximum_value: info.htlc_maximum_value,
-                        fee_rate: info.fee_rate,
+                        channel_info: PublicOrPrivateChannelInfo::Public(PublicChannelInfo {
+                            liquidity_info: LiquidityInfo::UpperBound(channel.capacity()),
+                            htlc_expiry_delta: info.htlc_expiry_delta,
+                            htlc_minimum_value: info.htlc_minimum_value,
+                            htlc_maximum_value: info.htlc_maximum_value,
+                            fee_rate: info.fee_rate,
+                        }),
                     });
                 }
             }
@@ -670,20 +722,45 @@ where
         while let Some(cur_hop) = nodes_heap.pop() {
             nodes_visited += 1;
 
-            for inbound_channel_info in self.get_node_inbounds(cur_hop.node_id) {
+            for inbound_channel_info in self.get_inbound_channel_info(cur_hop.node_id) {
                 let from = inbound_channel_info.from;
-                let capacity = inbound_channel_info.capacity;
                 let channel_outpoint = inbound_channel_info.channel_outpoint;
-                let htlc_expiry_delta = inbound_channel_info.htlc_expiry_delta;
-                let htlc_minimum_value = inbound_channel_info.htlc_minimum_value;
-                let htlc_maximum_value = inbound_channel_info.htlc_maximum_value;
-                let fee_rate = inbound_channel_info.fee_rate;
+                let (
+                    liquidity_info,
+                    htlc_expiry_delta,
+                    htlc_minimum_value,
+                    htlc_maximum_value,
+                    fee_rate,
+                ) = match inbound_channel_info.channel_info {
+                    PublicOrPrivateChannelInfo::Private(PrivateChannelInfo {
+                        balance: liquidity,
+                    }) => {
+                        // Since this is a private channel, and the target is not the destination of this channel,
+                        // we should skip this channel. Otherwise, we are forwarding payment over a private channel.
+                        if target != cur_hop.node_id {
+                            debug!(
+                                "Found a private channel to {:?}, but it is not the target {:?}. Since we shouldn't forward payment over private channel, skipping",
+                                inbound_channel_info.to,
+                                target
+                            );
+                            continue;
+                        }
+                        (LiquidityInfo::Precise(liquidity), 0, 0, 0, 0)
+                    }
+                    PublicOrPrivateChannelInfo::Public(channel_info) => (
+                        channel_info.liquidity_info,
+                        channel_info.htlc_expiry_delta,
+                        channel_info.htlc_minimum_value,
+                        channel_info.htlc_maximum_value,
+                        channel_info.fee_rate,
+                    ),
+                };
 
                 if from == target && !route_to_self {
                     continue;
                 }
                 // if charge inbound fees for exit hop
-                if &udt_type_script != inbound_channel_info.udt_type_script {
+                if udt_type_script != inbound_channel_info.udt_type_script {
                     continue;
                 }
 
@@ -706,13 +783,13 @@ where
                 }
                 // check to make sure the current hop can send the amount
                 // if `htlc_maximum_value` equals 0, it means there is no limit
-                if amount_to_send > capacity
+                if amount_to_send > liquidity_info.upper_bound()
                     || (htlc_maximum_value != 0 && amount_to_send > htlc_maximum_value)
                 {
                     debug!(
-                        "amount_to_send is greater than channel capacity: {:?} capacity: {:?}, htlc_max_value: {:?}",
+                        "amount_to_send is greater than the liquidity that can be provided: {:?} capacity: {:?}, htlc_max_value: {:?}",
                         amount_to_send,
-                        capacity,
+                        liquidity_info,
                         htlc_maximum_value
                     );
                     continue;
@@ -732,7 +809,7 @@ where
                         from,
                         cur_hop.node_id,
                         amount_to_send,
-                        capacity,
+                        liquidity_info,
                     );
 
                 if probability < DEFAULT_MIN_PROBABILITY {
