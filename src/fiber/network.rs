@@ -1737,8 +1737,6 @@ where
                 );
                 // Adding this owned channel to the network graph.
                 let channel_info = CompactChannelInfo {
-                    funding_tx_block_number: block_number.into(),
-                    funding_tx_index: tx_index,
                     announcement_msg: channel_announcement.clone(),
                     node1_to_node2: None, // wait for channel update message
                     node2_to_node1: None,
@@ -1956,7 +1954,7 @@ where
                     )));
                 }
 
-                let (tx, block_number, tx_index): (_, u64, _) = match call_t!(
+                let (tx, _block_number, _tx_index): (_, u64, _) = match call_t!(
                     self.chain_actor,
                     CkbChainMessage::TraceTx,
                     DEFAULT_CHAIN_ACTOR_TIMEOUT,
@@ -2038,8 +2036,6 @@ where
 
                 // Add the channel to the network graph.
                 let channel_info = CompactChannelInfo {
-                    funding_tx_block_number: block_number,
-                    funding_tx_index: tx_index,
                     announcement_msg: channel_announcement.clone(),
                     node1_to_node2: None, // wait for channel update message
                     node2_to_node1: None,

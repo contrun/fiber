@@ -1,7 +1,7 @@
 use crate::fiber::config::AnnouncedNodeName;
 use crate::fiber::graph::CompactChannelInfo;
-use crate::fiber::graph::NetworkGraphStateStore;
 use crate::fiber::graph::CompactNodeInfo;
+use crate::fiber::graph::NetworkGraphStateStore;
 use crate::fiber::tests::test_utils::gen_sha256_hash;
 use crate::fiber::types::ChannelAnnouncement;
 use crate::fiber::types::Hash256;
@@ -54,8 +54,6 @@ fn mock_channel() -> CompactChannelInfo {
     let (xonly, _parity) = keypair.x_only_public_key();
     let rand_hash256 = gen_sha256_hash();
     CompactChannelInfo {
-        funding_tx_block_number: 0,
-        funding_tx_index: 0,
         timestamp: 0,
         node1_to_node2: None,
         node2_to_node1: None,

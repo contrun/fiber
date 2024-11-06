@@ -34,8 +34,6 @@ pub struct CompactNodeInfo {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CompactChannelInfo {
-    pub funding_tx_block_number: u64,
-    pub funding_tx_index: u32,
     pub announcement_msg: ChannelAnnouncement,
     pub node1_to_node2: Option<CompactChannelUpdateInfo>,
     pub node2_to_node1: Option<CompactChannelUpdateInfo>,
@@ -97,10 +95,6 @@ impl CompactChannelInfo {
 
     pub fn capacity(&self) -> u128 {
         self.announcement_msg.capacity
-    }
-
-    pub fn funding_tx_block_number(&self) -> u64 {
-        self.funding_tx_block_number
     }
 }
 
@@ -242,9 +236,6 @@ where
     pub(crate) fn load_from_store(&mut self) {
         let channels = self.store.get_channels(None);
         for channel in channels.iter() {
-            if self.best_height < channel.funding_tx_block_number() {
-                self.best_height = channel.funding_tx_block_number();
-            }
             if self.last_update_timestamp < channel.timestamp {
                 self.last_update_timestamp = channel.timestamp;
             }
@@ -318,9 +309,6 @@ where
     pub fn add_channel(&mut self, channel_info: CompactChannelInfo) {
         assert_ne!(channel_info.node1(), channel_info.node2());
         debug!("Adding channel to network graph: {:?}", channel_info);
-        if self.best_height < channel_info.funding_tx_block_number {
-            self.best_height = channel_info.funding_tx_block_number;
-        }
         if self.last_update_timestamp < channel_info.timestamp {
             self.last_update_timestamp = channel_info.timestamp;
         }
@@ -411,21 +399,10 @@ where
 
     pub fn get_channels_within_block_range(
         &self,
-        start_block: u64,
+        _start_block: u64,
         end_block: u64,
     ) -> (impl Iterator<Item = &CompactChannelInfo>, u64, bool) {
-        (
-            self.channels.values().filter(move |channel| {
-                channel.funding_tx_block_number >= start_block
-                    && channel.funding_tx_block_number < end_block
-            }),
-            end_block,
-            self.channels.is_empty()
-                || self
-                    .channels
-                    .values()
-                    .any(|channel| channel.funding_tx_block_number >= end_block),
-        )
+        (self.channels.values(), end_block, self.channels.is_empty())
     }
 
     pub fn process_channel_update(&mut self, update: ChannelUpdate) -> Result<(), GraphError> {

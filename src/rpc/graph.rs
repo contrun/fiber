@@ -111,10 +111,6 @@ pub(crate) struct GraphChannelsParams {
 struct ChannelInfo {
     #[serde_as(as = "EntityHex")]
     channel_outpoint: OutPoint,
-    #[serde_as(as = "U64Hex")]
-    funding_tx_block_number: u64,
-    #[serde_as(as = "U32Hex")]
-    funding_tx_index: u32,
     node1: Pubkey,
     node2: Pubkey,
     #[serde_as(as = "Option<U64Hex>")]
@@ -220,8 +216,6 @@ where
             .iter()
             .map(|channel_info| ChannelInfo {
                 channel_outpoint: channel_info.out_point(),
-                funding_tx_block_number: channel_info.funding_tx_block_number,
-                funding_tx_index: channel_info.funding_tx_index,
                 node1: channel_info.node1(),
                 node2: channel_info.node2(),
                 capacity: channel_info.capacity(),

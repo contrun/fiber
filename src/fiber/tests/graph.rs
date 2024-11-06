@@ -99,8 +99,6 @@ impl MockNetworkGraph {
         let channel_outpoint = OutPoint::from_slice(&[idx as u8; 36]).unwrap();
         self.edges.push((node_a, node_b, channel_outpoint.clone()));
         let channel_info = CompactChannelInfo {
-            funding_tx_block_number: 0,
-            funding_tx_index: 0,
             announcement_msg: ChannelAnnouncement {
                 chain_hash: get_chain_hash(),
                 node1_id: public_key1.into(),
