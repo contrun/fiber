@@ -127,6 +127,18 @@ pub struct ChannelUpdateInfo {
     pub last_update_message: ChannelUpdate,
 }
 
+// All the channel information for a inbound payment.
+pub struct InboundChannelInfo<'a> {
+    pub from: Pubkey,
+    pub capacity: u128,
+    pub udt_type_script: &'a Option<Script>,
+    pub channel_outpoint: OutPoint,
+    pub htlc_expiry_delta: u64,
+    pub htlc_minimum_value: u128,
+    pub htlc_maximum_value: u128,
+    pub fee_rate: u64,
+}
+
 #[derive(Clone, Debug)]
 pub struct NetworkGraph<S> {
     source: Pubkey,
@@ -424,20 +436,38 @@ where
         self.chain_hash == chain_hash
     }
 
-    pub fn get_node_inbounds(
-        &self,
+    pub fn get_node_inbounds<'a>(
+        &'a self,
         node_id: Pubkey,
-    ) -> impl Iterator<Item = (Pubkey, &ChannelInfo, &ChannelUpdateInfo)> {
+    ) -> impl Iterator<Item = InboundChannelInfo<'a>> {
         self.channels.values().filter_map(move |channel| {
             if let Some(info) = channel.node1_to_node2.as_ref() {
                 if info.enabled && channel.node2() == node_id {
-                    return Some((channel.node1(), channel, info));
+                    return Some(InboundChannelInfo {
+                        from: channel.node1(),
+                        capacity: channel.capacity(),
+                        udt_type_script: &channel.announcement_msg.udt_type_script,
+                        channel_outpoint: channel.out_point(),
+                        htlc_expiry_delta: info.htlc_expiry_delta,
+                        htlc_minimum_value: info.htlc_minimum_value,
+                        htlc_maximum_value: info.htlc_maximum_value,
+                        fee_rate: info.fee_rate,
+                    });
                 }
             }
 
             if let Some(info) = channel.node2_to_node1.as_ref() {
                 if info.enabled && channel.node1() == node_id {
-                    return Some((channel.node2(), channel, info));
+                    return Some(InboundChannelInfo {
+                        from: channel.node2(),
+                        capacity: channel.capacity(),
+                        udt_type_script: &channel.announcement_msg.udt_type_script,
+                        channel_outpoint: channel.out_point(),
+                        htlc_expiry_delta: info.htlc_expiry_delta,
+                        htlc_minimum_value: info.htlc_minimum_value,
+                        htlc_maximum_value: info.htlc_maximum_value,
+                        fee_rate: info.fee_rate,
+                    });
                 }
             }
             None
@@ -640,18 +670,25 @@ where
         while let Some(cur_hop) = nodes_heap.pop() {
             nodes_visited += 1;
 
-            for (from, channel_info, channel_update) in self.get_node_inbounds(cur_hop.node_id) {
+            for inbound_channel_info in self.get_node_inbounds(cur_hop.node_id) {
+                let from = inbound_channel_info.from;
+                let capacity = inbound_channel_info.capacity;
+                let channel_outpoint = inbound_channel_info.channel_outpoint;
+                let htlc_expiry_delta = inbound_channel_info.htlc_expiry_delta;
+                let htlc_minimum_value = inbound_channel_info.htlc_minimum_value;
+                let htlc_maximum_value = inbound_channel_info.htlc_maximum_value;
+                let fee_rate = inbound_channel_info.fee_rate;
+
                 if from == target && !route_to_self {
                     continue;
                 }
                 // if charge inbound fees for exit hop
-                if udt_type_script != channel_info.announcement_msg.udt_type_script {
+                if &udt_type_script != inbound_channel_info.udt_type_script {
                     continue;
                 }
 
                 edges_expanded += 1;
 
-                let fee_rate = channel_update.fee_rate;
                 let next_hop_received_amount = cur_hop.amount_received;
                 let fee = calculate_tlc_forward_fee(next_hop_received_amount, fee_rate as u128);
                 let amount_to_send = next_hop_received_amount + fee;
@@ -669,38 +706,33 @@ where
                 }
                 // check to make sure the current hop can send the amount
                 // if `htlc_maximum_value` equals 0, it means there is no limit
-                if amount_to_send > channel_info.capacity()
-                    || (channel_update.htlc_maximum_value != 0
-                        && amount_to_send > channel_update.htlc_maximum_value)
+                if amount_to_send > capacity
+                    || (htlc_maximum_value != 0 && amount_to_send > htlc_maximum_value)
                 {
                     debug!(
                         "amount_to_send is greater than channel capacity: {:?} capacity: {:?}, htlc_max_value: {:?}",
                         amount_to_send,
-                        channel_info.capacity(),
-                        channel_update.htlc_maximum_value
+                        capacity,
+                        htlc_maximum_value
                     );
                     continue;
                 }
-                if amount_to_send < channel_update.htlc_minimum_value {
+                if amount_to_send < htlc_minimum_value {
                     debug!(
                         "amount_to_send is less than htlc_minimum_value: {:?} min_value: {:?}",
-                        amount_to_send, channel_update.htlc_minimum_value
+                        amount_to_send, htlc_minimum_value
                     );
                     continue;
                 }
                 let incoming_htlc_expiry = cur_hop.incoming_htlc_expiry
-                    + if from == source {
-                        0
-                    } else {
-                        channel_update.htlc_expiry_delta
-                    };
+                    + if from == source { 0 } else { htlc_expiry_delta };
 
                 let probability = cur_hop.probability
                     * ProbabilityEvaluator::evaluate_probability(
                         from,
                         cur_hop.node_id,
                         amount_to_send,
-                        channel_info.capacity(),
+                        capacity,
                     );
 
                 if probability < DEFAULT_MIN_PROBABILITY {
@@ -708,8 +740,7 @@ where
                     continue;
                 }
                 debug!("probability: {:?}", probability);
-                let agg_weight =
-                    self.edge_weight(amount_to_send, fee, channel_update.htlc_expiry_delta);
+                let agg_weight = self.edge_weight(amount_to_send, fee, htlc_expiry_delta);
                 let weight = cur_hop.weight + agg_weight;
                 let distance = self.calculate_distance_based_probability(probability, weight);
 
@@ -726,7 +757,7 @@ where
                     incoming_htlc_expiry,
                     fee_charged: fee,
                     probability,
-                    next_hop: Some((cur_hop.node_id, channel_info.out_point())),
+                    next_hop: Some((cur_hop.node_id, channel_outpoint.clone())),
                 };
                 distances.insert(node.node_id, node.clone());
                 nodes_heap.push_or_fix(node);
