@@ -1,7 +1,7 @@
 use super::network::{get_chain_hash, SendPaymentData, SendPaymentResponse};
 use super::path::NodeHeap;
 use super::types::Pubkey;
-use super::types::{ChannelAnnouncement, ChannelUpdate, Hash256, NodeAnnouncement};
+use super::types::{ChannelUpdate, Hash256, NodeAnnouncement};
 use crate::fiber::channel::CHANNEL_DISABLED_FLAG;
 use crate::fiber::fee::calculate_tlc_forward_fee;
 use crate::fiber::path::{NodeHeapElement, ProbabilityEvaluator};
@@ -32,9 +32,17 @@ pub struct CompactNodeInfo {
     pub anouncement_msg: NodeAnnouncement,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CompactChannelInfo {
-    pub announcement_msg: ChannelAnnouncement,
+    pub features: u64,
+    pub channel_outpoint: OutPoint,
+
+    pub node1_id: Pubkey,
+    pub node2_id: Pubkey,
+    // The total capacity of the channel.
+    pub capacity: u128,
+    // UDT script
+    pub udt_type_script: Option<Script>,
     pub node1_to_node2: Option<CompactChannelUpdateInfo>,
     pub node2_to_node1: Option<CompactChannelUpdateInfo>,
     // The time that the channel was announced to the network.
@@ -43,15 +51,15 @@ pub struct CompactChannelInfo {
 
 impl CompactChannelInfo {
     pub fn out_point(&self) -> OutPoint {
-        self.announcement_msg.channel_outpoint.clone()
+        self.channel_outpoint.clone()
     }
 
     pub fn node1(&self) -> Pubkey {
-        self.announcement_msg.node1_id
+        self.node1_id
     }
 
     pub fn node2(&self) -> Pubkey {
-        self.announcement_msg.node2_id
+        self.node2_id
     }
 
     pub fn channel_annoucement_timestamp(&self) -> u64 {
@@ -94,7 +102,7 @@ impl CompactChannelInfo {
     }
 
     pub fn capacity(&self) -> u128 {
-        self.announcement_msg.capacity
+        self.capacity
     }
 }
 

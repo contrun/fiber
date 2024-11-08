@@ -1009,12 +1009,7 @@ where
             }) => {
                 let channel_info = network_graph.get_channel(&channel_outpoint);
                 match channel_info {
-                    Some(channel_info) => {
-                        let channel_announcement = FiberBroadcastMessage::ChannelAnnouncement(
-                            channel_info.announcement_msg.clone(),
-                        );
-                        Ok(channel_announcement)
-                    }
+                    Some(channel_info) => {}
                     None => Err(Error::InvalidParameter(format!(
                         "Channel not found: {:?}",
                         &channel_outpoint
@@ -2036,7 +2031,13 @@ where
 
                 // Add the channel to the network graph.
                 let channel_info = CompactChannelInfo {
-                    announcement_msg: channel_announcement.clone(),
+                    features: channel_announcement.features,
+                    channel_outpoint: channel_announcement.channel_outpoint,
+                    node1_id: channel_announcement.node1_id,
+                    node2_id: channel_announcement.node2_id,
+                    capacity: channel_announcement.capacity,
+                    udt_type_script: channel_announcement.udt_type_script,
+
                     node1_to_node2: None, // wait for channel update message
                     node2_to_node1: None,
                     timestamp: std::time::UNIX_EPOCH.elapsed().unwrap().as_millis() as u64,
