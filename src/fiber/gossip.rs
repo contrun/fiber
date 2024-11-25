@@ -317,6 +317,7 @@ pub(crate) struct GossipActorState<S> {
     control: ServiceAsyncControl,
     next_request_id: u64,
     // We sent a GetBroadcastMessages request to a peer, and we are waiting for the response.
+    // The key is (peer_id, request_id), and the value is the timestamp of the request and the cursor.
     inflight_gets: HashMap<(PeerId, u64), (u64, Cursor)>,
     // Whether the node is syncing with peers. If this is true, we will send GetBroadcastMessages
     // requests to peers to sync with them. Otherwise, we will only send BroadcastMessagesFilter
@@ -930,11 +931,17 @@ where
                     .inflight_gets
                     .retain(|_, (v, _)| now - *v < GET_REQUEST_TIMEOUT.as_millis() as u64);
 
+                let current_peers = state
+                    .inflight_gets
+                    .keys()
+                    .map(|p| p.0.clone())
+                    .collect::<Vec<_>>();
                 let current_num_peers = state.inflight_gets.len();
                 if current_num_peers < NUM_SIMULTANEOUS_GET_REQUESTS && state.is_syncing {
                     let peers = state
                         .peer_session_map
                         .keys()
+                        .filter(|p| !current_peers.contains(p))
                         .take(NUM_SIMULTANEOUS_GET_REQUESTS - current_num_peers)
                         .cloned()
                         .collect::<Vec<_>>();
@@ -953,6 +960,7 @@ where
                     let peers = state
                         .peer_session_map
                         .keys()
+                        .filter(|p| !state.my_filter_map.contains_key(p))
                         .take(NUM_PEERS_TO_RECEIVE_BROADCASTS - current_num_peers)
                         .cloned()
                         .collect::<Vec<_>>();
