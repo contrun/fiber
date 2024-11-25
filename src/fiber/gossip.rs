@@ -317,6 +317,7 @@ pub(crate) struct GossipActorState<S> {
     control: ServiceAsyncControl,
     next_request_id: u64,
     // We sent a GetBroadcastMessages request to a peer, and we are waiting for the response.
+    // The key is (peer_id, request_id), and the value is the timestamp of the request and the cursor.
     inflight_gets: HashMap<(PeerId, u64), (u64, Cursor)>,
     // Whether the node is syncing with peers. If this is true, we will send GetBroadcastMessages
     // requests to peers to sync with them. Otherwise, we will only send BroadcastMessagesFilter
@@ -324,6 +325,7 @@ pub(crate) struct GossipActorState<S> {
     is_syncing: bool,
     // Messages that are pending to be broadcasted to the network.
     pending_broadcast_messages: HashMap<BroadcastMessage, u64>,
+    pending_queries: Vec<BroadcastMessageQuery>,
     peer_session_map: HashMap<PeerId, SessionId>,
     peer_states: HashMap<PeerId, PeerState>,
     // The last BroadcastMessagesFilter we sent to a peer. We will maintain
@@ -365,6 +367,89 @@ where
             })?;
 
         self.store.save_broadcast_message(verified_message.clone());
+
+        // If there is any messages related to this message that we haven't obtained yet, we will
+        // add them to pending_queries, which would be processed later.
+        match &verified_message {
+            BroadcastMessageWithTimestamp::ChannelAnnouncement(
+                _timestamp,
+                channel_announcement,
+            ) => {
+                // Check if we need to obtain related channel update and node announcement messages.
+                let outpoint = &channel_announcement.channel_outpoint;
+                if self
+                    .store
+                    .get_latest_channel_update_timestamp(outpoint, true)
+                    .is_none()
+                {
+                    self.pending_queries.push(BroadcastMessageQuery {
+                        flags: BroadcastMessageQueryFlags::ChannelUpdateNode1,
+                        channel_outpoint: outpoint.clone(),
+                    });
+                }
+                if self
+                    .store
+                    .get_latest_channel_update_timestamp(outpoint, false)
+                    .is_none()
+                {
+                    self.pending_queries.push(BroadcastMessageQuery {
+                        flags: BroadcastMessageQueryFlags::ChannelUpdateNode2,
+                        channel_outpoint: outpoint.clone(),
+                    });
+                }
+                if self
+                    .store
+                    .get_latest_node_announcement_timestamp(&channel_announcement.node1_id)
+                    .is_none()
+                {
+                    self.pending_queries.push(BroadcastMessageQuery {
+                        flags: BroadcastMessageQueryFlags::NodeAnnouncementNode1,
+                        channel_outpoint: outpoint.clone(),
+                    });
+                }
+                if self
+                    .store
+                    .get_latest_node_announcement_timestamp(&channel_announcement.node2_id)
+                    .is_none()
+                {
+                    self.pending_queries.push(BroadcastMessageQuery {
+                        flags: BroadcastMessageQueryFlags::NodeAnnouncementNode2,
+                        channel_outpoint: outpoint.clone(),
+                    });
+                }
+            }
+            BroadcastMessageWithTimestamp::NodeAnnouncement(_node_announcement) => {}
+            BroadcastMessageWithTimestamp::ChannelUpdate(channel_update) => {
+                // Check if we need to obtain related channel announcement message.
+                let outpoint = &channel_update.channel_outpoint;
+                if self
+                    .store
+                    .get_latest_channel_announcement_timestamp(outpoint)
+                    .is_none()
+                {
+                    self.pending_queries.push(BroadcastMessageQuery {
+                        flags: BroadcastMessageQueryFlags::ChannelAnnouncement,
+                        channel_outpoint: outpoint.clone(),
+                    });
+                }
+                let (is_node1, flags) = if channel_update.is_update_of_node_1() {
+                    (false, BroadcastMessageQueryFlags::NodeAnnouncementNode2)
+                } else {
+                    (true, BroadcastMessageQueryFlags::NodeAnnouncementNode1)
+                };
+                if self
+                    .store
+                    .get_latest_channel_update_timestamp(outpoint, is_node1)
+                    .is_none()
+                {
+                    self.pending_queries.push(BroadcastMessageQuery {
+                        flags,
+                        channel_outpoint: outpoint.clone(),
+                    });
+                }
+            }
+        }
+        // Saving the message to pending_broadcast_messages to broadcast it to the network.
         self.pending_broadcast_messages.insert(
             verified_message.clone().into(),
             verified_message.timestamp(),
@@ -828,6 +913,7 @@ where
             inflight_gets: Default::default(),
             is_syncing: true,
             pending_broadcast_messages: Default::default(),
+            pending_queries: Default::default(),
             peer_session_map: Default::default(),
             peer_states: Default::default(),
             my_filter_map: Default::default(),
@@ -930,11 +1016,17 @@ where
                     .inflight_gets
                     .retain(|_, (v, _)| now - *v < GET_REQUEST_TIMEOUT.as_millis() as u64);
 
+                let current_peers = state
+                    .inflight_gets
+                    .keys()
+                    .map(|p| p.0.clone())
+                    .collect::<Vec<_>>();
                 let current_num_peers = state.inflight_gets.len();
                 if current_num_peers < NUM_SIMULTANEOUS_GET_REQUESTS && state.is_syncing {
                     let peers = state
                         .peer_session_map
                         .keys()
+                        .filter(|p| !current_peers.contains(p))
                         .take(NUM_SIMULTANEOUS_GET_REQUESTS - current_num_peers)
                         .cloned()
                         .collect::<Vec<_>>();
@@ -953,6 +1045,7 @@ where
                     let peers = state
                         .peer_session_map
                         .keys()
+                        .filter(|p| !state.my_filter_map.contains_key(p))
                         .take(NUM_PEERS_TO_RECEIVE_BROADCASTS - current_num_peers)
                         .cloned()
                         .collect::<Vec<_>>();
