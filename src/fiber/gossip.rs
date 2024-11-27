@@ -7,6 +7,7 @@ use std::{
 use ckb_hash::blake2b_256;
 use ckb_jsonrpc_types::{Status, TxStatus};
 use ckb_types::packed::OutPoint;
+use jsonrpsee::types::request;
 use lru::LruCache;
 use ractor::{
     async_trait as rasync_trait, call_t,
@@ -342,14 +343,50 @@ impl PeerState {
     }
 }
 
+// The essential payload for a request.
+// We can use this and request id to construct a valid request.
+enum RequestInfo {
+    GetBroadcastMessages(Cursor),
+    QueryBroadcastMessages(Vec<BroadcastMessageQuery>),
+}
+
+impl RequestInfo {
+    fn create_gossip_message(&self, request_id: u64) -> GossipMessage {
+        match self {
+            RequestInfo::GetBroadcastMessages(cursor) => {
+                GossipMessage::GetBroadcastMessages(GetBroadcastMessages {
+                    id: request_id,
+                    chain_hash: get_chain_hash(),
+                    after_cursor: cursor.clone(),
+                    count: DEFAULT_NUM_OF_BROADCAST_MESSAGE,
+                })
+            }
+            RequestInfo::QueryBroadcastMessages(queries) => {
+                GossipMessage::QueryBroadcastMessages(QueryBroadcastMessages {
+                    id: request_id,
+                    chain_hash: get_chain_hash(),
+                    queries: queries.clone(),
+                })
+            }
+        }
+    }
+}
+
+// Bookkeeping for a request that we sent to a peer.
+// This is used to avoid sending duplicate requests to the same peer.
+struct StartedRequestInfo {
+    timestamp: u64,
+    peer_id: PeerId,
+}
+
 pub(crate) struct GossipActorState<S> {
     store: S,
     chain_actor: ActorRef<CkbChainMessage>,
     control: ServiceAsyncControl,
     next_request_id: u64,
-    // We sent a GetBroadcastMessages request to a peer, and we are waiting for the response.
-    // The key is (peer_id, request_id), and the value is the timestamp of the request and the cursor.
-    inflight_gets: HashMap<(PeerId, u64), (u64, Cursor)>,
+    // All the inflight requests that we sent to peers.
+    // We may send multiple requests for the same thing to different peers.
+    inflight_requests: HashMap<u64, (Vec<StartedRequestInfo>, RequestInfo)>,
     // Whether the node is syncing with peers. If this is true, we will send GetBroadcastMessages
     // requests to peers to sync with them. Otherwise, we will only send BroadcastMessagesFilter
     // requests to peers and wait for them to send us BroadcastMessagesFilterResult.
@@ -384,6 +421,21 @@ where
 {
     fn is_peer_connected(&self, peer_id: &PeerId) -> bool {
         self.peer_states.contains_key(peer_id)
+    }
+
+    fn add_request_to_inflight(
+        &mut self,
+        request_id: u64,
+        peer_id: PeerId,
+        request_info: RequestInfo,
+    ) {
+        let timestamp = now_timestamp();
+        let started_request_info = StartedRequestInfo { timestamp, peer_id };
+        let entry = self
+            .inflight_requests
+            .entry(request_id)
+            .or_insert_with(|| (Vec::new(), request_info));
+        entry.0.push(started_request_info);
     }
 
     fn get_peer_session(&self, peer_id: &PeerId) -> Option<SessionId> {
@@ -535,7 +587,7 @@ where
     async fn send_get_broadcast_messages(&mut self, peer_id: &PeerId) {
         let id = self.get_and_increment_request_id();
         let cursor = self.get_latest_cursor();
-        self.inflight_gets
+        self.inflight_requests
             .insert((peer_id.clone(), id), (now_timestamp(), cursor.clone()));
         let message = GossipMessage::GetBroadcastMessages(GetBroadcastMessages {
             id,
@@ -957,7 +1009,7 @@ where
             chain_actor,
             control,
             next_request_id: 0,
-            inflight_gets: Default::default(),
+            inflight_requests: Default::default(),
             is_syncing: true,
             pending_broadcast_messages: Default::default(),
             pending_queries: Default::default(),
@@ -1052,20 +1104,20 @@ where
             }
             GossipActorMessage::TickNetworkMaintenance => {
                 debug!("Network maintenance ticked, current state: num of peers: {}, inflight requests: {}, is syncing: {}",
-                    state.peer_states.len(), state.inflight_gets.len(), state.is_syncing);
+                    state.peer_states.len(), state.inflight_requests.len(), state.is_syncing);
 
                 let now = now_timestamp();
 
                 state
-                    .inflight_gets
+                    .inflight_requests
                     .retain(|_, (v, _)| now - *v < GET_REQUEST_TIMEOUT.as_millis() as u64);
 
                 let current_peers = state
-                    .inflight_gets
+                    .inflight_requests
                     .keys()
                     .map(|p| p.0.clone())
                     .collect::<Vec<_>>();
-                let current_num_peers = state.inflight_gets.len();
+                let current_num_peers = state.inflight_requests.len();
                 if current_num_peers < NUM_SIMULTANEOUS_GET_REQUESTS && state.is_syncing {
                     let peers = state
                         .peer_states
@@ -1139,7 +1191,11 @@ where
                 for chunk in pending_queries.chunks(MAX_NUM_OF_BROADCAST_MESSAGES as usize) {
                     let queries = chunk.to_vec();
                     let id = state.get_and_increment_request_id();
-                    for peer_state in state.peer_states.values().take(NUM_SIMULTANEOUS_GET_REQUESTS) {
+                    for peer_state in state
+                        .peer_states
+                        .values()
+                        .take(NUM_SIMULTANEOUS_GET_REQUESTS)
+                    {
                         let message =
                             GossipMessage::QueryBroadcastMessages(QueryBroadcastMessages {
                                 id,
@@ -1245,7 +1301,7 @@ where
                             // TODO: handle invalid messages.
                             let _ = state.verify_and_save_broadcast_message(message).await;
                         }
-                        state.inflight_gets.remove(&(peer_id, id));
+                        state.inflight_requests.remove(&(peer_id, id));
                         if current_cursor != state.get_latest_cursor() {
                             // Immediately send another TickNetworkMaintenance to start syncing with the next cursor.
                             let _ = myself.send_message(GossipActorMessage::TickNetworkMaintenance);
