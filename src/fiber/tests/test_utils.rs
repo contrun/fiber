@@ -160,7 +160,7 @@ pub struct NetworkNode {
     /// The base directory of the node, will be deleted after this struct dropped.
     pub base_dir: Arc<TempDir>,
     pub node_name: Option<String>,
-    pub store: MemoryStore,
+    pub store: Store,
     pub fiber_config: FiberConfig,
     pub listening_addrs: Vec<MultiAddr>,
     pub network_actor: ActorRef<NetworkActorMessage>,
@@ -179,7 +179,7 @@ impl NetworkNode {
 pub struct NetworkNodeConfig {
     base_dir: Arc<TempDir>,
     node_name: Option<String>,
-    store: MemoryStore,
+    store: Store,
     fiber_config: FiberConfig,
 }
 
@@ -192,7 +192,7 @@ impl NetworkNodeConfig {
 pub struct NetworkNodeConfigBuilder {
     base_dir: Option<Arc<TempDir>>,
     node_name: Option<String>,
-    store: Option<MemoryStore>,
+    store: Option<Store>,
     // We may generate a FiberConfig based on the base_dir and node_name,
     // but allow user to override it.
     fiber_config_updater: Option<Box<dyn FnOnce(&mut FiberConfig) + 'static>>,
@@ -222,7 +222,7 @@ impl NetworkNodeConfigBuilder {
         self
     }
 
-    pub fn store(mut self, store: MemoryStore) -> Self {
+    pub fn store(mut self, store: Store) -> Self {
         self.store = Some(store);
         self
     }
@@ -386,7 +386,7 @@ impl NetworkNode {
         self.start().await;
     }
 
-    pub fn get_network_graph(&self) -> NetworkGraph<MemoryStore> {
+    pub fn get_network_graph(&self) -> NetworkGraph<Store> {
         NetworkGraph::new(self.store.clone(), self.public_key)
     }
 
