@@ -1186,6 +1186,10 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                     .into_iter()
                     .filter(|m| m.cursor() <= subscription.store_last_cursor_while_starting)
                     .collect::<Vec<_>>();
+                debug!(
+                    "Fetched messages from store for subscriber {} by LoadMessagesFromStore: cursor {:?}, messages {:?}",
+                    subscription.id, &cursor, &messages
+                );
                 match messages.last() {
                     Some(m) => {
                         myself.send_message(
@@ -1238,13 +1242,16 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                     return Ok(());
                 }
 
-                trace!("ExtendedGossipMessageActor saving message: {:?}", message);
+                trace!(
+                    "ExtendedGossipMessageStoreActor saving message: {:?}",
+                    message
+                );
                 let message_cursor = message.cursor();
                 let message_id = message.message_id();
                 // Check if the message is lagged. If it is, then save it also to lagged_messages.
                 if message_cursor < state.last_cursor {
                     trace!(
-                        "ExtendedGossipMessageActor saving lagged message: {:?}",
+                        "ExtendedGossipMessageStoreActor saving lagged message: {:?}",
                         message
                     );
                     state
@@ -1261,7 +1268,7 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
 
                 if should_save {
                     debug!(
-                        "ExtendedGossipMessageActor saving message immediately: {:?}",
+                        "ExtendedGossipMessageStoreActor saving message immediately: {:?}",
                         message
                     );
                     state.save_broadcast_message(message.clone());
@@ -1271,7 +1278,7 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                     }
                 } else {
                     trace!(
-                        "ExtendedGossipMessageActor saving message to be saved later: {:?}",
+                        "ExtendedGossipMessageStoreActor saving message to be saved later: {:?}",
                         message
                     );
                     state
@@ -1285,14 +1292,14 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                 let all_subscriptions = state.output_ports.values().collect::<Vec<_>>();
 
                 debug!(
-                    "ExtendedGossipMessageActor processing tick: last_cursor = {:?} #subscriptions = {}, #lagged_messages = {}, #messages_to_be_saved = {}",
+                    "Store maintenance ticked last_cursor = {:?} #subscriptions = {}, #lagged_messages = {}, #messages_to_be_saved = {}",
                     state.last_cursor,
                     all_subscriptions.len(),
                     state.lagged_messages.len(),
                     state.messages_to_be_saved.len()
                 );
                 trace!(
-                    "ExtendedGossipMessageActor processing tick: state.messages_to_be_saved {:?}",
+                    "ExtendedGossipMessageStoreActor processing tick: state.messages_to_be_saved {:?}",
                     state.messages_to_be_saved
                 );
 
@@ -1331,13 +1338,19 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                         None => lagged_complete_messages.clone(),
                     };
                     debug!(
-                        "ExtendedGossipMessageActor sending lagged complete messages to subscriber: number of messages = {}",
+                        "ExtendedGossipMessageStoreActor sending lagged complete messages to subscriber: number of messages = {}",
                         messages_to_send.len()
                     );
                     for chunk in messages_to_send.chunks(MAX_NUM_OF_BROADCAST_MESSAGES as usize) {
                         if chunk.is_empty() {
                             break;
                         }
+                        debug!(
+                            "ExtendedGossipMessageStoreActor sending messages to subscriber id {} (lagged complete messages): current cursor {:?}, messages {:?}",
+                            subscription.id,
+                            &state.last_cursor,
+                            &chunk
+                        );
                         subscription
                             .output_port
                             .send(GossipMessageUpdates::new(chunk.to_vec()));
@@ -1345,7 +1358,7 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                 }
 
                 debug!(
-                    "ExtendedGossipMessageActor saving messages: number of lagged complete messages = {}, number of complete messages to be saved = {}",
+                    "ExtendedGossipMessageStoreActor saving messages: number of lagged complete messages = {}, number of complete messages to be saved = {}",
                     lagged_complete_messages.len(),
                     complete_messages_to_be_saved.len()
                 );
@@ -1356,7 +1369,7 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                     .chain(complete_messages_to_be_saved)
                 {
                     trace!(
-                        "ExtendedGossipMessageActor saving new complete message: {:?}",
+                        "ExtendedGossipMessageStoreActor saving new complete message: {:?}",
                         message
                     );
                     // TODO: we may need to order all the messages by their dependencies, because
@@ -1383,6 +1396,11 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                     .store
                     .get_latest_broadcast_message_cursor()
                     .unwrap_or(state.last_cursor.clone());
+                debug!(
+                    "ExtendedGossipMessageStoreActor fetching newest message from store: last cursor in store {:?}, our last cursor {:?}",
+                    &last_cursor_now,
+                    &state.last_cursor
+                );
                 for subscription in all_subscriptions {
                     let filter = subscription.filter.clone().unwrap_or_default();
                     // We still need to check if the messages returned are newer than the filter,

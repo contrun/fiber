@@ -423,6 +423,7 @@ where
     pub(crate) fn sample_n_peers_to_connect(&self, n: usize) -> HashMap<PeerId, Vec<MultiAddr>> {
         // TODO: we may need to shuffle the nodes before selecting the first n nodes,
         // to avoid some malicious nodes from being always selected.
+        debug!("Sampling {} peers to connect from {:?}", n, &self.nodes);
         self.nodes
             .iter()
             .filter(|(k, _)| **k != self.source)

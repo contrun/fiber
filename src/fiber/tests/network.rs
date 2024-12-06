@@ -525,6 +525,8 @@ async fn test_persisting_bootnode() {
 
 #[tokio::test]
 async fn test_persisting_announced_nodes() {
+    init_tracing();
+
     let mut node = NetworkNode::new_with_node_name("test").await;
 
     let announcement = create_fake_node_announcement_mesage();

@@ -702,6 +702,7 @@ impl NetworkActorStateStore for MemoryStore {
 
 impl MemoryStore {
     fn save_broadcast_message(&self, message: BroadcastMessageWithTimestamp) {
+        tracing::debug!("Saving broadcast message {:?}", &message);
         let is_node_1 = match &message {
             BroadcastMessageWithTimestamp::ChannelUpdate(msg) if msg.is_update_of_node_2() => false,
             _ => true,
