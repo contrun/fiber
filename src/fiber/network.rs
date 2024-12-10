@@ -1586,6 +1586,7 @@ where
         state: &mut NetworkActorState<S>,
         payment_hash: Hash256,
     ) -> Result<PaymentSession, Error> {
+        self.update_graph().await;
         let Some(mut payment_session) = self.store.get_payment_session(payment_hash) else {
             return Err(Error::InvalidParameter(payment_hash.to_string()));
         };

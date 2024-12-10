@@ -20,7 +20,7 @@ use tentacle::{
     traits::ServiceProtocol,
     SessionId,
 };
-use tokio::sync::oneshot;
+use tokio::sync::{broadcast, oneshot};
 use tracing::{debug, error, info, trace, warn};
 
 use crate::{
@@ -953,8 +953,10 @@ pub enum GossipMessageProcessingError {
 }
 
 // We use this notifier to notify the caller that the message has been saved to the store.
-pub type GossipMessageSavingNotifier =
-    Arc<OutputPort<Result<BroadcastMessageWithTimestamp, GossipMessageProcessingError>>>;
+pub type GossipMessageSavingNotificationSender =
+    broadcast::Sender<Result<BroadcastMessageWithTimestamp, GossipMessageProcessingError>>;
+pub type GossipMessageSavingNotificationReceiver =
+    broadcast::Receiver<Result<BroadcastMessageWithTimestamp, GossipMessageProcessingError>>;
 
 pub struct ExtendedGossipMessageStoreState<S> {
     store: S,
@@ -966,7 +968,7 @@ pub struct ExtendedGossipMessageStoreState<S> {
     messages_to_be_saved: HashMap<BroadcastMessageID, BroadcastMessageWithTimestamp>,
     // TODO: we need to remove the notifiers that are there for a long time to avoid memory leak
     // when the node is running for a long time.
-    message_saving_notifier: HashMap<Cursor, GossipMessageSavingNotifier>,
+    message_saving_notifier: HashMap<Cursor, GossipMessageSavingNotificationSender>,
 }
 
 impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
@@ -986,13 +988,32 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
     fn create_message_saving_notifier(
         &mut self,
         message: &BroadcastMessageWithTimestamp,
-    ) -> GossipMessageSavingNotifier {
+    ) -> GossipMessageSavingNotificationReceiver {
         let cursor = message.cursor();
-        let entry = self.message_saving_notifier.entry(cursor).or_default();
-        entry.clone()
+        self.message_saving_notifier
+            .entry(cursor)
+            .or_insert_with(|| {
+                let (sender, _receiver) = broadcast::channel(1);
+                sender
+            })
+            .subscribe()
     }
 
-    fn save_broadcast_message(&self, message: BroadcastMessageWithTimestamp) {
+    fn notify_message_saving_result(
+        &mut self,
+        cursor: &Cursor,
+        result: Result<BroadcastMessageWithTimestamp, GossipMessageProcessingError>,
+    ) {
+        if let Some(notifier) = self.message_saving_notifier.remove(cursor) {
+            debug!(
+                "ExtendedGossipMessageActor sending message saving notifier: cursor {:?}, result {:?}",
+                &cursor, &result
+            );
+            let _ = notifier.send(result);
+        }
+    }
+
+    fn save_broadcast_message(&mut self, message: BroadcastMessageWithTimestamp) {
         match message.clone() {
             BroadcastMessageWithTimestamp::ChannelAnnouncement(timestamp, channel_announcement) => {
                 self.store
@@ -1005,6 +1026,7 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
                 self.store.save_node_announcement(node_announcement)
             }
         }
+        self.notify_message_saving_result(&message.cursor(), Ok(message));
     }
 
     fn has_node_announcement(&self, node_id: &Pubkey) -> bool {
@@ -1287,7 +1309,7 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                 debug!(
                     "ExtendedGossipMessageActor processing tick: last_cursor = {:?} #subscriptions = {}, #lagged_messages = {}, #messages_to_be_saved = {}",
                     state.last_cursor,
-                    all_subscriptions.len(),
+                    state.output_ports.len(),
                     state.lagged_messages.len(),
                     state.messages_to_be_saved.len()
                 );
@@ -1321,7 +1343,7 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
 
                 // We need to send the lagged complete messages to the subscribers. After doing this,
                 // we may remove the messages from the lagged_messages.
-                for subscription in &all_subscriptions {
+                for subscription in state.output_ports.values() {
                     let messages_to_send = match subscription.filter {
                         Some(ref filter) => lagged_complete_messages
                             .iter()
@@ -1364,10 +1386,6 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                     // while saving the messages. If the node failed, some messages in the store may not have their
                     // dependencies saved yet.
                     state.save_broadcast_message(message.clone());
-                    let cursor = message.cursor();
-                    if let Some(notifier) = state.message_saving_notifier.remove(&cursor) {
-                        let _ = notifier.send(Ok(message));
-                    }
                 }
 
                 // We now have some messages later than last_cursor saved to the store, we can take them
@@ -1383,7 +1401,7 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                     .store
                     .get_latest_broadcast_message_cursor()
                     .unwrap_or(state.last_cursor.clone());
-                for subscription in all_subscriptions {
+                for subscription in state.output_ports.values() {
                     let filter = subscription.filter.clone().unwrap_or_default();
                     // We still need to check if the messages returned are newer than the filter,
                     // because a subscriber may set filter so large that our last_cursor is still smaller
@@ -1441,7 +1459,7 @@ pub enum ExtendedGossipMessageStoreMessage {
     SaveMessage(
         BroadcastMessage,
         bool,
-        RpcReplyPort<Result<Option<GossipMessageSavingNotifier>, Error>>,
+        RpcReplyPort<Result<Option<GossipMessageSavingNotificationReceiver>, Error>>,
     ),
     // Send broadcast messages after the cursor to the subscriber specified in the u64 id.
     // This is normally called immediately after a new subscription is created. This is the time when
@@ -2222,19 +2240,35 @@ where
                     )
                     .expect("store actor alive")
                     {
-                        Ok(Some(output_port)) => {
+                        Ok(Some(mut receiver)) => {
+                            debug!(
+                                "Broadcast message saving subscribed, waiting for it to be saved: {:?}",
+                                &message
+                            );
                             let myself = myself.clone();
-                            output_port.subscribe(myself, |m| match m {
-                                Ok(m) => {
-                                    debug!(
-                                        "Broadcast message saved, trying to broadcast it now: {:?}",
-                                        &m
-                                    );
-                                    Some(GossipActorMessage::BroadcastMessageImmediately(m))
-                                }
-                                Err(e) => {
-                                    error!("Failed to save broadcast message: {:?}", &e);
-                                    None
+                            ractor::concurrency::tokio_primatives::spawn(async move {
+                                // TODO: We should set a timeout here.
+                                match receiver.recv().await {
+                                    Ok(Ok(message)) => {
+                                        debug!("Broadcast message saved: {:?}", &message);
+                                        let _ = myself.send_message(
+                                            GossipActorMessage::BroadcastMessageImmediately(
+                                                message,
+                                            ),
+                                        );
+                                    }
+                                    Ok(Err(error)) => {
+                                        error!(
+                                            "Failed to save broadcast message (maybe message is invalid) {:?}: {:?}",
+                                            &message, &error
+                                        );
+                                    }
+                                    Err(error) => {
+                                        error!(
+                                            "Failed to save broadcast message {:?}: {:?}",
+                                            &message, &error
+                                        );
+                                    }
                                 }
                             });
                         }
@@ -2243,7 +2277,7 @@ where
                         }
                         Err(error) => {
                             error!(
-                                "Failed to save broadcast message {:?}: {:?}",
+                                "Failed to save broadcast message (calling actor error) {:?}: {:?}",
                                 &message, &error
                             );
                         }

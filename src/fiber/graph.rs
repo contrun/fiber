@@ -350,6 +350,22 @@ where
         channel_info.update_of_node2 = channel_update_of_node2;
     }
 
+    fn load_channel_info_mut(&mut self, channel_outpoint: &OutPoint) -> Option<&mut ChannelInfo> {
+        debug!("Loading channel info: {:?}", channel_outpoint);
+        if !self.channels.contains_key(channel_outpoint) {
+            if let Some((timestamp, channel_announcement)) =
+                self.store.get_latest_channel_announcement(channel_outpoint)
+            {
+                debug!(
+                    "Loading channel announcement: timestamp {}, channel announcement {:?}",
+                    timestamp, &channel_announcement
+                );
+                self.process_channel_announcement(timestamp, channel_announcement);
+            }
+        }
+        self.channels.get_mut(channel_outpoint)
+    }
+
     fn process_channel_announcement(
         &mut self,
         timestamp: u64,
@@ -378,10 +394,9 @@ where
                     "Inserting new channel announcement: {:?}",
                     &channel_announcement
                 );
-                self.channels.insert(
-                    channel_announcement.channel_outpoint.clone(),
-                    ChannelInfo::from((timestamp, channel_announcement)),
-                );
+                let channel_info = ChannelInfo::from((timestamp, channel_announcement));
+                self.channels
+                    .insert(channel_info.channel_outpoint.clone(), channel_info);
                 return Some(cursor);
             }
         }
@@ -390,8 +405,10 @@ where
     fn process_channel_update(&mut self, channel_update: ChannelUpdate) -> Option<Cursor> {
         debug!("Processing channel update: {:?}", &channel_update);
         let channel_outpoint = &channel_update.channel_outpoint;
-        // TODO: There is a slim chance that the channel update is received before the channel announcement.
-        let channel = self.channels.get_mut(channel_outpoint)?;
+        // The channel update message may have smaller timestamp than channel announcement.
+        // So it is possible that the channel announcement is not loaded into the graph yet,
+        // when we receive the channel update message.
+        let channel = self.load_channel_info_mut(channel_outpoint)?;
         let update_info = if channel_update.is_update_of_node_1() {
             &mut channel.update_of_node1
         } else {
