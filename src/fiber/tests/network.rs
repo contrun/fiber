@@ -7,19 +7,11 @@ use crate::fiber::tests::test_utils::rand_sha256_hash;
 use crate::invoice::InvoiceBuilder;
 use crate::{
     fiber::{
-<<<<<<< HEAD
-        channel::{MESSAGE_OF_NODE1_FLAG, MESSAGE_OF_NODE2_FLAG},
-        gossip::GossipMessageStore,
-        graph::ChannelUpdateInfo,
-        network::{get_chain_hash, NetworkActorStateStore},
-||||||| 9d94000
-        graph::{ChannelInfo, NetworkGraphStateStore},
-        network::{get_chain_hash, NetworkActorStateStore},
-=======
-        channel::ShutdownInfo,
-        graph::{ChannelInfo, NetworkGraphStateStore},
         network::{get_chain_hash, NetworkActorStateStore, SendPaymentCommand},
->>>>>>> nervosnetwork/main
+        channel::{ShutdownInfo, MESSAGE_OF_NODE1_FLAG, MESSAGE_OF_NODE2_FLAG},
+        gossip::GossipMessageStore,
+        graph::{ChannelInfo, ChannelUpdateInfo, NetworkGraphStateStore},
+        network::{get_chain_hash, NetworkActorStateStore},
         tests::test_utils::NetworkNodeConfigBuilder,
         types::{
             BroadcastMessage, ChannelAnnouncement, ChannelUpdate, NodeAnnouncement, Privkey, Pubkey,
