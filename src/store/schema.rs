@@ -11,6 +11,8 @@
 /// | 96           | ChannelId            | ChannelInfo                 |
 /// | 97           | Block | Index        | ChannelId                   |
 /// | 98           | Timestamp            | ChannelId                   |
+/// | 99           | Cursor               | BroadcastMessage            |
+/// | 100          | BroadcastMessageID   | Timestamp                   |
 /// | 128          | NodeId               | NodeInfo                    |
 /// | 129          | Timestamp            | NodeId                      |
 /// | 160          | PeerId               | MultiAddr                   |
@@ -29,6 +31,13 @@ pub(crate) const PEER_ID_CHANNEL_ID_PREFIX: u8 = 64;
 pub(crate) const CHANNEL_INFO_PREFIX: u8 = 96;
 pub(crate) const CHANNEL_ANNOUNCEMENT_INDEX_PREFIX: u8 = 97;
 pub(crate) const CHANNEL_UPDATE_INDEX_PREFIX: u8 = 98;
+// We save all the broadcast messages in a single column family because we need to
+// query all broadcast messages after a cursor. We use the cursor date type as the key
+// for the broadcast messages. This simplify the implementation of the query logic.
+// But this makes it harder to return a list of broadcast messages with the same type
+// (e.g. channel_announcement) in a single query.
+pub(crate) const BROADCAST_MESSAGE_PREFIX: u8 = 99;
+pub(crate) const BROADCAST_MESSAGE_TIMESTAMP_PREFIX: u8 = 100;
 pub(crate) const NODE_INFO_PREFIX: u8 = 128;
 pub(crate) const NODE_ANNOUNCEMENT_INDEX_PREFIX: u8 = 129;
 pub(crate) const PAYMENT_SESSION_PREFIX: u8 = 192;

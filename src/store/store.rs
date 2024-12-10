@@ -3,10 +3,12 @@ use super::schema::*;
 use crate::{
     fiber::{
         channel::{ChannelActorState, ChannelActorStateStore, ChannelState},
-        graph::{ChannelInfo, NetworkGraphStateStore, NodeInfo, PaymentSession},
+        graph::{
+            ChannelInfo, GossipMessageStore, NetworkGraphStateStore, NodeInfo, PaymentSession,
+        },
         history::{Direction, TimedResult},
         network::{NetworkActorStateStore, PersistentNetworkActorState},
-        types::{Hash256, Pubkey},
+        types::{BroadcastMessage, BroadcastMessageID, Cursor, Hash256, Pubkey},
     },
     invoice::{CkbInvoice, CkbInvoiceStatus, InvoiceError, InvoiceStore},
     watchtower::{ChannelData, RevocationData, WatchtowerStore},
@@ -183,6 +185,8 @@ enum KeyValue {
     ChannelInfo(OutPoint, ChannelInfo),
     ChannelTimestampIndex(OutPoint, u64),
     ChannelFundingTxIndex(OutPoint, u64, u32),
+    BroadcastMessage(Cursor, BroadcastMessage),
+    BroadcastMessageTimestamp(BroadcastMessageID, u64),
     WatchtowerChannel(Hash256, ChannelData),
     PaymentSession(Hash256, PaymentSession),
     PaymentHistoryTimedResult((OutPoint, Direction), TimedResult),
@@ -259,6 +263,14 @@ impl StoreKeyValue for KeyValue {
                 funding_tx_index.to_be_bytes().as_slice(),
             ]
             .concat(),
+            KeyValue::BroadcastMessage(cursor, _) => {
+                [&[BROADCAST_MESSAGE_PREFIX], cursor.to_bytes().as_slice()]
+            }
+            KeyValue::BroadcastMessageTimestamp(id, _) => [
+                &[BROADCAST_MESSAGE_TIMESTAMP_PREFIX],
+                id.to_bytes().as_slice(),
+            ]
+            .concat(),
             KeyValue::PaymentHistoryTimedResult((channel_outpoint, direction), _) => [
                 &[PAYMENT_HISTORY_TIMED_RESULT_PREFIX],
                 channel_outpoint.as_slice(),
@@ -295,6 +307,12 @@ impl StoreKeyValue for KeyValue {
             KeyValue::PaymentHistoryTimedResult(_, result) => {
                 serialize_to_vec(result, "TimedResult")
             }
+            KeyValue::BroadcastMessage(_, value) => {
+                crate::fiber::gen::fiber::BroadcastMessage::from(value)
+                    .as_bytes()
+                    .into()
+            }
+            KeyValue::BroadcastMessageTimestamp(_, timestamp) => timestamp.to_be_bytes().to_vec(),
         }
     }
 }
@@ -450,6 +468,8 @@ impl InvoiceStore for Store {
             .map(|v| deserialize_from(v.as_ref(), "CkbInvoiceStatus"))
     }
 }
+
+impl GossipMessageStore for Store {}
 
 impl NetworkGraphStateStore for Store {
     fn get_channels(&self, channel_id: Option<OutPoint>) -> Vec<ChannelInfo> {
