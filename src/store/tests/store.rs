@@ -2,6 +2,7 @@ use crate::fiber::channel::*;
 use crate::fiber::config::AnnouncedNodeName;
 use crate::fiber::config::DEFAULT_TLC_EXPIRY_DELTA;
 use crate::fiber::config::MAX_PAYMENT_TLC_EXPIRY_LIMIT;
+use crate::fiber::gossip::GossipMessageStore;
 use crate::fiber::graph::*;
 use crate::fiber::history::Direction;
 use crate::fiber::history::TimedResult;
@@ -9,6 +10,7 @@ use crate::fiber::network::SendPaymentData;
 use crate::fiber::tests::test_utils::*;
 use crate::fiber::types::*;
 use crate::invoice::*;
+use crate::now_timestamp_as_millis_u64;
 use crate::store::schema::*;
 use crate::store::Store;
 use crate::watchtower::*;
@@ -20,6 +22,7 @@ use core::cmp::Ordering;
 use musig2::secp::MaybeScalar;
 use musig2::CompactSignature;
 use musig2::SecNonce;
+use secp256k1::SecretKey;
 use secp256k1::{Keypair, Secp256k1};
 use std::time::SystemTime;
 use tempfile::tempdir;
@@ -41,7 +44,7 @@ fn mock_node() -> (Privkey, NodeAnnouncement) {
             AnnouncedNodeName::from_str("node1").expect("invalid name"),
             vec![],
             &sk,
-            now_timestamp(),
+            now_timestamp_as_millis_u64(),
             0,
         ),
     )
@@ -100,14 +103,13 @@ fn test_store_invoice() {
     assert_eq!(store.get_invoice_status(hash), Some(status));
 }
 
-
 #[test]
 fn test_store_get_broadcast_messages_iter() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("gossip_store");
     let store = Store::new(path).expect("created store failed");
 
-    let timestamp = now_timestamp();
+    let timestamp = now_timestamp_as_millis_u64();
     let channel_announcement = mock_channel();
     let outpoint = channel_announcement.out_point().clone();
     store.save_channel_announcement(timestamp, channel_announcement.clone());
@@ -134,7 +136,7 @@ fn test_store_get_broadcast_messages() {
     let path = dir.path().join("gossip_store");
     let store = Store::new(path).expect("created store failed");
 
-    let timestamp = now_timestamp();
+    let timestamp = now_timestamp_as_millis_u64();
     let channel_announcement = mock_channel();
     let outpoint = channel_announcement.out_point().clone();
     store.save_channel_announcement(timestamp, channel_announcement.clone());
@@ -158,7 +160,7 @@ fn test_store_save_channel_announcement() {
     let path = dir.path().join("gossip_store");
     let store = Store::new(path).expect("created store failed");
 
-    let timestamp = now_timestamp();
+    let timestamp = now_timestamp_as_millis_u64();
     let channel_announcement = mock_channel();
     store.save_channel_announcement(timestamp, channel_announcement.clone());
     let new_channel_announcement =

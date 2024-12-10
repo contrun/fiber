@@ -5,6 +5,7 @@ use crate::fiber::config::MAX_PAYMENT_TLC_EXPIRY_LIMIT;
 use crate::fiber::graph::PaymentSessionStatus;
 use crate::fiber::network::SendPaymentCommand;
 use crate::fiber::tests::test_utils::{
+    create_3_nodes_with_established_channel, create_nodes_with_established_channel,
     gen_rand_public_key, gen_sha256_hash, generate_seckey, NetworkNodeConfigBuilder,
 };
 use crate::fiber::types::{PaymentHopData, PeeledOnionPacket, TlcErrorCode, NO_SHARED_SECRET};
@@ -17,7 +18,6 @@ use crate::{
             ShutdownCommand, DEFAULT_COMMITMENT_FEE_RATE,
         },
         config::DEFAULT_AUTO_ACCEPT_CHANNEL_CKB_FUNDING_AMOUNT,
-        graph::NetworkGraphStateStore,
         graph::NetworkGraphStateStore,
         hash_algorithm::HashAlgorithm,
         network::{AcceptChannelCommand, OpenChannelCommand},

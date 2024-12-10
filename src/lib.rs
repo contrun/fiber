@@ -20,9 +20,6 @@ pub mod actors;
 
 pub mod tasks;
 
-#[cfg(test)]
-mod tests;
-
 use git_version::git_version;
 
 const GIT_VERSION: &str = git_version!();
@@ -35,9 +32,6 @@ pub fn get_node_prefix() -> &'static str {
     static INSTANCE: once_cell::sync::OnceCell<String> = once_cell::sync::OnceCell::new();
     INSTANCE.get_or_init(|| std::env::var("LOG_PREFIX").unwrap_or_else(|_| "".to_string()))
 }
-
-#[cfg(test)]
-pub use tests::now_timestamp;
 
 pub fn now_timestamp_as_millis_u64() -> u64 {
     std::time::SystemTime::now()

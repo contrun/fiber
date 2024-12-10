@@ -472,8 +472,9 @@ impl GossipMessageStore for Store {
     fn get_broadcast_messages_iter(
         &self,
         after_cursor: &Cursor,
-    ) -> Vec<crate::fiber::types::BroadcastMessageWithTimestamp> {
-        todo!()
+    ) -> impl IntoIterator<Item = crate::fiber::types::BroadcastMessageWithTimestamp> {
+        todo!();
+        vec![]
     }
 
     fn get_broadcast_message_with_cursor(

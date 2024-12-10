@@ -1,5 +1,8 @@
-use ckb_types::{core::TransactionView, packed::{Byte32, OutPoint}};
-use ckb_types::packed::OutPoint;
+use ckb_jsonrpc_types::Status;
+use ckb_types::{
+    core::TransactionView,
+    packed::{Byte32, OutPoint},
+};
 use ractor::{call, Actor, ActorRef};
 use rand::rngs::OsRng;
 use rand::Rng;
@@ -22,16 +25,18 @@ use tokio::{
     time::sleep,
 };
 
-use crate::fiber::channel::ChannelActorStateStore;
-use crate::store::Store;
-use crate::fiber::types::;
-use crate::fiber::types::Pubkey;
-use crate::fiber::gossip::{GossipMessageStore, DEFAULT_NUM_OF_BROADCAST_MESSAGE};
 use crate::fiber::network::{AcceptChannelCommand, OpenChannelCommand};
+use crate::fiber::types::Pubkey;
 use crate::fiber::types::{
-    BroadcastMessageID, BroadcastMessageWithTimestamp, ChannelAnnouncement, ChannelUpdate, Cursor, EcdsaSignature
-    NodeAnnouncement, Privkey,
+    BroadcastMessageID, BroadcastMessageWithTimestamp, ChannelAnnouncement, ChannelUpdate, Cursor,
+    EcdsaSignature, NodeAnnouncement, Privkey,
 };
+use crate::fiber::{channel::ChannelActorStateStore, graph::NodeInfo};
+use crate::fiber::{
+    gossip::{GossipMessageStore, DEFAULT_NUM_OF_BROADCAST_MESSAGE},
+    graph::ChannelInfo,
+};
+use crate::store::Store;
 use crate::{
     actors::{RootActor, RootActorMessage},
     ckb::tests::test_utils::{
@@ -186,7 +191,7 @@ pub struct NetworkNode {
     pub fiber_config: FiberConfig,
     pub listening_addrs: Vec<MultiAddr>,
     pub network_actor: ActorRef<NetworkActorMessage>,
-    pub network_graph: Arc<TokioRwLock<NetworkGraph<MemoryStore>>>,
+    pub network_graph: Arc<TokioRwLock<NetworkGraph<Store>>>,
     pub chain_actor: ActorRef<CkbChainMessage>,
     pub private_key: Privkey,
     pub peer_id: PeerId,
@@ -298,9 +303,11 @@ impl NetworkNodeConfigBuilder {
 pub async fn establish_channel_between_nodes(
     node_a: &mut NetworkNode,
     node_b: &mut NetworkNode,
+    public: bool,
     node_a_funding_amount: u128,
     node_b_funding_amount: u128,
-    public: bool,
+    max_tlc_number_in_flight: Option<u64>,
+    max_tlc_value_in_flight: Option<u128>,
 ) -> (Hash256, TransactionView) {
     let message = |rpc_reply| {
         NetworkActorMessage::Command(NetworkActorCommand::OpenChannel(
@@ -317,8 +324,8 @@ pub async fn establish_channel_between_nodes(
                 tlc_min_value: None,
                 tlc_max_value: None,
                 tlc_fee_proportional_millionths: None,
-                max_tlc_number_in_flight: None,
-                max_tlc_value_in_flight: None,
+                max_tlc_number_in_flight,
+                max_tlc_value_in_flight,
             },
             rpc_reply,
         ))
@@ -386,7 +393,66 @@ pub async fn establish_channel_between_nodes(
         .get_tx_from_hash(funding_tx_outpoint.tx_hash())
         .await
         .expect("tx found");
+
     (new_channel_id, funding_tx)
+}
+
+pub async fn create_nodes_with_established_channel(
+    node_a_funding_amount: u128,
+    node_b_funding_amount: u128,
+    public: bool,
+) -> (NetworkNode, NetworkNode, Hash256) {
+    let [mut node_a, mut node_b] = NetworkNode::new_n_interconnected_nodes().await;
+
+    let (channel_id, _funding_tx) = establish_channel_between_nodes(
+        &mut node_a,
+        &mut node_b,
+        public,
+        node_a_funding_amount,
+        node_b_funding_amount,
+        None,
+        None,
+    )
+    .await;
+
+    (node_a, node_b, channel_id)
+}
+
+pub async fn create_3_nodes_with_established_channel(
+    (channel_1_amount_a, channel_1_amount_b): (u128, u128),
+    (channel_2_amount_b, channel_2_amount_c): (u128, u128),
+    public: bool,
+) -> (NetworkNode, NetworkNode, NetworkNode, Hash256, Hash256) {
+    let [mut node_a, mut node_b, mut node_c] = NetworkNode::new_n_interconnected_nodes().await;
+
+    let (channel_id_ab, funding_tx_ab) = establish_channel_between_nodes(
+        &mut node_a,
+        &mut node_b,
+        public,
+        channel_1_amount_a,
+        channel_1_amount_b,
+        None,
+        None,
+    )
+    .await;
+
+    let res = node_c.submit_tx(funding_tx_ab).await;
+    assert_eq!(res, Status::Committed);
+
+    let (channel_id_bc, funding_tx_bc) = establish_channel_between_nodes(
+        &mut node_b,
+        &mut node_c,
+        public,
+        channel_2_amount_b,
+        channel_2_amount_c,
+        None,
+        None,
+    )
+    .await;
+
+    let res = node_a.submit_tx(funding_tx_bc).await;
+    assert_eq!(res, Status::Committed);
+    (node_a, node_b, node_c, channel_id_ab, channel_id_bc)
 }
 
 impl NetworkNode {
@@ -556,9 +622,11 @@ impl NetworkNode {
         let (channel_id, funding_tx) = establish_channel_between_nodes(
             &mut node_a,
             &mut node_b,
+            public,
             node_a_funding_amount,
             node_b_funding_amount,
-            public,
+            None,
+            None,
         )
         .await;
 
@@ -658,13 +726,13 @@ impl NetworkNode {
         get_tx_from_hash(self.chain_actor.clone(), tx_hash).await
     }
 
-    pub fn get_network_graph(&self) -> &Arc<TokioRwLock<NetworkGraph<MemoryStore>>> {
+    pub fn get_network_graph(&self) -> &Arc<TokioRwLock<NetworkGraph<Store>>> {
         &self.network_graph
     }
 
     pub async fn with_network_graph<F, T>(&self, f: F) -> T
     where
-        F: FnOnce(&NetworkGraph<MemoryStore>) -> T,
+        F: FnOnce(&NetworkGraph<Store>) -> T,
     {
         let graph = self.get_network_graph().read().await;
         f(&*graph)

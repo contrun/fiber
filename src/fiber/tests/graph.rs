@@ -1,7 +1,7 @@
 use crate::fiber::channel::{MESSAGE_OF_NODE1_FLAG, MESSAGE_OF_NODE2_FLAG};
 use crate::fiber::config::{DEFAULT_TLC_EXPIRY_DELTA, MAX_PAYMENT_TLC_EXPIRY_LIMIT};
-use crate::fiber::graph::{PathFindError, SessionRoute};
 use crate::fiber::gossip::GossipMessageStore;
+use crate::fiber::graph::{PathFindError, SessionRoute};
 use crate::fiber::types::Pubkey;
 use crate::now_timestamp_as_millis_u64;
 use crate::{
@@ -45,7 +45,7 @@ impl MockNetworkGraph {
             "node0".into(),
             vec![],
             &secret_key1.into(),
-            now_timestamp(),
+            now_timestamp_as_millis_u64(),
             0,
         ));
         for i in 1..keypairs.len() {
@@ -54,7 +54,7 @@ impl MockNetworkGraph {
                 format!("node{i}").as_str().into(),
                 vec![],
                 &sk.into(),
-                now_timestamp(),
+                now_timestamp_as_millis_u64(),
                 0,
             ));
         }
@@ -109,7 +109,7 @@ impl MockNetworkGraph {
             (public_key2, public_key1)
         };
         self.store.save_channel_announcement(
-            now_timestamp(),
+            now_timestamp_as_millis_u64(),
             ChannelAnnouncement {
                 chain_hash: get_chain_hash(),
                 node1_id: node_a_key.into(),
@@ -127,8 +127,12 @@ impl MockNetworkGraph {
         self.store.save_channel_update(ChannelUpdate {
             signature: None,
             chain_hash: get_chain_hash(),
-            timestamp: now_timestamp(),
-            message_flags: if node_a_is_node1 { MESSAGE_OF_NODE2_FLAG } else { MESSAGE_OF_NODE1_FLAG },
+            timestamp: now_timestamp_as_millis_u64(),
+            message_flags: if node_a_is_node1 {
+                MESSAGE_OF_NODE2_FLAG
+            } else {
+                MESSAGE_OF_NODE1_FLAG
+            },
             channel_flags: 0,
             tlc_expiry_delta: 11,
             tlc_fee_proportional_millionths: fee_rate.unwrap_or(0),
@@ -140,9 +144,12 @@ impl MockNetworkGraph {
             self.store.save_channel_update(ChannelUpdate {
                 signature: None,
                 chain_hash: get_chain_hash(),
-                timestamp: now_timestamp(),
-            message_flags: if node_a_is_node1 { MESSAGE_OF_NODE1_FLAG } else { MESSAGE_OF_NODE2_FLAG },
-            channel_flags: 0,
+                timestamp: now_timestamp_as_millis_u64(),
+                message_flags: if node_a_is_node1 {
+                    MESSAGE_OF_NODE1_FLAG
+                } else {
+                    MESSAGE_OF_NODE2_FLAG
+                },
                 channel_flags: 0,
                 tlc_expiry_delta: 22,
                 tlc_fee_proportional_millionths: fee_rate,
