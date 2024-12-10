@@ -1,13 +1,18 @@
 use crate::fiber::{
     channel::{
-        AddTlcCommand, ChannelActorStateStore, ChannelCommand, ChannelCommandWithId, ChannelState,
-        RemoveTlcCommand, ShutdownCommand, UpdateCommand,
+        AddTlcCommand, AwaitingChannelReadyFlags, AwaitingTxSignaturesFlags,
+        ChannelActorStateStore, ChannelCommand, ChannelCommandWithId,
+        ChannelState as RawChannelState, CloseFlags, CollaboratingFundingTxFlags,
+        NegotiatingFundingFlags, RemoveTlcCommand, ShutdownCommand, ShuttingDownFlags,
+        SigningCommitmentFlags, UpdateCommand,
     },
     graph::PaymentSessionStatus,
     hash_algorithm::HashAlgorithm,
     network::{AcceptChannelCommand, OpenChannelCommand, SendPaymentCommand},
     serde_utils::{EntityHex, U128Hex, U64Hex},
-    types::{Hash256, Pubkey, RemoveTlcFulfill, TlcErr, TlcErrPacket, TlcErrorCode},
+    types::{
+        Hash256, Pubkey, RemoveTlcFulfill, TlcErr, TlcErrPacket, TlcErrorCode, NO_SHARED_SECRET,
+    },
     NetworkActorCommand, NetworkActorMessage,
 };
 use crate::{handle_actor_call, handle_actor_cast, log_and_error};
@@ -39,7 +44,7 @@ pub(crate) struct OpenChannelParams {
     #[serde_as(as = "U128Hex")]
     funding_amount: u128,
 
-    /// Whether this is a public channel (will be broadcasted to network, and can be used to forward TLCs), an optional parameter (default value false).
+    /// Whether this is a public channel (will be broadcasted to network, and can be used to forward TLCs), an optional parameter, default value is true.
     public: Option<bool>,
 
     /// The type script of the UDT to fund the channel with, an optional parameter.
@@ -129,6 +134,59 @@ pub(crate) struct ListChannelsResult {
     channels: Vec<Channel>,
 }
 
+/// The state of a channel
+// `ChannelState` is a copy of `ChannelState` with `#[serde(...)]` attributes for compatibility
+// `bincode` does not support deserialize_identifier
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    rename_all = "SCREAMING_SNAKE_CASE",
+    tag = "state_name",
+    content = "state_flags"
+)]
+pub enum ChannelState {
+    /// We are negotiating the parameters required for the channel prior to funding it.
+    NegotiatingFunding(NegotiatingFundingFlags),
+    /// We're collaborating with the other party on the funding transaction.
+    CollaboratingFundingTx(CollaboratingFundingTxFlags),
+    /// We have collaborated over the funding and are now waiting for CommitmentSigned messages.
+    SigningCommitment(SigningCommitmentFlags),
+    /// We've received and sent `commitment_signed` and are now waiting for both
+    /// party to collaborate on creating a valid funding transaction.
+    AwaitingTxSignatures(AwaitingTxSignaturesFlags),
+    /// We've received/sent `funding_created` and `funding_signed` and are thus now waiting on the
+    /// funding transaction to confirm.
+    AwaitingChannelReady(AwaitingChannelReadyFlags),
+    /// Both we and our counterparty consider the funding transaction confirmed and the channel is
+    /// now operational.
+    ChannelReady(),
+    /// We've successfully negotiated a `closing_signed` dance. At this point, the `ChannelManager`
+    /// is about to drop us, but we store this anyway.
+    ShuttingDown(ShuttingDownFlags),
+    /// This channel is closed.
+    Closed(CloseFlags),
+}
+
+impl From<RawChannelState> for ChannelState {
+    fn from(state: RawChannelState) -> Self {
+        match state {
+            RawChannelState::NegotiatingFunding(flags) => ChannelState::NegotiatingFunding(flags),
+            RawChannelState::CollaboratingFundingTx(flags) => {
+                ChannelState::CollaboratingFundingTx(flags)
+            }
+            RawChannelState::SigningCommitment(flags) => ChannelState::SigningCommitment(flags),
+            RawChannelState::AwaitingTxSignatures(flags) => {
+                ChannelState::AwaitingTxSignatures(flags)
+            }
+            RawChannelState::AwaitingChannelReady(flags) => {
+                ChannelState::AwaitingChannelReady(flags)
+            }
+            RawChannelState::ChannelReady() => ChannelState::ChannelReady(),
+            RawChannelState::ShuttingDown(flags) => ChannelState::ShuttingDown(flags),
+            RawChannelState::Closed(flags) => ChannelState::Closed(flags),
+        }
+    }
+}
+
 /// The channel data structure
 #[serde_as]
 #[derive(Clone, Serialize)]
@@ -159,7 +217,7 @@ pub(crate) struct Channel {
     /// The received balance of the channel
     #[serde_as(as = "U128Hex")]
     received_tlc_balance: u128,
-    /// The time the channel was created at
+    /// The time the channel was created at, in milliseconds from UNIX epoch
     #[serde_as(as = "U64Hex")]
     created_at: u64,
 }
@@ -262,14 +320,17 @@ pub struct GetPaymentCommandResult {
     pub payment_hash: Hash256,
     /// The status of the payment
     pub status: PaymentSessionStatus,
-    #[serde_as(as = "U128Hex")]
-    /// The time the payment was created at
-    created_at: u128,
-    #[serde_as(as = "U128Hex")]
-    /// The time the payment was last updated at
-    pub last_updated_at: u128,
+    #[serde_as(as = "U64Hex")]
+    /// The time the payment was created at, in milliseconds from UNIX epoch
+    created_at: u64,
+    #[serde_as(as = "U64Hex")]
+    /// The time the payment was last updated at, in milliseconds from UNIX epoch
+    pub last_updated_at: u64,
     /// The error message if the payment failed
     pub failed_error: Option<String>,
+    /// fee paid for the payment
+    #[serde_as(as = "U128Hex")]
+    pub fee: u128,
 }
 
 #[serde_as]
@@ -285,9 +346,13 @@ pub(crate) struct SendPaymentCommandParams {
     /// the hash to use within the payment's HTLC
     payment_hash: Option<Hash256>,
 
-    /// the htlc expiry delta should be used to set the timelock for the final hop
+    /// the TLC expiry delta should be used to set the timelock for the final hop, in milliseconds
     #[serde_as(as = "Option<U64Hex>")]
-    final_htlc_expiry_delta: Option<u64>,
+    final_tlc_expiry_delta: Option<u64>,
+
+    /// the TLC expiry limit for the whole payment, in milliseconds
+    #[serde_as(as = "Option<U64Hex>")]
+    tlc_expiry_limit: Option<u64>,
 
     /// the encoded invoice to send to the recipient
     invoice: Option<String>,
@@ -312,6 +377,11 @@ pub(crate) struct SendPaymentCommandParams {
 
     /// allow self payment, default is false
     allow_self_payment: Option<bool>,
+
+    /// dry_run for payment, used for check whether we can build valid router and the fee for this payment,
+    /// it's useful for the sender to double check the payment before sending it to the network,
+    /// default is false
+    dry_run: Option<bool>,
 }
 
 /// RPC module for channel management.
@@ -402,7 +472,7 @@ where
                 OpenChannelCommand {
                     peer_id: params.peer_id.clone(),
                     funding_amount: params.funding_amount,
-                    public: params.public.unwrap_or(false),
+                    public: params.public.unwrap_or(true),
                     shutdown_script: params.shutdown_script.clone().map(|s| s.into()),
                     commitment_delay_epoch: params
                         .commitment_delay_epoch
@@ -469,12 +539,12 @@ where
                             .funding_udt_type_script
                             .clone()
                             .map(Into::into),
-                        state: state.state,
+                        state: state.state.into(),
                         local_balance: state.get_local_balance(),
                         remote_balance: state.get_remote_balance(),
                         offered_tlc_balance: state.get_offered_tlc_balance(),
                         received_tlc_balance: state.get_received_tlc_balance(),
-                        created_at: state.get_created_at_in_microseconds(),
+                        created_at: state.get_created_at_in_millis(),
                     })
             })
             .collect();
@@ -504,11 +574,10 @@ where
                     command: ChannelCommand::AddTlc(
                         AddTlcCommand {
                             amount: params.amount,
-                            preimage: None,
-                            payment_hash: Some(params.payment_hash),
+                            payment_hash: params.payment_hash,
                             expiry: params.expiry,
                             hash_algorithm: params.hash_algorithm.unwrap_or_default(),
-                            onion_packet: vec![],
+                            onion_packet: None,
                             previous_tlc: None,
                         },
                         rpc_reply,
@@ -549,9 +618,11 @@ where
                                 RemoveTlcReason::RemoveTlcFail { .. } => {
                                     // TODO: maybe we should remove this PRC or move add_tlc and remove_tlc to `test` module?
                                     crate::fiber::types::RemoveTlcReason::RemoveTlcFail(
-                                        TlcErrPacket::new(TlcErr::new(
-                                            err_code.expect("expect error code"),
-                                        )),
+                                        TlcErrPacket::new(
+                                            TlcErr::new(err_code.expect("expect error code")),
+                                            // TODO: get shared secret to create the error packet
+                                            &NO_SHARED_SECRET,
+                                        ),
                                     )
                                 }
                             },
@@ -618,7 +689,8 @@ where
                     target_pubkey: params.target_pubkey,
                     amount: params.amount,
                     payment_hash: params.payment_hash,
-                    final_htlc_expiry_delta: params.final_htlc_expiry_delta,
+                    final_tlc_expiry_delta: params.final_tlc_expiry_delta,
+                    tlc_expiry_limit: params.tlc_expiry_limit,
                     invoice: params.invoice.clone(),
                     timeout: params.timeout,
                     max_fee_amount: params.max_fee_amount,
@@ -626,6 +698,7 @@ where
                     keysend: params.keysend,
                     udt_type_script: params.udt_type_script.clone().map(|s| s.into()),
                     allow_self_payment: params.allow_self_payment.unwrap_or(false),
+                    dry_run: params.dry_run.unwrap_or(false),
                 },
                 rpc_reply,
             ))
@@ -636,6 +709,7 @@ where
             created_at: response.created_at,
             last_updated_at: response.last_updated_at,
             failed_error: response.failed_error,
+            fee: response.fee,
         })
     }
 
@@ -655,6 +729,7 @@ where
             last_updated_at: response.last_updated_at,
             created_at: response.created_at,
             failed_error: response.failed_error,
+            fee: response.fee,
         })
     }
 }

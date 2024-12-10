@@ -1,5 +1,4 @@
 use super::channel::FUNDING_CELL_WITNESS_LEN;
-use super::config::{DEFAULT_CHANNEL_MINIMAL_CKB_AMOUNT, DEFAULT_UDT_MINIMAL_CKB_AMOUNT};
 use crate::ckb::contracts::{get_cell_deps, get_script_by_contract, Contract};
 use ckb_types::core::TransactionBuilder;
 use ckb_types::packed::{Bytes, Script};
@@ -11,14 +10,6 @@ use ckb_types::{
 };
 use molecule::prelude::Entity;
 use tracing::debug;
-
-pub(crate) fn default_minimal_ckb_amount(is_udt: bool) -> u64 {
-    if is_udt {
-        DEFAULT_UDT_MINIMAL_CKB_AMOUNT
-    } else {
-        DEFAULT_CHANNEL_MINIMAL_CKB_AMOUNT
-    }
-}
 
 fn commitment_tx_size(udt_type_script: &Option<Script>) -> usize {
     // when there is pending htlcs, the commitment lock args will be 56 bytes, otherwise 46 bytes.
@@ -121,13 +112,23 @@ pub(crate) fn calculate_shutdown_tx_fee(
     fee_rate.fee(tx_size).as_u64()
 }
 
-pub(crate) fn calculate_tlc_forward_fee(amount: u128, fee_proportational_millionths: u128) -> u128 {
-    let fee = fee_proportational_millionths * amount;
+pub(crate) fn calculate_tlc_forward_fee(
+    amount: u128,
+    fee_proportational_millionths: u128,
+) -> Result<u128, String> {
+    let fee = fee_proportational_millionths
+        .checked_mul(amount)
+        .ok_or_else(|| {
+            format!(
+                "fee_proportational_millionths {} * amount {} overflow",
+                fee_proportational_millionths, amount
+            )
+        })?;
     let base_fee = fee / 1_000_000;
     let remainder = fee % 1_000_000;
     if remainder > 0 {
-        base_fee + 1
+        Ok(base_fee + 1)
     } else {
-        base_fee
+        Ok(base_fee)
     }
 }

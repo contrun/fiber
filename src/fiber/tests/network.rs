@@ -11,7 +11,7 @@ use crate::{
         },
         NetworkActorCommand, NetworkActorEvent, NetworkActorMessage,
     },
-    now_timestamp, NetworkServiceEvent,
+    now_timestamp_as_millis_u64, NetworkServiceEvent,
 };
 use ckb_hash::blake2b_256;
 use ckb_jsonrpc_types::Status;
@@ -64,9 +64,9 @@ fn create_fake_channel_announcement_mesage(
 ) -> (NodeAnnouncement, NodeAnnouncement, ChannelAnnouncement) {
     let x_only_pub_key = priv_key.x_only_pub_key();
     let sk1 = Privkey::from([1u8; 32]);
-    let node_announcement1 = create_fake_node_announcement_mesage_with_priv_key(&sk1);
+    let node_announcement1 = create_node_announcement_mesage_with_priv_key(&sk1);
     let sk2 = Privkey::from([2u8; 32]);
-    let node_announcement2 = create_fake_node_announcement_mesage_with_priv_key(&sk2);
+    let node_announcement2 = create_node_announcement_mesage_with_priv_key(&sk2);
 
     let mut channel_announcement = ChannelAnnouncement::new_unsigned(
         &sk1.pubkey(),
@@ -85,19 +85,25 @@ fn create_fake_channel_announcement_mesage(
     (node_announcement1, node_announcement2, channel_announcement)
 }
 
-fn create_fake_node_announcement_mesage_with_priv_key(priv_key: &Privkey) -> NodeAnnouncement {
+fn create_node_announcement_mesage_with_priv_key(priv_key: &Privkey) -> NodeAnnouncement {
     let node_name = "fake node";
     let addresses =
         vec!["/ip4/1.1.1.1/tcp/8346/p2p/QmaFDJb9CkMrXy7nhTWBY5y9mvuykre3EzzRsCJUAVXprZ"]
             .iter()
             .map(|x| MultiAddr::from_str(x).expect("valid multiaddr"))
             .collect();
-    NodeAnnouncement::new(node_name.into(), addresses, priv_key, now_timestamp(), 0)
+    NodeAnnouncement::new(
+        node_name.into(),
+        addresses,
+        priv_key,
+        now_timestamp_as_millis_u64(),
+        0,
+    )
 }
 
 fn create_fake_node_announcement_mesage() -> NodeAnnouncement {
     let priv_key = get_test_priv_key();
-    create_fake_node_announcement_mesage_with_priv_key(&priv_key)
+    create_node_announcement_mesage_with_priv_key(&priv_key)
 }
 
 #[tokio::test]
@@ -213,7 +219,7 @@ async fn test_node1_node2_channel_update() {
         channel_update
     };
 
-    let channel_update_of_node1 = create_channel_update(now_timestamp(), 0, sk1);
+    let channel_update_of_node1 = create_channel_update(now_timestamp_as_millis_u64(), 0, sk1);
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     let new_channel_info = node
@@ -225,7 +231,7 @@ async fn test_node1_node2_channel_update() {
         Some(ChannelUpdateInfo::from(&channel_update_of_node1))
     );
 
-    let channel_update_of_node2 = create_channel_update(now_timestamp(), 1, sk2);
+    let channel_update_of_node2 = create_channel_update(now_timestamp_as_millis_u64(), 1, sk2);
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     let new_channel_info = node
@@ -255,7 +261,7 @@ async fn test_channel_update_version() {
         let mut channel_update = ChannelUpdate::new_unsigned(
             get_chain_hash(),
             channel_info.out_point().clone(),
-            now_timestamp(),
+            now_timestamp_as_millis_u64(),
             message_flag,
             0,
             42,
@@ -525,6 +531,8 @@ async fn test_persisting_bootnode() {
 
 #[tokio::test]
 async fn test_persisting_announced_nodes() {
+    init_tracing();
+
     let mut node = NetworkNode::new_with_node_name("test").await;
 
     let announcement = create_fake_node_announcement_mesage();

@@ -1,6 +1,3 @@
-use crate::ckb::config::{UdtArgInfo, UdtCellDep, UdtCfgInfos, UdtScript};
-use crate::ckb::contracts::get_udt_whitelist;
-
 use super::channel::{ChannelFlags, CHANNEL_DISABLED_FLAG, MESSAGE_OF_NODE2_FLAG};
 use super::config::AnnouncedNodeName;
 use super::gen::fiber::{self as molecule_fiber, PubNonce as Byte66, UdtCellDeps, Uint128Opt};
@@ -9,6 +6,9 @@ use super::hash_algorithm::{HashAlgorithm, UnknownHashAlgorithmError};
 use super::network::get_chain_hash;
 use super::r#gen::fiber::PubNonceOpt;
 use super::serde_utils::{EntityHex, SliceHex};
+use crate::ckb::config::{UdtArgInfo, UdtCellDep, UdtCfgInfos, UdtScript};
+use crate::ckb::contracts::get_udt_whitelist;
+
 use anyhow::anyhow;
 use ckb_types::{
     core::FeeRate,
@@ -16,7 +16,7 @@ use ckb_types::{
     prelude::{Pack, Unpack},
 };
 use core::fmt::{self, Formatter};
-use fiber_sphinx::SphinxError;
+use fiber_sphinx::{OnionErrorPacket, SphinxError};
 use molecule::prelude::{Builder, Byte, Entity};
 use musig2::errors::DecodeError;
 use musig2::secp::{Point, Scalar};
@@ -1046,7 +1046,7 @@ impl TryFrom<molecule_fiber::ClosingSigned> for ClosingSigned {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AddTlc {
     pub channel_id: Hash256,
     pub tlc_id: u64,
@@ -1054,7 +1054,7 @@ pub struct AddTlc {
     pub payment_hash: Hash256,
     pub expiry: u64,
     pub hash_algorithm: HashAlgorithm,
-    pub onion_packet: Vec<u8>,
+    pub onion_packet: Option<PaymentOnionPacket>,
 }
 
 impl From<AddTlc> for molecule_fiber::AddTlc {
@@ -1066,7 +1066,13 @@ impl From<AddTlc> for molecule_fiber::AddTlc {
             .payment_hash(add_tlc.payment_hash.into())
             .expiry(add_tlc.expiry.pack())
             .hash_algorithm(Byte::new(add_tlc.hash_algorithm as u8))
-            .onion_packet(add_tlc.onion_packet.pack())
+            .onion_packet(
+                add_tlc
+                    .onion_packet
+                    .map(|p| p.into_bytes())
+                    .unwrap_or_default()
+                    .pack(),
+            )
             .build()
     }
 }
@@ -1075,13 +1081,16 @@ impl TryFrom<molecule_fiber::AddTlc> for AddTlc {
     type Error = Error;
 
     fn try_from(add_tlc: molecule_fiber::AddTlc) -> Result<Self, Self::Error> {
+        let onion_packet_bytes: Vec<u8> = add_tlc.onion_packet().unpack();
+        let onion_packet =
+            (onion_packet_bytes.len() > 0).then(|| PaymentOnionPacket::new(onion_packet_bytes));
         Ok(AddTlc {
+            onion_packet,
             channel_id: add_tlc.channel_id().into(),
             tlc_id: add_tlc.tlc_id().unpack(),
             amount: add_tlc.amount().unpack(),
             payment_hash: add_tlc.payment_hash().into(),
             expiry: add_tlc.expiry().unpack(),
-            onion_packet: add_tlc.onion_packet().unpack(),
             hash_algorithm: add_tlc
                 .hash_algorithm()
                 .try_into()
@@ -1245,15 +1254,79 @@ pub struct TlcErrPacket {
     pub onion_packet: Vec<u8>,
 }
 
+pub const NO_SHARED_SECRET: [u8; 32] = [0u8; 32];
+const NO_ERROR_PACKET_HMAC: [u8; 32] = [0u8; 32];
+
+/// Always decrypting 27 times so the erroring node cannot learn its relative position in the route
+/// by performing a timing analysis if the sender were to retry the same route multiple times.
+const ERROR_DECODING_PASSES: usize = 27;
+
 impl TlcErrPacket {
-    pub fn new(tlc_fail: TlcErr) -> Self {
-        TlcErrPacket {
-            onion_packet: tlc_fail.serialize(),
+    /// Erring node creates the error packet using the shared secret used in forwarding onion packet.
+    /// Use all zeros for the origin node.
+    pub fn new(tlc_fail: TlcErr, _shared_secret: &[u8; 32]) -> Self {
+        dbg!(&tlc_fail);
+        let payload = tlc_fail.serialize();
+
+        let onion_packet =
+            OnionErrorPacket::concat(NO_ERROR_PACKET_HMAC.clone(), payload).into_bytes();
+        return TlcErrPacket { onion_packet };
+    }
+
+    // TODO: Enable error encryption by replacing `new` with this method.
+    // The encryption has been disabled so we can split the PR into small pieces and apply future
+    // upgrades without breaking the network protocol.
+    #[cfg(test)]
+    pub fn new_with_encryption(tlc_fail: TlcErr, shared_secret: &[u8; 32]) -> Self {
+        dbg!(&tlc_fail);
+        let payload = tlc_fail.serialize();
+
+        let onion_packet = (if shared_secret != &NO_SHARED_SECRET {
+            OnionErrorPacket::create(shared_secret, payload)
+        } else {
+            OnionErrorPacket::concat(NO_ERROR_PACKET_HMAC.clone(), payload)
+        })
+        .into_bytes();
+        return TlcErrPacket { onion_packet };
+    }
+
+    pub fn is_plaintext(&self) -> bool {
+        self.onion_packet.len() >= 32 && self.onion_packet[0..32] == NO_ERROR_PACKET_HMAC
+    }
+
+    /// Intermediate node forwards the error to the previous hop using the shared secret used in forwarding
+    /// the onion packet.
+    pub fn backward(self, shared_secret: &[u8; 32]) -> Self {
+        if !self.is_plaintext() {
+            let onion_packet = OnionErrorPacket::from_bytes(self.onion_packet)
+                .xor_cipher_stream(shared_secret)
+                .into_bytes();
+            TlcErrPacket { onion_packet }
+        } else {
+            // If it is not encrypted, just send back as it is.
+            self
         }
     }
 
-    pub fn decode(&self) -> Option<TlcErr> {
-        TlcErr::deserialize(&self.onion_packet)
+    pub fn decode(&self, session_key: &[u8; 32], hops_public_keys: Vec<Pubkey>) -> Option<TlcErr> {
+        if self.is_plaintext() {
+            let error = TlcErr::deserialize(&self.onion_packet[32..]);
+            if error.is_some() {
+                return error;
+            }
+        }
+
+        let hops_public_keys = hops_public_keys.iter().map(|k| k.0.clone()).collect();
+        let session_key = SecretKey::from_slice(session_key).ok()?;
+        OnionErrorPacket::from_bytes(self.onion_packet.clone())
+            .parse(hops_public_keys, session_key, TlcErr::deserialize)
+            .map(|(error, hop_index)| {
+                for _ in hop_index..ERROR_DECODING_PASSES {
+                    OnionErrorPacket::from_bytes(self.onion_packet.clone())
+                        .xor_cipher_stream(&NO_SHARED_SECRET);
+                }
+                error
+            })
     }
 }
 
@@ -1308,19 +1381,19 @@ pub enum TlcErrorCode {
     UnknownNextPeer = PERM | 10,
     AmountBelowMinimum = UPDATE | 11,
     FeeInsufficient = UPDATE | 12,
-    // TODO: htlc expiry check
-    IncorrectHtlcExpiry = UPDATE | 13,
-    ExpiryTooSoon = UPDATE | 14,
+    IncorrectTlcExpiry = UPDATE | 13,
+    ExpiryTooSoon = PERM | 14,
     IncorrectOrUnknownPaymentDetails = PERM | 15,
     InvoiceExpired = PERM | 16,
     InvoiceCancelled = PERM | 17,
     FinalIncorrectExpiryDelta = 18,
-    FinalIncorrectHtlcAmount = 19,
+    FinalIncorrectTlcAmount = 19,
     ChannelDisabled = UPDATE | 20,
-    ExpiryTooFar = 21,
+    ExpiryTooFar = PERM | 21,
     InvalidOnionPayload = PERM | 22,
     MppTimeout = 23,
     InvalidOnionBlinding = BADONION | PERM | 24,
+    InvalidOnionError = BADONION | PERM | 25,
 }
 
 impl TlcErrorCode {
@@ -1344,9 +1417,11 @@ impl TlcErrorCode {
         match self {
             TlcErrorCode::IncorrectOrUnknownPaymentDetails
             | TlcErrorCode::FinalIncorrectExpiryDelta
-            | TlcErrorCode::FinalIncorrectHtlcAmount
+            | TlcErrorCode::FinalIncorrectTlcAmount
             | TlcErrorCode::InvoiceExpired
             | TlcErrorCode::InvoiceCancelled
+            | TlcErrorCode::ExpiryTooFar
+            | TlcErrorCode::ExpiryTooSoon
             | TlcErrorCode::MppTimeout => true,
             _ => false,
         }
@@ -1395,7 +1470,7 @@ impl TryFrom<molecule_fiber::RemoveTlcReason> for RemoveTlcReason {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RemoveTlc {
     pub channel_id: Hash256,
     pub tlc_id: u64,
@@ -1505,8 +1580,7 @@ pub struct NodeAnnouncement {
     // Tentatively using 64 bits for features. May change the type later while developing.
     // rust-lightning uses a Vec<u8> here.
     pub features: u64,
-    // The time when a this node announcement is created. Must not deviate too much from other nodes' time,
-    // otherwise the node announcement will be rejected by other nodes.
+    // Timestamp for current NodeAnnouncement. Later updates should have larger timestamp.
     pub timestamp: u64,
     pub node_id: Pubkey,
     // Must be a valid utf-8 string of length maximal length 32 bytes.
@@ -2021,22 +2095,18 @@ impl TryFrom<molecule_gossip::ChannelUpdate> for ChannelUpdate {
 }
 
 #[derive(Debug, Clone)]
+pub enum FiberQueryInformation {
+    GetBroadcastMessages(GetBroadcastMessages),
+    GetBroadcastMessagesResult(GetBroadcastMessagesResult),
+}
+
+#[derive(Debug, Clone)]
 pub enum FiberMessage {
     ChannelInitialization(OpenChannel),
     ChannelNormalOperation(FiberChannelMessage),
 }
 
 impl FiberMessage {
-    pub fn to_molecule_bytes(self) -> molecule::bytes::Bytes {
-        molecule_fiber::FiberMessage::from(self).as_bytes()
-    }
-
-    pub fn from_molecule_slice(data: &[u8]) -> Result<Self, Error> {
-        molecule_fiber::FiberMessage::from_slice(data)
-            .map_err(Into::into)
-            .and_then(TryInto::try_into)
-    }
-
     pub fn open_channel(open_channel: OpenChannel) -> Self {
         FiberMessage::ChannelInitialization(open_channel)
     }
@@ -3168,6 +3238,26 @@ impl TryFrom<molecule_fiber::FiberMessage> for FiberMessage {
     }
 }
 
+macro_rules! impl_traits {
+    ($t:ident) => {
+        impl $t {
+            pub fn to_molecule_bytes(self) -> molecule::bytes::Bytes {
+                molecule_fiber::$t::from(self).as_bytes()
+            }
+        }
+
+        impl $t {
+            pub fn from_molecule_slice(data: &[u8]) -> Result<Self, Error> {
+                molecule_fiber::$t::from_slice(data)
+                    .map_err(Into::into)
+                    .and_then(TryInto::try_into)
+            }
+        }
+    };
+}
+
+impl_traits!(FiberMessage);
+
 pub(crate) fn deterministically_serialize<T: Serialize>(v: &T) -> Vec<u8> {
     serde_json::to_vec_pretty(v).expect("serialize value")
 }
@@ -3179,15 +3269,15 @@ pub(crate) fn deterministically_hash<T: Serialize>(v: &T) -> [u8; 32] {
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PaymentHopData {
-    pub payment_hash: Hash256,
-    // this is only specified in the last hop in the keysend mode
-    pub preimage: Option<Hash256>,
-    pub tlc_hash_algorithm: HashAlgorithm,
     pub amount: u128,
     pub expiry: u64,
-    pub next_hop: Option<Pubkey>,
+    pub payment_hash: Hash256,
+    // this is only specified in the last hop in the keysend mode
+    pub payment_preimage: Option<Hash256>,
+    pub hash_algorithm: HashAlgorithm,
     #[serde_as(as = "Option<EntityHex>")]
     pub channel_outpoint: Option<OutPoint>,
+    pub next_hop: Option<Pubkey>,
 }
 
 /// Trait for hop data
@@ -3219,17 +3309,20 @@ impl HopData for PaymentHopData {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct OnionPacket<T> {
     _phantom: PhantomData<T>,
     // The encrypted packet
-    pub data: Vec<u8>,
+    data: Vec<u8>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PeeledOnionPacket<T> {
     // The decrypted hop data for the current hop
     pub current: T,
+    // The shared secret for `current` used for returning error. Set to all zeros for the origin node
+    // who has no shared secret.
+    pub shared_secret: [u8; 32],
     // The packet for the next hop
     pub next: Option<OnionPacket<T>>,
 }
@@ -3243,6 +3336,14 @@ impl<T> OnionPacket<T> {
             _phantom: PhantomData,
             data,
         }
+    }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.data
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.data
     }
 }
 
@@ -3260,6 +3361,7 @@ impl<T: HopData> OnionPacket<T> {
     ) -> Result<PeeledOnionPacket<T>, Error> {
         let sphinx_packet = fiber_sphinx::OnionPacket::from_bytes(self.data)
             .map_err(|err| Error::OnionPacket(err.into()))?;
+        let shared_secret = sphinx_packet.shared_secret(&privkey.0);
 
         let (new_current, new_next) = sphinx_packet
             .peel(&privkey.0, assoc_data, secp_ctx, get_hop_data_len)
@@ -3274,7 +3376,11 @@ impl<T: HopData> OnionPacket<T> {
             .any(|b| *b != 0)
             .then(|| OnionPacket::new(new_next.into_bytes()));
 
-        Ok(PeeledOnionPacket { current, next })
+        Ok(PeeledOnionPacket {
+            current,
+            next,
+            shared_secret,
+        })
     }
 }
 
@@ -3320,7 +3426,12 @@ impl<T: HopData> PeeledOnionPacket<T> {
             None
         };
 
-        Ok(PeeledOnionPacket { current, next })
+        Ok(PeeledOnionPacket {
+            current,
+            next,
+            // Use all zeros for the sender
+            shared_secret: NO_SHARED_SECRET.clone(),
+        })
     }
 
     /// Returns true if this is the peeled packet for the last destination.
@@ -3347,23 +3458,36 @@ impl<T: HopData> PeeledOnionPacket<T> {
 
     pub fn serialize(&self) -> Vec<u8> {
         let mut res = pack_hop_data(&self.current);
+        res.extend(self.shared_secret);
         if let Some(ref next) = self.next {
-            res.append(&mut (next.data.clone()));
+            res.extend(&next.data[..]);
         }
         res
     }
 
     pub fn deserialize(data: &[u8]) -> Result<Self, Error> {
-        let current_len = get_hop_data_len(data)
+        let mut read_bytes = get_hop_data_len(data)
             .ok_or_else(|| Error::OnionPacket(OnionPacketError::InvalidHopData))?;
         let current = unpack_hop_data(data)
             .ok_or_else(|| Error::OnionPacket(OnionPacketError::InvalidHopData))?;
-        let next = if current_len < data.len() {
-            Some(OnionPacket::new(data[current_len..].to_vec()))
+
+        // Ensure backward compatibility
+        let mut shared_secret = NO_SHARED_SECRET.clone();
+        if data.len() >= read_bytes + 32 && data.len() != read_bytes + T::PACKET_DATA_LEN {
+            shared_secret.copy_from_slice(&data[read_bytes..read_bytes + 32]);
+            read_bytes += 32;
+        }
+
+        let next = if read_bytes < data.len() {
+            Some(OnionPacket::new(data[read_bytes..].to_vec()))
         } else {
             None
         };
-        Ok(Self { current, next })
+        Ok(Self {
+            current,
+            shared_secret,
+            next,
+        })
     }
 }
 
