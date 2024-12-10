@@ -1,28 +1,24 @@
 pub mod config;
 pub use config::FiberConfig;
-
 pub mod network;
+
 pub use network::start_network;
 pub use network::{
     NetworkActor, NetworkActorCommand, NetworkActorEvent, NetworkActorMessage, NetworkServiceEvent,
 };
+pub mod graph;
+pub mod history;
 
 mod fee;
-pub mod graph;
 mod key;
 mod path;
 
 pub use key::KeyPair;
-
-pub mod gen;
-
 pub mod channel;
-
-pub mod types;
-
+pub mod gen;
 pub mod hash_algorithm;
-
 pub mod serde_utils;
+pub mod types;
 
 pub(crate) mod gossip;
 

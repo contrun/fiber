@@ -1,9 +1,16 @@
 use super::test_utils::{init_tracing, NetworkNode};
+use crate::fiber::config::DEFAULT_TLC_EXPIRY_DELTA;
+use crate::fiber::network::SendPaymentData;
+use crate::fiber::tests::test_utils::gen_rand_keypair;
+use crate::fiber::tests::test_utils::generate_pubkey;
+use crate::fiber::tests::test_utils::rand_sha256_hash;
+use crate::invoice::InvoiceBuilder;
 use crate::{
     fiber::{
-        channel::{MESSAGE_OF_NODE1_FLAG, MESSAGE_OF_NODE2_FLAG},
+        network::{get_chain_hash, NetworkActorStateStore, SendPaymentCommand},
+        channel::{ShutdownInfo, MESSAGE_OF_NODE1_FLAG, MESSAGE_OF_NODE2_FLAG},
         gossip::GossipMessageStore,
-        graph::ChannelUpdateInfo,
+        graph::{ChannelInfo, ChannelUpdateInfo, NetworkGraphStateStore},
         network::{get_chain_hash, NetworkActorStateStore},
         tests::test_utils::NetworkNodeConfigBuilder,
         types::{
@@ -23,6 +30,8 @@ use ckb_types::{
     packed::OutPoint,
     prelude::{Builder, Entity, Pack},
 };
+use core::time::Duration;
+use musig2::PartialSignature;
 use std::{borrow::Cow, str::FromStr};
 use tentacle::{
     multiaddr::{MultiAddr, Protocol},
@@ -596,4 +605,300 @@ async fn test_saving_and_connecting_to_node() {
         |event| matches!(event, NetworkServiceEvent::PeerConnected(id, _addr) if id == node1_id),
     )
     .await;
+}
+
+#[test]
+fn test_announcement_message_serialize() {
+    let capacity = 42;
+    let priv_key: Privkey = get_test_priv_key();
+    let pubkey = priv_key.x_only_pub_key().serialize();
+    let pubkey_hash = &blake2b_256(pubkey.as_slice())[0..20];
+    let tx = TransactionView::new_advanced_builder()
+        .output(
+            CellOutput::new_builder()
+                .capacity(capacity.pack())
+                .lock(ScriptBuilder::default().args(pubkey_hash.pack()).build())
+                .build(),
+        )
+        .output_data(vec![0u8; 8].pack())
+        .build();
+    let outpoint = tx.output_pts()[0].clone();
+    let mut channel_announcement =
+        create_fake_channel_announcement_mesage(priv_key, capacity, outpoint);
+
+    channel_announcement.udt_type_script = Some(ScriptBuilder::default().build());
+
+    let serialized = bincode::serialize(&channel_announcement).unwrap();
+    let deserialized: ChannelAnnouncement = bincode::deserialize(&serialized).unwrap();
+    assert_eq!(channel_announcement, deserialized);
+
+    let shutdown_info = ShutdownInfo {
+        close_script: ScriptBuilder::default().build(),
+        fee_rate: 100 as u64,
+        signature: Some(PartialSignature::max()),
+    };
+    let serialized = bincode::serialize(&shutdown_info).unwrap();
+    let deserialized: ShutdownInfo = bincode::deserialize(&serialized).unwrap();
+    assert_eq!(shutdown_info, deserialized);
+}
+
+#[test]
+fn test_send_payment_validate_payment_hash() {
+    let send_command = SendPaymentCommand {
+        target_pubkey: Some(generate_pubkey()),
+        amount: Some(10000),
+        payment_hash: None,
+        final_tlc_expiry_delta: None,
+        tlc_expiry_limit: None,
+
+        invoice: None,
+        timeout: None,
+        max_fee_amount: None,
+        max_parts: None,
+        keysend: None,
+        udt_type_script: None,
+        allow_self_payment: false,
+        dry_run: false,
+    };
+
+    let result = SendPaymentData::new(send_command);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("payment_hash is missing"));
+}
+
+#[test]
+fn test_send_payment_validate_amount() {
+    let send_command = SendPaymentCommand {
+        target_pubkey: Some(generate_pubkey()),
+        amount: None,
+        payment_hash: None,
+        final_tlc_expiry_delta: None,
+        tlc_expiry_limit: None,
+
+        invoice: None,
+        timeout: None,
+        max_fee_amount: None,
+        max_parts: None,
+        keysend: None,
+        udt_type_script: None,
+        allow_self_payment: false,
+        dry_run: false,
+    };
+
+    let result = SendPaymentData::new(send_command);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("amount is missing"));
+}
+
+#[test]
+fn test_send_payment_validate_invoice() {
+    use crate::fiber::tests::test_utils::rand_sha256_hash;
+    use crate::invoice::Attribute;
+    use crate::invoice::Currency;
+    use secp256k1::Secp256k1;
+
+    let gen_payment_hash = rand_sha256_hash();
+    let (public_key, private_key) = gen_rand_keypair();
+
+    let invoice = InvoiceBuilder::new(Currency::Fibb)
+        .amount(Some(1280))
+        .payment_hash(gen_payment_hash)
+        .fallback_address("address".to_string())
+        .expiry_time(Duration::from_secs(1024))
+        .payee_pub_key(public_key)
+        .add_attr(Attribute::FinalHtlcTimeout(5))
+        .add_attr(Attribute::FinalHtlcMinimumExpiryDelta(
+            DEFAULT_TLC_EXPIRY_DELTA,
+        ))
+        .add_attr(Attribute::Description("description".to_string()))
+        .build_with_sign(|hash| Secp256k1::new().sign_ecdsa_recoverable(hash, &private_key))
+        .unwrap();
+
+    let invoice_encoded = invoice.to_string();
+    let send_command = SendPaymentCommand {
+        target_pubkey: Some(generate_pubkey()),
+        amount: None,
+        payment_hash: None,
+        final_tlc_expiry_delta: None,
+        tlc_expiry_limit: None,
+        invoice: Some(invoice_encoded.clone()),
+        timeout: None,
+        max_fee_amount: None,
+        max_parts: None,
+        keysend: None,
+        udt_type_script: None,
+        allow_self_payment: false,
+        dry_run: false,
+    };
+
+    let result = SendPaymentData::new(send_command);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .contains("target_pubkey does not match the invoice"));
+
+    let send_command = SendPaymentCommand {
+        target_pubkey: None,
+        amount: Some(10),
+        payment_hash: None,
+        final_tlc_expiry_delta: None,
+        tlc_expiry_limit: None,
+        invoice: Some(invoice_encoded.clone()),
+        timeout: None,
+        max_fee_amount: None,
+        max_parts: None,
+        keysend: None,
+        udt_type_script: None,
+        allow_self_payment: false,
+        dry_run: false,
+    };
+
+    // keysend is set with invoice, should be error
+    let result = SendPaymentData::new(send_command);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .contains("amount does not match the invoice"));
+
+    let send_command = SendPaymentCommand {
+        target_pubkey: None,
+        amount: None,
+        payment_hash: None,
+        final_tlc_expiry_delta: None,
+        tlc_expiry_limit: None,
+        invoice: Some(invoice_encoded.clone()),
+        timeout: None,
+        max_fee_amount: None,
+        max_parts: None,
+        keysend: Some(true),
+        udt_type_script: None,
+        allow_self_payment: false,
+        dry_run: false,
+    };
+
+    let result = SendPaymentData::new(send_command);
+    assert!(result.is_err());
+
+    // normal invoice send payment
+    let send_command = SendPaymentCommand {
+        target_pubkey: None,
+        amount: None,
+        payment_hash: None,
+        final_tlc_expiry_delta: None,
+        tlc_expiry_limit: None,
+        invoice: Some(invoice_encoded.clone()),
+        timeout: None,
+        max_fee_amount: None,
+        max_parts: None,
+        keysend: None,
+        udt_type_script: None,
+        allow_self_payment: false,
+        dry_run: false,
+    };
+
+    let result = SendPaymentData::new(send_command);
+    assert!(result.is_ok());
+
+    // normal keysend send payment
+    let send_command = SendPaymentCommand {
+        target_pubkey: Some(generate_pubkey()),
+        amount: Some(10),
+        payment_hash: None,
+        final_tlc_expiry_delta: None,
+        tlc_expiry_limit: None,
+        invoice: None,
+        timeout: None,
+        max_fee_amount: None,
+        max_parts: None,
+        keysend: Some(true),
+        udt_type_script: None,
+        allow_self_payment: false,
+        dry_run: false,
+    };
+
+    let result = SendPaymentData::new(send_command);
+    assert!(result.is_ok());
+
+    // invoice with invalid final_tlc_expiry_delta
+    let send_command = SendPaymentCommand {
+        target_pubkey: None,
+        amount: None,
+        payment_hash: None,
+        final_tlc_expiry_delta: Some(11),
+        tlc_expiry_limit: None,
+        invoice: Some(invoice_encoded.clone()),
+        timeout: None,
+        max_fee_amount: None,
+        max_parts: None,
+        keysend: None,
+        udt_type_script: None,
+        allow_self_payment: false,
+        dry_run: false,
+    };
+
+    let result = SendPaymentData::new(send_command);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .contains("invalid final_tlc_expiry_delta"));
+
+    // invoice with invalid final_tlc_expiry_delta
+    let invoice = InvoiceBuilder::new(Currency::Fibb)
+        .amount(Some(1280))
+        .payment_hash(gen_payment_hash)
+        .fallback_address("address".to_string())
+        .expiry_time(Duration::from_secs(1024))
+        .payee_pub_key(public_key)
+        .add_attr(Attribute::FinalHtlcTimeout(5))
+        .add_attr(Attribute::FinalHtlcMinimumExpiryDelta(11))
+        .add_attr(Attribute::Description("description".to_string()))
+        .build_with_sign(|hash| Secp256k1::new().sign_ecdsa_recoverable(hash, &private_key))
+        .unwrap();
+    let invoice_encoded = invoice.to_string();
+    let send_command = SendPaymentCommand {
+        target_pubkey: None,
+        amount: None,
+        payment_hash: None,
+        final_tlc_expiry_delta: None,
+        tlc_expiry_limit: None,
+        invoice: Some(invoice_encoded.clone()),
+        timeout: None,
+        max_fee_amount: None,
+        max_parts: None,
+        keysend: None,
+        udt_type_script: None,
+        allow_self_payment: false,
+        dry_run: false,
+    };
+
+    let result = SendPaymentData::new(send_command);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .contains("invalid final_tlc_expiry_delta"));
+}
+
+#[test]
+fn test_send_payment_validate_htlc_expiry_delta() {
+    let send_command = SendPaymentCommand {
+        target_pubkey: Some(generate_pubkey()),
+        amount: Some(1000),
+        payment_hash: Some(rand_sha256_hash()),
+        final_tlc_expiry_delta: Some(100),
+        tlc_expiry_limit: None,
+        invoice: None,
+        timeout: None,
+        max_fee_amount: None,
+        max_parts: None,
+        keysend: None,
+        udt_type_script: None,
+        allow_self_payment: false,
+        dry_run: false,
+    };
+
+    let result = SendPaymentData::new(send_command);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .contains("invalid final_tlc_expiry_delta"));
 }

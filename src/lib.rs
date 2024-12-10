@@ -39,8 +39,7 @@ pub fn get_node_prefix() -> &'static str {
 #[cfg(test)]
 pub use tests::now_timestamp;
 
-#[cfg(not(test))]
-pub fn now_timestamp() -> u64 {
+pub fn now_timestamp_as_millis_u64() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("Duration since unix epoch")

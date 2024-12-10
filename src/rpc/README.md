@@ -44,6 +44,7 @@ You may refer to the e2e test cases in the `tests/bruno/e2e` directory for examp
 
     * [Type `Channel`](#type-channel)
     * [Type `ChannelInfo`](#type-channelinfo)
+    * [Type `ChannelState`](#type-channelstate)
     * [Type `NodeInfo`](#type-nodeinfo)
     * [Type `RemoveTlcReason`](#type-removetlcreason)
     * [Type `UdtArgInfo`](#type-udtarginfo)
@@ -148,7 +149,7 @@ Attempts to open a channel with a peer.
 
 * `peer_id` - PeerId, The peer ID to open a channel with.
 * `funding_amount` - u128, The amount of CKB or UDT to fund the channel with.
-* `public` - `Option<bool>`, Whether this is a public channel (will be broadcasted to network, and can be used to forward TLCs), an optional parameter (default value false).
+* `public` - `Option<bool>`, Whether this is a public channel (will be broadcasted to network, and can be used to forward TLCs), an optional parameter, default value is true.
 * `funding_udt_type_script` - `Option<Script>`, The type script of the UDT to fund the channel with, an optional parameter.
 * `shutdown_script` - `Option<Script>`, The script used to receive the channel balance, an optional parameter, default value is the secp256k1_blake160_sighash_all script corresponding to the configured private key.
 * `commitment_delay_epoch` - `Option<EpochNumberWithFraction>`, The delay time for the commitment transaction, must be an [EpochNumberWithFraction](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/e-i-l-encoding.png) in u64 format, an optional parameter, default value is 24 hours.
@@ -293,7 +294,8 @@ Sends a payment to a peer.
 * `target_pubkey` - `Option<Pubkey>`, the identifier of the payment target
 * `amount` - `Option<u128>`, the amount of the payment
 * `payment_hash` - `Option<Hash256>`, the hash to use within the payment's HTLC
-* `final_htlc_expiry_delta` - `Option<u64>`, the htlc expiry delta should be used to set the timelock for the final hop
+* `final_tlc_expiry_delta` - `Option<u64>`, the TLC expiry delta should be used to set the timelock for the final hop, in milliseconds
+* `tlc_expiry_limit` - `Option<u64>`, the TLC expiry limit for the whole payment, in milliseconds
 * `invoice` - `Option<String>`, the encoded invoice to send to the recipient
 * `timeout` - `Option<u64>`, the payment timeout in seconds, if the payment is not completed within this time, it will be cancelled
 * `max_fee_amount` - `Option<u128>`, the maximum fee amounts in shannons that the sender is willing to pay
@@ -301,14 +303,18 @@ Sends a payment to a peer.
 * `keysend` - `Option<bool>`, keysend payment
 * `udt_type_script` - `Option<Script>`, udt type script for the payment
 * `allow_self_payment` - `Option<bool>`, allow self payment, default is false
+* `dry_run` - `Option<bool>`, dry_run for payment, used for check whether we can build valid router and the fee for this payment,
+ it's useful for the sender to double check the payment before sending it to the network,
+ default is false
 
 ##### Returns
 
 * `payment_hash` - Hash256, The payment hash of the payment
 * `status` - PaymentSessionStatus, The status of the payment
-* `created_at` - u128, The time the payment was created at
-* `last_updated_at` - u128, The time the payment was last updated at
+* `created_at` - u64, The time the payment was created at, in milliseconds from UNIX epoch
+* `last_updated_at` - u64, The time the payment was last updated at, in milliseconds from UNIX epoch
 * `failed_error` - `Option<String>`, The error message if the payment failed
+* `fee` - u128, fee paid for the payment
 
 
 <a id="channel-get_payment"></a>
@@ -324,9 +330,10 @@ Retrieves a payment.
 
 * `payment_hash` - Hash256, The payment hash of the payment
 * `status` - PaymentSessionStatus, The status of the payment
-* `created_at` - u128, The time the payment was created at
-* `last_updated_at` - u128, The time the payment was last updated at
+* `created_at` - u64, The time the payment was created at, in milliseconds from UNIX epoch
+* `last_updated_at` - u64, The time the payment was last updated at, in milliseconds from UNIX epoch
 * `failed_error` - `Option<String>`, The error message if the payment failed
+* `fee` - u128, fee paid for the payment
 
 
 <a id="graph"></a>
@@ -419,7 +426,6 @@ Generates a new invoice.
 * `payment_preimage` - Hash256, The payment preimage of the invoice.
 * `expiry` - `Option<u64>`, The expiry time of the invoice.
 * `fallback_address` - `Option<String>`, The fallback address of the invoice.
-* `final_cltv` - `Option<u64>`, The final CLTV of the invoice.
 * `final_expiry_delta` - `Option<u64>`, The final HTLC timeout of the invoice.
 * `udt_type_script` - `Option<Script>`, The UDT type script of the invoice.
 * `hash_algorithm` - `Option<HashAlgorithm>`, The hash algorithm of the invoice.
@@ -514,6 +520,27 @@ Disconnect from a peer.
 ## RPC Types
 
 
+<a id="#type-channelstate"></a>
+### Type `ChannelState`
+
+The state of a channel
+
+
+#### Enum with values of
+
+* `NegotiatingFunding` - NegotiatingFundingFlags, We are negotiating the parameters required for the channel prior to funding it.
+* `CollaboratingFundingTx` - CollaboratingFundingTxFlags, We're collaborating with the other party on the funding transaction.
+* `SigningCommitment` - SigningCommitmentFlags, We have collaborated over the funding and are now waiting for CommitmentSigned messages.
+* `AwaitingTxSignatures` - AwaitingTxSignaturesFlags, We've received and sent `commitment_signed` and are now waiting for both
+ party to collaborate on creating a valid funding transaction.
+* `AwaitingChannelReady` - AwaitingChannelReadyFlags, We've received/sent `funding_created` and `funding_signed` and are thus now waiting on the
+ funding transaction to confirm.
+* `ChannelReady` - , Both we and our counterparty consider the funding transaction confirmed and the channel is
+ now operational.
+* `ShuttingDown` - ShuttingDownFlags, We've successfully negotiated a `closing_signed` dance. At this point, the `ChannelManager`
+ is about to drop us, but we store this anyway.
+* `Closed` - CloseFlags, This channel is closed.
+
 <a id="#type-channel"></a>
 ### Type `Channel`
 
@@ -532,7 +559,7 @@ The channel data structure
 * `offered_tlc_balance` - u128, The offered balance of the channel
 * `remote_balance` - u128, The remote balance of the channel
 * `received_tlc_balance` - u128, The received balance of the channel
-* `created_at` - u64, The time the channel was created at
+* `created_at` - u64, The time the channel was created at, in milliseconds from UNIX epoch
 
 <a id="#type-removetlcreason"></a>
 ### Type `RemoveTlcReason`
@@ -621,8 +648,8 @@ The Channel information.
 * `funding_tx_index` - u32, The index of the funding transaction.
 * `node1` - Pubkey, The node ID of the first node.
 * `node2` - Pubkey, The node ID of the second node.
-* `last_updated_timestamp` - `Option<u64>`, The last updated timestamp of the channel.
-* `created_timestamp` - u64, The created timestamp of the channel.
+* `last_updated_timestamp` - `Option<u64>`, The last updated timestamp of the channel, milliseconds since UNIX epoch.
+* `created_timestamp` - u64, The created timestamp of the channel, milliseconds since UNIX epoch.
 * `node1_to_node2_fee_rate` - `Option<u64>`, The fee rate from node 1 to node 2.
 * `node2_to_node1_fee_rate` - `Option<u64>`, The fee rate from node 2 to node 1.
 * `capacity` - u128, The capacity of the channel.
