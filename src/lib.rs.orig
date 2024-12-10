@@ -6,22 +6,15 @@ pub mod fiber;
 pub use fiber::{start_network, FiberConfig, NetworkServiceEvent};
 pub mod cch;
 pub use cch::{start_cch, CchActor, CchConfig};
-
 pub mod rpc;
 pub use rpc::{start_rpc, RpcConfig};
 pub mod invoice;
 pub mod store;
 pub mod watchtower;
-
-mod errors;
 pub use errors::{Error, Result};
-
 pub mod actors;
-
+mod errors;
 pub mod tasks;
-
-#[cfg(test)]
-mod tests;
 
 use git_version::git_version;
 
@@ -36,10 +29,17 @@ pub fn get_node_prefix() -> &'static str {
     INSTANCE.get_or_init(|| std::env::var("LOG_PREFIX").unwrap_or_else(|_| "".to_string()))
 }
 
+<<<<<<< HEAD
 #[cfg(test)]
 pub use tests::now_timestamp;
 
+#[cfg(not(test))]
+pub fn now_timestamp() -> u64 {
+||||||| 9d94000
+pub fn now_timestamp() -> u64 {
+=======
 pub fn now_timestamp_as_millis_u64() -> u64 {
+>>>>>>> nervosnetwork/main
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("Duration since unix epoch")

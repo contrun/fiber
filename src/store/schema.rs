@@ -8,11 +8,8 @@
 /// | 33           | Payment_hash         | CkbInvoice Preimage         |
 /// | 34           | Payment_hash         | CkbInvoice Status           |
 /// | 64           | PeerId | Hash256     | ChannelState                |
-/// | 96           | ChannelId            | ChannelInfo                 |
-/// | 97           | Block | Index        | ChannelId                   |
-/// | 98           | Timestamp            | ChannelId                   |
-/// | 99           | Cursor               | BroadcastMessage            |
-/// | 100          | BroadcastMessageID   | Timestamp                   |
+/// | 96           | Cursor               | BroadcastMessage            |
+/// | 97           | BroadcastMessageID   | u64                         |
 /// | 128          | NodeId               | NodeInfo                    |
 /// | 129          | Timestamp            | NodeId                      |
 /// | 160          | PeerId               | MultiAddr                   |
@@ -28,18 +25,8 @@ pub(crate) const CKB_INVOICE_PREFIX: u8 = 32;
 pub(crate) const CKB_INVOICE_PREIMAGE_PREFIX: u8 = 33;
 pub(crate) const CKB_INVOICE_STATUS_PREFIX: u8 = 34;
 pub(crate) const PEER_ID_CHANNEL_ID_PREFIX: u8 = 64;
-pub(crate) const CHANNEL_INFO_PREFIX: u8 = 96;
-pub(crate) const CHANNEL_ANNOUNCEMENT_INDEX_PREFIX: u8 = 97;
-pub(crate) const CHANNEL_UPDATE_INDEX_PREFIX: u8 = 98;
-// We save all the broadcast messages in a single column family because we need to
-// query all broadcast messages after a cursor. We use the cursor date type as the key
-// for the broadcast messages. This simplify the implementation of the query logic.
-// But this makes it harder to return a list of broadcast messages with the same type
-// (e.g. channel_announcement) in a single query.
-pub(crate) const BROADCAST_MESSAGE_PREFIX: u8 = 99;
-pub(crate) const BROADCAST_MESSAGE_TIMESTAMP_PREFIX: u8 = 100;
-pub(crate) const NODE_INFO_PREFIX: u8 = 128;
-pub(crate) const NODE_ANNOUNCEMENT_INDEX_PREFIX: u8 = 129;
+pub(crate) const BROADCAST_MESSAGE_PREFIX: u8 = 96;
+pub(crate) const BROADCAST_MESSAGE_TIMESTAMP_PREFIX: u8 = 97;
 pub(crate) const PAYMENT_SESSION_PREFIX: u8 = 192;
 pub(crate) const PAYMENT_HISTORY_TIMED_RESULT_PREFIX: u8 = 193;
 pub(crate) const WATCHTOWER_CHANNEL_PREFIX: u8 = 224;

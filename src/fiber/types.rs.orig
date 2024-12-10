@@ -1,4 +1,16 @@
+<<<<<<< HEAD
+use crate::ckb::config::{UdtArgInfo, UdtCellDep, UdtCfgInfos, UdtScript};
+use crate::ckb::contracts::get_udt_whitelist;
+
 use super::channel::{ChannelFlags, CHANNEL_DISABLED_FLAG, MESSAGE_OF_NODE2_FLAG};
+||||||| 9d94000
+use crate::ckb::config::{UdtArgInfo, UdtCellDep, UdtCfgInfos, UdtScript};
+use crate::ckb::contracts::get_udt_whitelist;
+
+use super::channel::ChannelFlags;
+=======
+use super::channel::ChannelFlags;
+>>>>>>> nervosnetwork/main
 use super::config::AnnouncedNodeName;
 use super::gen::fiber::{self as molecule_fiber, PubNonce as Byte66, UdtCellDeps, Uint128Opt};
 use super::gen::gossip::{self as molecule_gossip};
@@ -8,7 +20,6 @@ use super::r#gen::fiber::PubNonceOpt;
 use super::serde_utils::{EntityHex, SliceHex};
 use crate::ckb::config::{UdtArgInfo, UdtCellDep, UdtCfgInfos, UdtScript};
 use crate::ckb::contracts::get_udt_whitelist;
-
 use anyhow::anyhow;
 use ckb_types::{
     core::FeeRate,
@@ -573,14 +584,6 @@ pub struct OpenChannel {
 }
 
 impl OpenChannel {
-    pub fn all_ckb_amount(&self) -> u64 {
-        if self.funding_udt_type_script.is_none() {
-            self.funding_amount as u64 + self.reserved_ckb_amount
-        } else {
-            self.reserved_ckb_amount
-        }
-    }
-
     pub fn is_public(&self) -> bool {
         self.channel_flags.contains(ChannelFlags::PUBLIC)
     }
@@ -1250,7 +1253,6 @@ impl TlcErr {
 //       is not placed on-chain due to the possibility of hop failure.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TlcErrPacket {
-    // TODO: replace this with the real onion packet
     pub onion_packet: Vec<u8>,
 }
 
@@ -1580,7 +1582,8 @@ pub struct NodeAnnouncement {
     // Tentatively using 64 bits for features. May change the type later while developing.
     // rust-lightning uses a Vec<u8> here.
     pub features: u64,
-    // Timestamp for current NodeAnnouncement. Later updates should have larger timestamp.
+    // The time when a this node announcement is created. Must not deviate too much from other nodes' time,
+    // otherwise the node announcement will be rejected by other nodes.
     pub timestamp: u64,
     pub node_id: Pubkey,
     // Must be a valid utf-8 string of length maximal length 32 bytes.
@@ -2095,18 +2098,22 @@ impl TryFrom<molecule_gossip::ChannelUpdate> for ChannelUpdate {
 }
 
 #[derive(Debug, Clone)]
-pub enum FiberQueryInformation {
-    GetBroadcastMessages(GetBroadcastMessages),
-    GetBroadcastMessagesResult(GetBroadcastMessagesResult),
-}
-
-#[derive(Debug, Clone)]
 pub enum FiberMessage {
     ChannelInitialization(OpenChannel),
     ChannelNormalOperation(FiberChannelMessage),
 }
 
 impl FiberMessage {
+    pub fn to_molecule_bytes(self) -> molecule::bytes::Bytes {
+        molecule_fiber::FiberMessage::from(self).as_bytes()
+    }
+
+    pub fn from_molecule_slice(data: &[u8]) -> Result<Self, Error> {
+        molecule_fiber::FiberMessage::from_slice(data)
+            .map_err(Into::into)
+            .and_then(TryInto::try_into)
+    }
+
     pub fn open_channel(open_channel: OpenChannel) -> Self {
         FiberMessage::ChannelInitialization(open_channel)
     }
@@ -3237,26 +3244,6 @@ impl TryFrom<molecule_fiber::FiberMessage> for FiberMessage {
         fiber_message.to_enum().try_into()
     }
 }
-
-macro_rules! impl_traits {
-    ($t:ident) => {
-        impl $t {
-            pub fn to_molecule_bytes(self) -> molecule::bytes::Bytes {
-                molecule_fiber::$t::from(self).as_bytes()
-            }
-        }
-
-        impl $t {
-            pub fn from_molecule_slice(data: &[u8]) -> Result<Self, Error> {
-                molecule_fiber::$t::from_slice(data)
-                    .map_err(Into::into)
-                    .and_then(TryInto::try_into)
-            }
-        }
-    };
-}
-
-impl_traits!(FiberMessage);
 
 pub(crate) fn deterministically_serialize<T: Serialize>(v: &T) -> Vec<u8> {
     serde_json::to_vec_pretty(v).expect("serialize value")

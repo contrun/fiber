@@ -7,11 +7,22 @@ use crate::{
     fiber::{
         fee::calculate_tlc_forward_fee,
         network::{get_chain_hash, SendOnionPacketCommand},
+<<<<<<< HEAD
+        types::{BroadcastMessage, ChannelUpdate, TlcErr, TlcErrPacket, TlcErrorCode},
+||||||| 9d94000
+        types::{ChannelUpdate, TlcErr, TlcErrPacket, TlcErrorCode},
+=======
         serde_utils::PubNonceAsBytes,
-        types::{BroadcastMessage, ChannelUpdate, PeeledPaymentOnionPacket, TlcErr, TlcErrPacket, TlcErrorCode},
+        types::{ChannelUpdate, PeeledPaymentOnionPacket, TlcErr, TlcErrPacket, TlcErrorCode},
+>>>>>>> nervosnetwork/main
     },
     invoice::{CkbInvoice, CkbInvoiceStatus, InvoiceStore},
+<<<<<<< HEAD
+    now_timestamp,
+||||||| 9d94000
+=======
     now_timestamp_as_millis_u64,
+>>>>>>> nervosnetwork/main
 };
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_sdk::{Since, SinceType};
@@ -3375,7 +3386,7 @@ impl ChannelActorState {
                 ) => Some(ChannelUpdate::new_unsigned(
                     Default::default(),
                     self.must_get_funding_transaction_outpoint(),
-                    now_timestamp_as_millis_u64(),
+                    now_timestamp(),
                     message_flags,
                     0,
                     expiry_delta,

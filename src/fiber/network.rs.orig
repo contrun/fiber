@@ -52,15 +52,45 @@ use super::channel::{
     ShuttingDownFlags, DEFAULT_COMMITMENT_FEE_RATE, DEFAULT_FEE_RATE, MAX_COMMITMENT_DELAY_EPOCHS,
     MIN_COMMITMENT_DELAY_EPOCHS, SYS_MAX_TLC_NUMBER_IN_FLIGHT,
 };
+<<<<<<< HEAD
+use super::config::AnnouncedNodeName;
+use super::fee::{calculate_commitment_tx_fee, default_minimal_ckb_amount};
+use super::gossip::{GossipActorMessage, GossipMessageStore, GossipMessageUpdates};
+use super::graph::{NetworkGraph, NetworkGraphStateStore};
+||||||| 9d94000
+use super::config::AnnouncedNodeName;
+use super::fee::{calculate_commitment_tx_fee, default_minimal_ckb_amount};
+use super::graph::{NetworkGraph, NetworkGraphStateStore};
+use super::graph_syncer::{GraphSyncer, GraphSyncerMessage};
+=======
 use super::config::{AnnouncedNodeName, MIN_TLC_EXPIRY_DELTA};
 use super::fee::calculate_commitment_tx_fee;
-use super::gossip::{GossipActorMessage, GossipMessageStore, GossipMessageUpdates};
 use super::graph::{NetworkGraph, NetworkGraphStateStore, SessionRoute};
+use super::graph_syncer::{GraphSyncer, GraphSyncerMessage};
+>>>>>>> nervosnetwork/main
 use super::key::blake2b_hash_with_salt;
 use super::types::{
+<<<<<<< HEAD
     BroadcastMessage, EcdsaSignature, FiberMessage, GossipMessage, Hash256, NodeAnnouncement,
-    OpenChannel, PaymentHopData, Privkey, Pubkey, RemoveTlcReason, TlcErr, TlcErrData,
-    TlcErrPacket, TlcErrorCode,
+    OpenChannel, Privkey, Pubkey, RemoveTlc, RemoveTlcReason, TlcErr, TlcErrData, TlcErrPacket,
+    TlcErrorCode,
+||||||| 9d94000
+    ChannelAnnouncement, ChannelAnnouncementQuery, ChannelUpdate, ChannelUpdateQuery,
+    EcdsaSignature, FiberBroadcastMessage, FiberBroadcastMessageQuery, FiberMessage,
+    FiberQueryInformation, GetBroadcastMessages, GetBroadcastMessagesResult, Hash256,
+    NodeAnnouncement, NodeAnnouncementQuery, OpenChannel, Privkey, Pubkey,
+    QueryBroadcastMessagesWithinTimeRange, QueryBroadcastMessagesWithinTimeRangeResult,
+    QueryChannelsWithinBlockRange, QueryChannelsWithinBlockRangeResult, RemoveTlc, RemoveTlcReason,
+    TlcErr, TlcErrData, TlcErrPacket, TlcErrorCode,
+=======
+    ChannelAnnouncement, ChannelAnnouncementQuery, ChannelUpdate, ChannelUpdateQuery,
+    EcdsaSignature, FiberBroadcastMessage, FiberBroadcastMessageQuery, FiberMessage,
+    FiberQueryInformation, GetBroadcastMessages, GetBroadcastMessagesResult, Hash256,
+    NodeAnnouncement, NodeAnnouncementQuery, OpenChannel, PaymentHopData, Privkey, Pubkey,
+    QueryBroadcastMessagesWithinTimeRange, QueryBroadcastMessagesWithinTimeRangeResult,
+    QueryChannelsWithinBlockRange, QueryChannelsWithinBlockRangeResult, RemoveTlcReason, TlcErr,
+    TlcErrData, TlcErrPacket, TlcErrorCode,
+>>>>>>> nervosnetwork/main
 };
 use super::{FiberConfig, ASSUME_NETWORK_ACTOR_ALIVE};
 
@@ -70,16 +100,22 @@ use crate::ckb::{CkbChainMessage, FundingRequest, FundingTx, TraceTxRequest, Tra
 use crate::fiber::channel::{
     AddTlcCommand, AddTlcResponse, TxCollaborationCommand, TxUpdateCommand,
 };
-use crate::fiber::config::{DEFAULT_TLC_EXPIRY_DELTA, MAX_PAYMENT_TLC_EXPIRY_LIMIT};
+<<<<<<< HEAD
 use crate::fiber::gossip::{GossipProtocolHandle, SubscribableGossipMessageStore};
+use crate::fiber::graph::{PaymentSession, PaymentSessionStatus};
+||||||| 9d94000
 use crate::fiber::graph::{ChannelInfo, PaymentSession, PaymentSessionStatus};
+=======
+use crate::fiber::config::{DEFAULT_TLC_EXPIRY_DELTA, MAX_PAYMENT_TLC_EXPIRY_LIMIT};
+use crate::fiber::graph::{ChannelInfo, PaymentSession, PaymentSessionStatus};
+>>>>>>> nervosnetwork/main
 use crate::fiber::serde_utils::EntityHex;
 use crate::fiber::types::{
     FiberChannelMessage, PaymentOnionPacket, PeeledPaymentOnionPacket, TxSignatures,
 };
 use crate::fiber::KeyPair;
 use crate::invoice::{CkbInvoice, InvoiceStore};
-use crate::{now_timestamp_as_millis_u64, unwrap_or_return, Error};
+use crate::{now_timestamp, unwrap_or_return, Error};
 
 pub const FIBER_PROTOCOL_ID: ProtocolId = ProtocolId::new(42);
 
@@ -743,6 +779,35 @@ where
     ) -> crate::Result<()> {
         debug!("Handling event: {:?}", event);
         match event {
+<<<<<<< HEAD
+            NetworkActorEvent::NetworkServiceEvent(e) => {
+                match &e {
+                    NetworkServiceEvent::ServiceError(ServiceError::DialerError {
+                        address,
+                        error,
+                    }) => {
+                        error!("Dialer error: {:?} -> {:?}", address, error);
+                    }
+                    _ => {}
+                }
+                self.on_service_event(e).await;
+            }
+||||||| 9d94000
+            NetworkActorEvent::NetworkServiceEvent(e) => {
+                match &e {
+                    NetworkServiceEvent::ServiceError(ServiceError::DialerError {
+                        address,
+                        error,
+                    }) => {
+                        error!("Dialer error: {:?} -> {:?}", address, error);
+                        state.maybe_tell_syncer_peer_disconnected_multiaddr(address)
+                    }
+                    _ => {}
+                }
+                self.on_service_event(e).await;
+            }
+=======
+>>>>>>> nervosnetwork/main
             NetworkActorEvent::PeerConnected(id, pubkey, session) => {
                 state.on_peer_connected(&id, pubkey, &session).await;
                 // Notify outside observers.
@@ -882,14 +947,56 @@ where
                     ))
                     .expect("myself alive");
             }
+<<<<<<< HEAD
+            NetworkActorEvent::TlcRemoveReceived(payment_hash, remove_tlc) => {
+||||||| 9d94000
+            NetworkActorEvent::GraphSyncerExited(peer_id, reason) => {
+                debug!(
+                    "Graph syncer to peer {:?} has exited with reason {:?}",
+                    &peer_id, &reason
+                );
+                if let NetworkSyncStatus::Running(state) = &mut state.sync_status {
+                    if let Some(actor) = state.active_syncers.remove(&peer_id) {
+                        actor
+                            .get_cell()
+                            .stop(Some("stopping syncer normally".to_string()));
+                    }
+                    debug!("Changing sync succeeded/failed counter");
+                    match reason {
+                        GraphSyncerExitStatus::Succeeded => state.succeeded += 1,
+                        GraphSyncerExitStatus::Failed => state.failed += 1,
+                    }
+                }
+                state.maybe_finish_sync();
+            }
+            NetworkActorEvent::TlcRemoveReceived(payment_hash, remove_tlc) => {
+=======
+            NetworkActorEvent::GraphSyncerExited(peer_id, reason) => {
+                debug!(
+                    "Graph syncer to peer {:?} has exited with reason {:?}",
+                    &peer_id, &reason
+                );
+                if let NetworkSyncStatus::Running(state) = &mut state.sync_status {
+                    if let Some(actor) = state.active_syncers.remove(&peer_id) {
+                        actor
+                            .get_cell()
+                            .stop(Some("stopping syncer normally".to_string()));
+                    }
+                    debug!("Changing sync succeeded/failed counter");
+                    match reason {
+                        GraphSyncerExitStatus::Succeeded => state.succeeded += 1,
+                        GraphSyncerExitStatus::Failed => state.failed += 1,
+                    }
+                }
+                state.maybe_finish_sync();
+            }
             NetworkActorEvent::TlcRemoveReceived(payment_hash, remove_tlc_reason) => {
+>>>>>>> nervosnetwork/main
                 // When a node is restarted, RemoveTLC will also be resent if necessary
                 self.on_remove_tlc_event(myself, state, payment_hash, remove_tlc_reason)
                     .await;
             }
-            NetworkActorEvent::RetrySendPayment(payment_hash) => {
-                let _ = self.try_payment_session(myself, state, payment_hash).await;
-            }
+<<<<<<< HEAD
             #[cfg(test)]
             NetworkActorEvent::GossipMessage(peer_id, message) => {
                 let _ = state
@@ -902,9 +1009,12 @@ where
                 let mut graph = self.network_graph.write().await;
                 graph.update_for_messages(gossip_message_updates.messages);
             }
+||||||| 9d94000
+=======
             NetworkActorEvent::RetrySendPayment(payment_hash) => {
                 let _ = self.try_payment_session(myself, state, payment_hash).await;
             }
+>>>>>>> nervosnetwork/main
         }
         Ok(())
     }
@@ -1272,6 +1382,378 @@ where
                         .expect(ASSUME_NETWORK_MYSELF_ALIVE);
                 }
             },
+<<<<<<< HEAD
+||||||| 9d94000
+            NetworkActorCommand::MarkSyncingDone => {
+                info!("Syncing network information finished");
+                state.sync_status = NetworkSyncStatus::Done;
+                let mut broadcasted_message_queue = vec![];
+                // Consume broadcasted message queue without consue the whole state.
+                std::mem::swap(
+                    &mut state.broadcasted_message_queue,
+                    &mut broadcasted_message_queue,
+                );
+                for message in broadcasted_message_queue {
+                    let (_peer_id, message) = message;
+                    if let Err(e) = self.process_broadcasted_message(state, message).await {
+                        error!("Failed to process broadcasted message: {:?}", e);
+                    }
+                }
+                // Send a service event that manifests the syncing is done.
+                myself
+                    .send_message(NetworkActorMessage::new_event(
+                        NetworkActorEvent::NetworkServiceEvent(
+                            NetworkServiceEvent::SyncingCompleted,
+                        ),
+                    ))
+                    .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+            }
+            NetworkActorCommand::GetAndProcessChannelsWithinBlockRangeFromPeer(request, reply) => {
+                // TODO: We need to send a reply to the caller if enough time passed,
+                // but we still do not get a reply from the peer.
+                let (peer_id, start_block, end_block) = request;
+                let id = state.create_request_id_for_reply_port(&peer_id, reply);
+                let message = FiberMessage::QueryInformation(
+                    FiberQueryInformation::QueryChannelsWithinBlockRange(
+                        QueryChannelsWithinBlockRange {
+                            id,
+                            chain_hash: get_chain_hash(),
+                            start_block,
+                            end_block,
+                        },
+                    ),
+                );
+                state.send_message_to_peer(&peer_id, message).await?;
+            }
+            NetworkActorCommand::GetAndProcessBroadcastMessagesWithinTimeRangeFromPeer(
+                request,
+                reply,
+            ) => {
+                // TODO: We need to send a reply to the caller if enough time passed,
+                // but we still do not get a reply from the peer.
+                let (peer_id, start_time, end_time) = request;
+                let id = state.create_request_id_for_reply_port(&peer_id, reply);
+                let message = FiberMessage::QueryInformation(
+                    FiberQueryInformation::QueryBroadcastMessagesWithinTimeRange(
+                        QueryBroadcastMessagesWithinTimeRange {
+                            id,
+                            chain_hash: get_chain_hash(),
+                            start_time,
+                            end_time,
+                        },
+                    ),
+                );
+                state.send_message_to_peer(&peer_id, message).await?;
+            }
+            NetworkActorCommand::StartSyncing => match &mut state.sync_status {
+                NetworkSyncStatus::NotRunning(ref sync_state) => {
+                    debug!(
+                        "Starting syncing network information from state {:?}",
+                        sync_state
+                    );
+                    let sync_state = sync_state.refresh(self.chain_actor.clone()).await;
+                    state.sync_status = NetworkSyncStatus::Running(sync_state);
+                    let peers: Vec<_> = state.peer_session_map.keys().cloned().collect();
+                    debug!(
+                        "Trying to sync network information from peers: {:?}, sync parameters: {:?}",
+                        &peers, &state.sync_status
+                    );
+                    for peer_id in peers {
+                        state.maybe_sync_network_graph(&peer_id).await;
+                    }
+                }
+                _ => {
+                    error!(
+                        "Syncing is already started or is done: {:?}",
+                        &state.sync_status
+                    );
+                }
+            },
+            NetworkActorCommand::StopSyncing => match &mut state.sync_status {
+                NetworkSyncStatus::Running(s) => {
+                    debug!("Stopping syncing network information");
+                    let mut s = s.clone();
+                    for syncer in s.active_syncers.values() {
+                        syncer
+                            .get_cell()
+                            .stop(Some("stopping syncer on request".to_string()));
+                    }
+                    s.active_syncers.clear();
+                    state.sync_status = NetworkSyncStatus::NotRunning(s);
+                }
+                _ => {
+                    error!(
+                        "Syncing is not running or is already done: {:?}",
+                        &state.sync_status
+                    );
+                }
+            },
+            NetworkActorCommand::ProcessChannelAnnouncement(
+                peer_id,
+                block_number,
+                tx_index,
+                channel_announcement,
+            ) => {
+                debug!(
+                    "Processing our channel announcement message (confirmed at #{} block #{} tx) to peer {:?}: {:?}",
+                    &block_number,
+                    &tx_index,
+                    &peer_id,
+                    &channel_announcement
+                );
+                // Adding this owned channel to the network graph.
+                let channel_info = ChannelInfo {
+                    funding_tx_block_number: block_number.into(),
+                    funding_tx_index: tx_index,
+                    announcement_msg: channel_announcement.clone(),
+                    node1_to_node2: None, // wait for channel update message
+                    node2_to_node1: None,
+                    timestamp: std::time::UNIX_EPOCH
+                        .elapsed()
+                        .expect("Duration since unix epoch")
+                        .as_millis() as u64,
+                };
+                let mut graph = self.network_graph.write().await;
+                graph.add_channel(channel_info);
+
+                // Send the channel announcement to other peer first.
+                myself
+                    .send_message(NetworkActorMessage::new_command(
+                        NetworkActorCommand::SendFiberMessage(FiberMessageWithPeerId {
+                            peer_id,
+                            message: FiberMessage::BroadcastMessage(
+                                FiberBroadcastMessage::ChannelAnnouncement(
+                                    channel_announcement.clone(),
+                                ),
+                            ),
+                        }),
+                    ))
+                    .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+                // Also broadcast channel announcement to the network.
+                myself
+                    .send_message(NetworkActorMessage::new_command(
+                        NetworkActorCommand::BroadcastMessage(
+                            FiberBroadcastMessage::ChannelAnnouncement(channel_announcement),
+                        ),
+                    ))
+                    .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+            }
+
+            NetworkActorCommand::ProccessChannelUpdate(peer_id, channel_update) => {
+                debug!(
+                    "Processing our channel update message to peer {:?}: {:?}",
+                    &peer_id, &channel_update
+                );
+                let mut graph = self.network_graph.write().await;
+                graph
+                    .process_channel_update(channel_update.clone())
+                    .expect("Valid channel update");
+
+                // Send the channel update to other peer first.
+                myself
+                    .send_message(NetworkActorMessage::new_command(
+                        NetworkActorCommand::SendFiberMessage(FiberMessageWithPeerId {
+                            peer_id,
+                            message: FiberMessage::BroadcastMessage(
+                                FiberBroadcastMessage::ChannelUpdate(channel_update.clone()),
+                            ),
+                        }),
+                    ))
+                    .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+                // Also broadcast channel update to the network.
+                myself
+                    .send_message(NetworkActorMessage::new_command(
+                        NetworkActorCommand::BroadcastMessage(
+                            FiberBroadcastMessage::ChannelUpdate(channel_update),
+                        ),
+                    ))
+                    .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+            }
+=======
+            NetworkActorCommand::MarkSyncingDone => {
+                info!("Syncing network information finished");
+                state.sync_status = NetworkSyncStatus::Done;
+                let mut broadcasted_message_queue = vec![];
+                // Consume broadcasted message queue without consue the whole state.
+                std::mem::swap(
+                    &mut state.broadcasted_message_queue,
+                    &mut broadcasted_message_queue,
+                );
+                for message in broadcasted_message_queue {
+                    let (_peer_id, message) = message;
+                    if let Err(e) = self.process_broadcasted_message(state, message).await {
+                        error!("Failed to process broadcasted message: {:?}", e);
+                    }
+                }
+                // Send a service event that manifests the syncing is done.
+                myself
+                    .send_message(NetworkActorMessage::new_notification(
+                        NetworkServiceEvent::SyncingCompleted,
+                    ))
+                    .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+            }
+            NetworkActorCommand::GetAndProcessChannelsWithinBlockRangeFromPeer(request, reply) => {
+                // TODO: We need to send a reply to the caller if enough time passed,
+                // but we still do not get a reply from the peer.
+                let (peer_id, start_block, end_block) = request;
+                let id = state.create_request_id_for_reply_port(&peer_id, reply);
+                let message = FiberMessage::QueryInformation(
+                    FiberQueryInformation::QueryChannelsWithinBlockRange(
+                        QueryChannelsWithinBlockRange {
+                            id,
+                            chain_hash: get_chain_hash(),
+                            start_block,
+                            end_block,
+                        },
+                    ),
+                );
+                state.send_message_to_peer(&peer_id, message).await?;
+            }
+            NetworkActorCommand::GetAndProcessBroadcastMessagesWithinTimeRangeFromPeer(
+                request,
+                reply,
+            ) => {
+                // TODO: We need to send a reply to the caller if enough time passed,
+                // but we still do not get a reply from the peer.
+                let (peer_id, start_time, end_time) = request;
+                let id = state.create_request_id_for_reply_port(&peer_id, reply);
+                let message = FiberMessage::QueryInformation(
+                    FiberQueryInformation::QueryBroadcastMessagesWithinTimeRange(
+                        QueryBroadcastMessagesWithinTimeRange {
+                            id,
+                            chain_hash: get_chain_hash(),
+                            start_time,
+                            end_time,
+                        },
+                    ),
+                );
+                state.send_message_to_peer(&peer_id, message).await?;
+            }
+            NetworkActorCommand::StartSyncing => match &mut state.sync_status {
+                NetworkSyncStatus::NotRunning(ref sync_state) => {
+                    debug!(
+                        "Starting syncing network information from state {:?}",
+                        sync_state
+                    );
+                    let sync_state = sync_state.refresh(self.chain_actor.clone()).await;
+                    state.sync_status = NetworkSyncStatus::Running(sync_state);
+                    let peers: Vec<_> = state.peer_session_map.keys().cloned().collect();
+                    debug!(
+                        "Trying to sync network information from peers: {:?}, sync parameters: {:?}",
+                        &peers, &state.sync_status
+                    );
+                    for peer_id in peers {
+                        state.maybe_sync_network_graph(&peer_id).await;
+                    }
+                }
+                _ => {
+                    error!(
+                        "Syncing is already started or is done: {:?}",
+                        &state.sync_status
+                    );
+                }
+            },
+            NetworkActorCommand::StopSyncing => match &mut state.sync_status {
+                NetworkSyncStatus::Running(s) => {
+                    debug!("Stopping syncing network information");
+                    let mut s = s.clone();
+                    for syncer in s.active_syncers.values() {
+                        syncer
+                            .get_cell()
+                            .stop(Some("stopping syncer on request".to_string()));
+                    }
+                    s.active_syncers.clear();
+                    state.sync_status = NetworkSyncStatus::NotRunning(s);
+                }
+                _ => {
+                    error!(
+                        "Syncing is not running or is already done: {:?}",
+                        &state.sync_status
+                    );
+                }
+            },
+            NetworkActorCommand::ProcessChannelAnnouncement(
+                peer_id,
+                block_number,
+                tx_index,
+                channel_announcement,
+            ) => {
+                debug!(
+                    "Processing our channel announcement message (confirmed at #{} block #{} tx) to peer {:?}: {:?}",
+                    &block_number,
+                    &tx_index,
+                    &peer_id,
+                    &channel_announcement
+                );
+                // Adding this owned channel to the network graph.
+                let channel_info = ChannelInfo {
+                    funding_tx_block_number: block_number.into(),
+                    funding_tx_index: tx_index,
+                    announcement_msg: channel_announcement.clone(),
+                    node1_to_node2: None, // wait for channel update message
+                    node2_to_node1: None,
+                    timestamp: std::time::UNIX_EPOCH
+                        .elapsed()
+                        .expect("Duration since unix epoch")
+                        .as_millis() as u64,
+                };
+                let mut graph = self.network_graph.write().await;
+                graph.add_channel(channel_info);
+
+                // Send the channel announcement to other peer first.
+                myself
+                    .send_message(NetworkActorMessage::new_command(
+                        NetworkActorCommand::SendFiberMessage(FiberMessageWithPeerId {
+                            peer_id,
+                            message: FiberMessage::BroadcastMessage(
+                                FiberBroadcastMessage::ChannelAnnouncement(
+                                    channel_announcement.clone(),
+                                ),
+                            ),
+                        }),
+                    ))
+                    .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+                // Also broadcast channel announcement to the network.
+                myself
+                    .send_message(NetworkActorMessage::new_command(
+                        NetworkActorCommand::BroadcastMessage(
+                            FiberBroadcastMessage::ChannelAnnouncement(channel_announcement),
+                        ),
+                    ))
+                    .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+            }
+
+            NetworkActorCommand::ProccessChannelUpdate(peer_id, channel_update) => {
+                debug!(
+                    "Processing our channel update message to peer {:?}: {:?}",
+                    &peer_id, &channel_update
+                );
+                let mut graph = self.network_graph.write().await;
+                graph
+                    .process_channel_update(channel_update.clone())
+                    .expect("Valid channel update");
+
+                // Send the channel update to other peer first.
+                myself
+                    .send_message(NetworkActorMessage::new_command(
+                        NetworkActorCommand::SendFiberMessage(FiberMessageWithPeerId {
+                            peer_id,
+                            message: FiberMessage::BroadcastMessage(
+                                FiberBroadcastMessage::ChannelUpdate(channel_update.clone()),
+                            ),
+                        }),
+                    ))
+                    .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+                // Also broadcast channel update to the network.
+                myself
+                    .send_message(NetworkActorMessage::new_command(
+                        NetworkActorCommand::BroadcastMessage(
+                            FiberBroadcastMessage::ChannelUpdate(channel_update),
+                        ),
+                    ))
+                    .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+            }
+>>>>>>> nervosnetwork/main
             NetworkActorCommand::NodeInfo(_, rpc) => {
                 let response = NodeInfoResponse {
                     node_name: state.node_name.clone(),
@@ -1298,6 +1780,587 @@ where
         Ok(())
     }
 
+<<<<<<< HEAD
+||||||| 9d94000
+    async fn process_or_stash_broadcasted_message(
+        &self,
+        state: &mut NetworkActorState<S>,
+        peer_id: PeerId,
+        message: FiberBroadcastMessage,
+    ) -> Result<(), Error> {
+        if state.sync_status.is_syncing() {
+            debug!(
+                "Saving broadcasted message to queue as we are syncing: {:?}",
+                &message
+            );
+            state.broadcasted_message_queue.push((peer_id, message));
+            return Ok(());
+        }
+        // Rebroadcast the message to other peers if necessary.
+        state
+            .network
+            .send_message(NetworkActorMessage::new_command(
+                NetworkActorCommand::BroadcastMessage(message.clone()),
+            ))
+            .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+        self.process_broadcasted_message(state, message).await
+    }
+
+    async fn process_broadcasted_message(
+        &self,
+        state: &mut NetworkActorState<S>,
+        message: FiberBroadcastMessage,
+    ) -> Result<(), Error> {
+        match message {
+            FiberBroadcastMessage::NodeAnnouncement(node_announcement) => {
+                let message = node_announcement.message_to_sign();
+                if !self
+                    .network_graph
+                    .read()
+                    .await
+                    .check_chain_hash(node_announcement.chain_hash)
+                {
+                    return Err(Error::InvalidParameter(format!(
+                        "Node announcement chain hash mismatched: {:?}",
+                        &node_announcement
+                    )));
+                }
+                match node_announcement.signature {
+                    Some(ref signature)
+                        if signature.verify(&node_announcement.node_id, &message) =>
+                    {
+                        debug!(
+                            "Node announcement message verified: {:?}",
+                            &node_announcement
+                        );
+
+                        // Add the node to the network graph.
+                        self.network_graph
+                            .write()
+                            .await
+                            .process_node_announcement(node_announcement.clone());
+
+                        let peer_id = node_announcement.peer_id();
+                        state.save_announced_peer_addresses(
+                            peer_id,
+                            node_announcement.addresses.clone(),
+                        );
+                        Ok(())
+                    }
+                    _ => {
+                        return Err(Error::InvalidParameter(format!(
+                            "Node announcement message signature verification failed: {:?}",
+                            &node_announcement
+                        )));
+                    }
+                }
+            }
+
+            FiberBroadcastMessage::ChannelAnnouncement(channel_announcement) => {
+                debug!(
+                    "Received channel announcement message: {:?}",
+                    &channel_announcement
+                );
+                let message = channel_announcement.message_to_sign();
+                if channel_announcement.node1_id == channel_announcement.node2_id {
+                    return Err(Error::InvalidParameter(format!(
+                        "Channel announcement node had a channel with itself: {:?}",
+                        &channel_announcement
+                    )));
+                }
+                if !self
+                    .network_graph
+                    .read()
+                    .await
+                    .check_chain_hash(channel_announcement.chain_hash)
+                {
+                    return Err(Error::InvalidParameter(format!(
+                        "Channel announcement chain hash mismatched: {:?}",
+                        &channel_announcement
+                    )));
+                }
+                let (node1_signature, node2_signature, ckb_signature) = match (
+                    &channel_announcement.node1_signature,
+                    &channel_announcement.node2_signature,
+                    &channel_announcement.ckb_signature,
+                ) {
+                    (Some(node1_signature), Some(node2_signature), Some(ckb_signature)) => {
+                        (node1_signature, node2_signature, ckb_signature)
+                    }
+                    _ => {
+                        return Err(Error::InvalidParameter(format!(
+                            "Channel announcement message signature verification failed, some signatures are missing: {:?}",
+                            &channel_announcement
+                        )));
+                    }
+                };
+
+                if !node1_signature.verify(&channel_announcement.node1_id, &message) {
+                    return Err(Error::InvalidParameter(format!(
+                        "Channel announcement message signature verification failed for node 1: {:?}, message: {:?}, signature: {:?}, pubkey: {:?}",
+                        &channel_announcement,
+                        &message,
+                        &node1_signature,
+                        &channel_announcement.node1_id
+                    )));
+                }
+
+                if !node2_signature.verify(&channel_announcement.node2_id, &message) {
+                    return Err(Error::InvalidParameter(format!(
+                        "Channel announcement message signature verification failed for node 2: {:?}, message: {:?}, signature: {:?}, pubkey: {:?}",
+                        &channel_announcement,
+                        &message,
+                        &node2_signature,
+                        &channel_announcement.node2_id
+                    )));
+                }
+
+                debug!(
+                    "Node signatures in channel announcement message verified: {:?}",
+                    &channel_announcement
+                );
+
+                let (tx, block_number, tx_index): (_, u64, _) = match call_t!(
+                    self.chain_actor,
+                    CkbChainMessage::TraceTx,
+                    DEFAULT_CHAIN_ACTOR_TIMEOUT,
+                    TraceTxRequest {
+                        tx_hash: channel_announcement.channel_outpoint.tx_hash(),
+                        confirmations: 1,
+                    }
+                ) {
+                    Ok(TraceTxResponse {
+                        tx: Some(tx),
+                        status:
+                            TxStatus {
+                                status: Status::Committed,
+                                block_number: Some(block_number),
+                                ..
+                            },
+                    }) => (tx, block_number.into(), DUMMY_FUNDING_TX_INDEX),
+                    err => {
+                        return Err(Error::InvalidParameter(format!(
+                            "Channel announcement transaction {:?} not found or not confirmed, result is: {:?}",
+                            &channel_announcement.channel_outpoint.tx_hash(),
+                            err
+                        )));
+                    }
+                };
+
+                debug!("Channel announcement transaction found: {:?}", &tx);
+
+                let pubkey = channel_announcement.ckb_key.serialize();
+                let pubkey_hash = &blake2b_256(pubkey.as_slice())[0..20];
+                match tx.inner.outputs.first() {
+                    None => {
+                        return Err(Error::InvalidParameter(format!(
+                            "On-chain transaction found but no output: {:?}",
+                            &channel_announcement
+                        )));
+                    }
+                    Some(output) => {
+                        if output.lock.args.as_bytes() != pubkey_hash {
+                            return Err(Error::InvalidParameter(format!(
+                                "On-chain transaction found but pubkey hash mismatched: on chain hash {:?}, pub key ({:?}) hash {:?}",
+                                &output.lock.args.as_bytes(),
+                                hex::encode(pubkey),
+                                &pubkey_hash
+                            )));
+                        }
+                        let capacity: u128 = u64::from(output.capacity).into();
+                        if channel_announcement.udt_type_script.is_none()
+                            && capacity != channel_announcement.capacity
+                        {
+                            return Err(Error::InvalidParameter(format!(
+                                "On-chain transaction found but capacity mismatched: on chain capacity {:?}, channel capacity {:?}",
+                                &output.capacity, &channel_announcement.capacity
+                            )));
+                        }
+                        capacity
+                    }
+                };
+
+                if let Err(err) = secp256k1_instance().verify_schnorr(
+                    ckb_signature,
+                    &Message::from_digest(message),
+                    &channel_announcement.ckb_key,
+                ) {
+                    return Err(Error::InvalidParameter(format!(
+                        "Channel announcement message signature verification failed for ckb: {:?}, message: {:?}, signature: {:?}, pubkey: {:?}, error: {:?}",
+                        &channel_announcement,
+                        &message,
+                        &ckb_signature,
+                        &channel_announcement.ckb_key,
+                        &err
+                    )));
+                }
+
+                debug!(
+                    "All signatures in channel announcement message verified: {:?}",
+                    &channel_announcement
+                );
+
+                // Add the channel to the network graph.
+                let channel_info = ChannelInfo {
+                    funding_tx_block_number: block_number,
+                    funding_tx_index: tx_index,
+                    announcement_msg: channel_announcement.clone(),
+                    node1_to_node2: None, // wait for channel update message
+                    node2_to_node1: None,
+                    timestamp: std::time::UNIX_EPOCH
+                        .elapsed()
+                        .expect("Duration since unix epoch")
+                        .as_millis() as u64,
+                };
+                self.network_graph.write().await.add_channel(channel_info);
+                Ok(())
+            }
+
+            FiberBroadcastMessage::ChannelUpdate(ref channel_update) => {
+                let message = channel_update.message_to_sign();
+
+                let signature = match channel_update.signature {
+                    Some(ref signature) => signature,
+                    None => {
+                        return Err(Error::InvalidParameter(format!(
+                            "Channel update message signature verification failed (signature not found): {:?}",
+                            &channel_update
+                        )));
+                    }
+                };
+                let mut network_graph = self.network_graph.write().await;
+                let channel = network_graph.get_channel(&channel_update.channel_outpoint);
+                if let Some(channel) = channel {
+                    let pubkey = if channel_update.message_flags & 1 == 0 {
+                        channel.node1()
+                    } else {
+                        channel.node2()
+                    };
+                    debug!(
+                        "Verifying channel update message signature: {:?}, pubkey: {:?}, message: {:?}",
+                        &channel_update, &pubkey, &message
+                    );
+                    if !signature.verify(&pubkey, &message) {
+                        return Err(Error::InvalidParameter(format!(
+                            "Channel update message signature verification failed (invalid signature): {:?}",
+                            &channel_update
+                        )));
+                    }
+                    debug!(
+                        "Channel update message signature verified: {:?}",
+                        &channel_update
+                    );
+                    let res = network_graph.process_channel_update(channel_update.clone());
+                    if res.is_err() {
+                        return Err(Error::InvalidParameter(format!(
+                            "Channel update message processing failed: {:?} result: {:?}",
+                            &channel_update, res
+                        )));
+                    }
+                } else {
+                    return Err(Error::InvalidParameter(format!(
+                        "Failed to process channel update because channel not found: {:?}",
+                        &channel_update
+                    )));
+                }
+                Ok(())
+            }
+        }
+    }
+
+=======
+    async fn process_or_stash_broadcasted_message(
+        &self,
+        state: &mut NetworkActorState<S>,
+        peer_id: PeerId,
+        message: FiberBroadcastMessage,
+    ) -> Result<(), Error> {
+        if state.sync_status.is_syncing() {
+            debug!(
+                "Saving broadcasted message to queue as we are syncing: {:?}",
+                &message
+            );
+            state.broadcasted_message_queue.push((peer_id, message));
+            return Ok(());
+        }
+        // Rebroadcast the message to other peers if necessary.
+        state
+            .network
+            .send_message(NetworkActorMessage::new_command(
+                NetworkActorCommand::BroadcastMessage(message.clone()),
+            ))
+            .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+        self.process_broadcasted_message(state, message).await
+    }
+
+    async fn process_broadcasted_message(
+        &self,
+        state: &mut NetworkActorState<S>,
+        message: FiberBroadcastMessage,
+    ) -> Result<(), Error> {
+        match message {
+            FiberBroadcastMessage::NodeAnnouncement(node_announcement) => {
+                let message = node_announcement.message_to_sign();
+                if !self
+                    .network_graph
+                    .read()
+                    .await
+                    .check_chain_hash(node_announcement.chain_hash)
+                {
+                    return Err(Error::InvalidParameter(format!(
+                        "Node announcement chain hash mismatched: {:?}",
+                        &node_announcement
+                    )));
+                }
+                match node_announcement.signature {
+                    Some(ref signature)
+                        if signature.verify(&node_announcement.node_id, &message) =>
+                    {
+                        let mut node_announcement = node_announcement.clone();
+                        if !state.announce_private_addr {
+                            node_announcement.addresses.retain(|addr| {
+                                multiaddr_to_socketaddr(addr)
+                                    .map(|socket_addr| is_reachable(socket_addr.ip()))
+                                    .unwrap_or_default()
+                            });
+                        }
+                        if !node_announcement.addresses.is_empty() {
+                            // Add the node to the network graph.
+                            self.network_graph
+                                .write()
+                                .await
+                                .process_node_announcement(node_announcement.clone());
+
+                            let peer_id = node_announcement.peer_id();
+                            state.save_announced_peer_addresses(
+                                peer_id,
+                                node_announcement.addresses,
+                            );
+                        }
+                        Ok(())
+                    }
+                    _ => {
+                        return Err(Error::InvalidParameter(format!(
+                            "Node announcement message signature verification failed: {:?}",
+                            &node_announcement
+                        )));
+                    }
+                }
+            }
+
+            FiberBroadcastMessage::ChannelAnnouncement(channel_announcement) => {
+                debug!(
+                    "Received channel announcement message: {:?}",
+                    &channel_announcement
+                );
+                let message = channel_announcement.message_to_sign();
+                if channel_announcement.node1_id == channel_announcement.node2_id {
+                    return Err(Error::InvalidParameter(format!(
+                        "Channel announcement node had a channel with itself: {:?}",
+                        &channel_announcement
+                    )));
+                }
+                if !self
+                    .network_graph
+                    .read()
+                    .await
+                    .check_chain_hash(channel_announcement.chain_hash)
+                {
+                    return Err(Error::InvalidParameter(format!(
+                        "Channel announcement chain hash mismatched: {:?}",
+                        &channel_announcement
+                    )));
+                }
+                let (node1_signature, node2_signature, ckb_signature) = match (
+                    &channel_announcement.node1_signature,
+                    &channel_announcement.node2_signature,
+                    &channel_announcement.ckb_signature,
+                ) {
+                    (Some(node1_signature), Some(node2_signature), Some(ckb_signature)) => {
+                        (node1_signature, node2_signature, ckb_signature)
+                    }
+                    _ => {
+                        return Err(Error::InvalidParameter(format!(
+                            "Channel announcement message signature verification failed, some signatures are missing: {:?}",
+                            &channel_announcement
+                        )));
+                    }
+                };
+
+                if !node1_signature.verify(&channel_announcement.node1_id, &message) {
+                    return Err(Error::InvalidParameter(format!(
+                        "Channel announcement message signature verification failed for node 1: {:?}, message: {:?}, signature: {:?}, pubkey: {:?}",
+                        &channel_announcement,
+                        &message,
+                        &node1_signature,
+                        &channel_announcement.node1_id
+                    )));
+                }
+
+                if !node2_signature.verify(&channel_announcement.node2_id, &message) {
+                    return Err(Error::InvalidParameter(format!(
+                        "Channel announcement message signature verification failed for node 2: {:?}, message: {:?}, signature: {:?}, pubkey: {:?}",
+                        &channel_announcement,
+                        &message,
+                        &node2_signature,
+                        &channel_announcement.node2_id
+                    )));
+                }
+
+                debug!(
+                    "Node signatures in channel announcement message verified: {:?}",
+                    &channel_announcement
+                );
+
+                let (tx, block_number, tx_index): (_, u64, _) = match call_t!(
+                    self.chain_actor,
+                    CkbChainMessage::TraceTx,
+                    DEFAULT_CHAIN_ACTOR_TIMEOUT,
+                    TraceTxRequest {
+                        tx_hash: channel_announcement.channel_outpoint.tx_hash(),
+                        confirmations: 1,
+                    }
+                ) {
+                    Ok(TraceTxResponse {
+                        tx: Some(tx),
+                        status:
+                            TxStatus {
+                                status: Status::Committed,
+                                block_number: Some(block_number),
+                                ..
+                            },
+                    }) => (tx, block_number.into(), DUMMY_FUNDING_TX_INDEX),
+                    err => {
+                        return Err(Error::InvalidParameter(format!(
+                            "Channel announcement transaction {:?} not found or not confirmed, result is: {:?}",
+                            &channel_announcement.channel_outpoint.tx_hash(),
+                            err
+                        )));
+                    }
+                };
+
+                debug!("Channel announcement transaction found: {:?}", &tx);
+
+                let pubkey = channel_announcement.ckb_key.serialize();
+                let pubkey_hash = &blake2b_256(pubkey.as_slice())[0..20];
+                match tx.inner.outputs.first() {
+                    None => {
+                        return Err(Error::InvalidParameter(format!(
+                            "On-chain transaction found but no output: {:?}",
+                            &channel_announcement
+                        )));
+                    }
+                    Some(output) => {
+                        if output.lock.args.as_bytes() != pubkey_hash {
+                            return Err(Error::InvalidParameter(format!(
+                                "On-chain transaction found but pubkey hash mismatched: on chain hash {:?}, pub key ({:?}) hash {:?}",
+                                &output.lock.args.as_bytes(),
+                                hex::encode(pubkey),
+                                &pubkey_hash
+                            )));
+                        }
+                        let capacity: u128 = u64::from(output.capacity).into();
+                        if channel_announcement.udt_type_script.is_none()
+                            && capacity != channel_announcement.capacity
+                        {
+                            return Err(Error::InvalidParameter(format!(
+                                "On-chain transaction found but capacity mismatched: on chain capacity {:?}, channel capacity {:?}",
+                                &output.capacity, &channel_announcement.capacity
+                            )));
+                        }
+                        capacity
+                    }
+                };
+
+                if let Err(err) = secp256k1_instance().verify_schnorr(
+                    ckb_signature,
+                    &Message::from_digest(message),
+                    &channel_announcement.ckb_key,
+                ) {
+                    return Err(Error::InvalidParameter(format!(
+                        "Channel announcement message signature verification failed for ckb: {:?}, message: {:?}, signature: {:?}, pubkey: {:?}, error: {:?}",
+                        &channel_announcement,
+                        &message,
+                        &ckb_signature,
+                        &channel_announcement.ckb_key,
+                        &err
+                    )));
+                }
+
+                debug!(
+                    "All signatures in channel announcement message verified: {:?}",
+                    &channel_announcement
+                );
+
+                // Add the channel to the network graph.
+                let channel_info = ChannelInfo {
+                    funding_tx_block_number: block_number,
+                    funding_tx_index: tx_index,
+                    announcement_msg: channel_announcement.clone(),
+                    node1_to_node2: None, // wait for channel update message
+                    node2_to_node1: None,
+                    timestamp: std::time::UNIX_EPOCH
+                        .elapsed()
+                        .expect("Duration since unix epoch")
+                        .as_millis() as u64,
+                };
+                self.network_graph.write().await.add_channel(channel_info);
+                Ok(())
+            }
+
+            FiberBroadcastMessage::ChannelUpdate(ref channel_update) => {
+                let message = channel_update.message_to_sign();
+
+                let signature = match channel_update.signature {
+                    Some(ref signature) => signature,
+                    None => {
+                        return Err(Error::InvalidParameter(format!(
+                            "Channel update message signature verification failed (signature not found): {:?}",
+                            &channel_update
+                        )));
+                    }
+                };
+                let mut network_graph = self.network_graph.write().await;
+                let channel = network_graph.get_channel(&channel_update.channel_outpoint);
+                if let Some(channel) = channel {
+                    let pubkey = if channel_update.message_flags & 1 == 0 {
+                        channel.node1()
+                    } else {
+                        channel.node2()
+                    };
+                    debug!(
+                        "Verifying channel update message signature: {:?}, pubkey: {:?}, message: {:?}",
+                        &channel_update, &pubkey, &message
+                    );
+                    if !signature.verify(&pubkey, &message) {
+                        return Err(Error::InvalidParameter(format!(
+                            "Channel update message signature verification failed (invalid signature): {:?}",
+                            &channel_update
+                        )));
+                    }
+                    debug!(
+                        "Channel update message signature verified: {:?}",
+                        &channel_update
+                    );
+                    let res = network_graph.process_channel_update(channel_update.clone());
+                    if res.is_err() {
+                        return Err(Error::InvalidParameter(format!(
+                            "Channel update message processing failed: {:?} result: {:?}",
+                            &channel_update, res
+                        )));
+                    }
+                } else {
+                    return Err(Error::InvalidParameter(format!(
+                        "Failed to process channel update because channel not found: {:?}",
+                        &channel_update
+                    )));
+                }
+                Ok(())
+            }
+        }
+    }
+
+>>>>>>> nervosnetwork/main
     async fn handle_send_onion_packet_command(
         &self,
         state: &mut NetworkActorState<S>,
@@ -1400,14 +2463,27 @@ where
                             .record_payment_success(payment_session);
                     }
                     RemoveTlcReason::RemoveTlcFail(reason) => {
+<<<<<<< HEAD
+                        let detail_error = reason.decode().expect("decoded error");
+                        self.update_with_tcl_fail(&state.network, &detail_error)
+                            .await;
+                        if payment_session.can_retry() && !detail_error.error_code.payment_failed()
+                        {
+                            let res = self.try_payment_session(state, payment_session).await;
+||||||| 9d94000
+                        let detail_error = reason.decode().expect("decoded error");
+                        self.update_with_tcl_fail(&detail_error).await;
+                        if payment_session.can_retry() && !detail_error.error_code.payment_failed()
+                        {
+                            let res = self.try_payment_session(state, payment_session).await;
+=======
                         let error_detail = reason
                             .decode(
                                 &payment_session.session_key,
                                 payment_session.hops_public_keys(),
                             )
                             .unwrap_or(TlcErr::new(TlcErrorCode::InvalidOnionError));
-                        self.update_graph_with_tlc_fail(&state.network, &error_detail)
-                            .await;
+                        self.update_graph_with_tlc_fail(&error_detail).await;
                         let need_to_retry = self
                             .network_graph
                             .write()
@@ -1417,6 +2493,7 @@ where
                             let res = self
                                 .try_payment_session(myself, state, payment_session.payment_hash())
                                 .await;
+>>>>>>> nervosnetwork/main
                             if res.is_err() {
                                 debug!("Failed to retry payment session: {:?}", res);
                             }
@@ -1432,11 +2509,17 @@ where
         }
     }
 
-    async fn update_graph_with_tlc_fail(
+<<<<<<< HEAD
+    async fn update_with_tcl_fail(
         &self,
         network: &ActorRef<NetworkActorMessage>,
         tcl_error_detail: &TlcErr,
     ) {
+||||||| 9d94000
+    async fn update_with_tcl_fail(&self, tcl_error_detail: &TlcErr) {
+=======
+    async fn update_graph_with_tlc_fail(&self, tcl_error_detail: &TlcErr) {
+>>>>>>> nervosnetwork/main
         let error_code = tcl_error_detail.error_code();
         // https://github.com/lightning/bolts/blob/master/04-onion-routing.md#rationale-6
         // we now still update the graph, maybe we need to remove it later?
@@ -1445,11 +2528,22 @@ where
                 match extra_data {
                     TlcErrData::ChannelFailed { channel_update, .. } => {
                         if let Some(channel_update) = channel_update {
+<<<<<<< HEAD
                             let _ = network.send_message(NetworkActorMessage::new_command(
                                 NetworkActorCommand::ProcessBroadcastMessage(
                                     BroadcastMessage::ChannelUpdate(channel_update.clone()),
                                 ),
                             ));
+||||||| 9d94000
+                            let mut graph = self.network_graph.write().await;
+                            let _ = graph.process_channel_update(channel_update.clone());
+=======
+                            let _ = self
+                                .network_graph
+                                .write()
+                                .await
+                                .process_channel_update(channel_update.clone());
+>>>>>>> nervosnetwork/main
                         }
                     }
                     _ => {}
@@ -1516,11 +2610,54 @@ where
         payment_data: &SendPaymentData,
         hops: Vec<PaymentHopData>,
     ) -> Result<PaymentSession, Error> {
+<<<<<<< HEAD
+        let payment_data = payment_session.request.clone();
+        let payment_hash = payment_data.payment_hash;
+        let mut error = None;
+        while payment_session.can_retry() {
+            payment_session.retried_times += 1;
+            let hops_infos = {
+                let mut graph = self.network_graph.write().await;
+                graph.load_from_store();
+                match graph.build_route(&payment_data) {
+                    Err(e) => {
+                        error!("Failed to build route: {:?}", e);
+                        error = Some(format!("Failed to build route: {:?}", payment_hash));
+                        break;
+                    }
+                    Ok(onion_path) => onion_path,
+                }
+            };
+
+            let first_channel_outpoint = hops_infos[0]
+                .channel_outpoint
+                .clone()
+                .expect("first hop channel outpoint");
+||||||| 9d94000
+        let payment_data = payment_session.request.clone();
+        let payment_hash = payment_data.payment_hash;
+        let mut error = None;
+        while payment_session.can_retry() {
+            payment_session.retried_times += 1;
+            let hops_infos = match self.network_graph.read().await.build_route(&payment_data) {
+                Err(e) => {
+                    error!("Failed to build route: {:?}", e);
+                    error = Some(format!("Failed to build route: {:?}", payment_hash));
+                    break;
+                }
+                Ok(onion_path) => onion_path,
+            };
+            let first_channel_outpoint = hops_infos[0]
+                .channel_outpoint
+                .clone()
+                .expect("first hop channel outpoint");
+=======
         let session_key = Privkey::from_slice(KeyPair::generate_random_key().as_ref());
         let first_channel_outpoint = hops[0]
             .channel_outpoint
             .clone()
             .expect("first hop channel must exist");
+>>>>>>> nervosnetwork/main
 
         payment_session.route =
             SessionRoute::new(state.get_public_key(), payment_data.target_pubkey, &hops);
@@ -1531,12 +2668,39 @@ where
             match PeeledPaymentOnionPacket::create(session_key, hops, &Secp256k1::signing_only()) {
                 Ok(packet) => packet,
                 Err(e) => {
+<<<<<<< HEAD
+                    if let Some(error_detail) = e.decode() {
+                        error!("Failed to send onion packet with error: {:?}", e);
+                        // This is the error implies we send payment request to the first hop failed
+                        let err = format!(
+                            "Failed to send onion packet with error {:?}",
+                            error_detail.error_code_as_str()
+                        );
+                        error = Some(err);
+                        self.update_with_tcl_fail(&state.network, &error_detail)
+                            .await;
+                    }
+                    continue;
+||||||| 9d94000
+                    if let Some(error_detail) = e.decode() {
+                        error!("Failed to send onion packet with error: {:?}", e);
+                        // This is the error implies we send payment request to the first hop failed
+                        let err = format!(
+                            "Failed to send onion packet with error {:?}",
+                            error_detail.error_code_as_str()
+                        );
+                        error = Some(err);
+                        self.update_with_tcl_fail(&error_detail).await;
+                    }
+                    continue;
+=======
                     let err = format!(
                         "Failed to create onion packet: {:?}, error: {:?}",
                         payment_data.payment_hash, e
                     );
                     self.set_payment_fail_with_error(payment_session, &err);
                     return Err(Error::SendPaymentError(err));
+>>>>>>> nervosnetwork/main
                 }
             };
         let command = SendOnionPacketCommand {
@@ -1554,8 +2718,7 @@ where
                 ) {
                     // This is the error implies we send payment request to the first hop failed
                     // graph or payment history need to update and then have a retry
-                    self.update_graph_with_tlc_fail(&state.network, &error_detail)
-                        .await;
+                    self.update_graph_with_tlc_fail(&error_detail).await;
                     let need_to_retry = self
                         .network_graph
                         .write()
@@ -1738,10 +2901,14 @@ pub struct NetworkActorState<S> {
     tlc_max_value: u128,
     // The default tlc fee proportional millionths to be used when auto accepting a channel.
     tlc_fee_proportional_millionths: u128,
+<<<<<<< HEAD
     // The gossip messages actor to process and send gossip messages.
     gossip_actor: ActorRef<GossipActorMessage>,
+||||||| 9d94000
+=======
     // Whether to announce private address to the network.
     announce_private_addr: bool,
+>>>>>>> nervosnetwork/main
     // A hashset to store the list of all broadcasted messages.
     // This is used to avoid re-broadcasting the same message over and over again
     // TODO: some more intelligent way to manage broadcasting.
@@ -1858,7 +3025,7 @@ where
         + 'static,
 {
     pub fn get_or_create_new_node_announcement_message(&mut self) -> NodeAnnouncement {
-        let now = now_timestamp_as_millis_u64();
+        let now = now_timestamp();
         match self.last_node_announcement_message {
             // If the last node announcement message is still relatively new, we don't need to create a new one.
             // Because otherwise the receiving node may be confused by the multiple announcements,
@@ -2449,6 +3616,99 @@ where
             .insert_network_actor_state(&self.peer_id, self.state_to_be_persisted.clone());
     }
 
+<<<<<<< HEAD
+||||||| 9d94000
+    async fn maybe_sync_network_graph(&mut self, peer_id: &PeerId) {
+        if let NetworkSyncStatus::Running(state) = &mut self.sync_status {
+            if let Some(_) = state
+                .maybe_create_graph_syncer(peer_id, self.network.clone())
+                .await
+            {
+                debug!("Created graph syncer to peer {:?}", peer_id);
+            }
+        }
+    }
+
+    fn maybe_tell_syncer_peer_disconnected(&self, peer_id: &PeerId) {
+        if let NetworkSyncStatus::Running(ref state) = self.sync_status {
+            if let Some(syncer) = state.get_graph_syncer(peer_id) {
+                syncer.stop(Some("Peer disconnected".to_string()));
+            }
+        }
+    }
+
+    fn maybe_tell_syncer_peer_disconnected_multiaddr(&self, multiaddr: &Multiaddr) {
+        if let NetworkSyncStatus::Running(ref state) = self.sync_status {
+            if let Some(peer_id) = state
+                .pinned_syncing_peers
+                .iter()
+                .find(|(_p, a)| a == multiaddr)
+                .map(|x| &x.0)
+            {
+                self.maybe_tell_syncer_peer_disconnected(peer_id);
+            }
+        }
+    }
+
+    fn maybe_finish_sync(&mut self) {
+        if let NetworkSyncStatus::Running(state) = &self.sync_status {
+            // TODO: It is better to sync with a few more peers to make sure we have the latest data.
+            // But we may only be connected just one node.
+            if state.succeeded >= 1 {
+                debug!(
+                    "All peers finished syncing, starting time {:?}, finishing time {:?}",
+                    state.starting_time,
+                    SystemTime::now()
+                );
+                self.network
+                    .send_message(NetworkActorMessage::new_command(
+                        NetworkActorCommand::MarkSyncingDone,
+                    ))
+                    .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+            }
+        }
+    }
+
+=======
+    async fn maybe_sync_network_graph(&mut self, peer_id: &PeerId) {
+        if let NetworkSyncStatus::Running(state) = &mut self.sync_status {
+            if let Some(_) = state
+                .maybe_create_graph_syncer(peer_id, self.network.clone())
+                .await
+            {
+                debug!("Created graph syncer to peer {:?}", peer_id);
+            }
+        }
+    }
+
+    fn maybe_tell_syncer_peer_disconnected(&self, peer_id: &PeerId) {
+        if let NetworkSyncStatus::Running(ref state) = self.sync_status {
+            if let Some(syncer) = state.get_graph_syncer(peer_id) {
+                syncer.stop(Some("Peer disconnected".to_string()));
+            }
+        }
+    }
+
+    fn maybe_finish_sync(&mut self) {
+        if let NetworkSyncStatus::Running(state) = &self.sync_status {
+            // TODO: It is better to sync with a few more peers to make sure we have the latest data.
+            // But we may only be connected just one node.
+            if state.succeeded >= 1 {
+                debug!(
+                    "All peers finished syncing, starting time {:?}, finishing time {:?}",
+                    state.starting_time,
+                    SystemTime::now()
+                );
+                self.network
+                    .send_message(NetworkActorMessage::new_command(
+                        NetworkActorCommand::MarkSyncingDone,
+                    ))
+                    .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+            }
+        }
+    }
+
+>>>>>>> nervosnetwork/main
     fn on_channel_created(
         &mut self,
         id: Hash256,
@@ -2950,8 +4210,12 @@ where
             tlc_min_value: config.tlc_min_value(),
             tlc_max_value: config.tlc_max_value(),
             tlc_fee_proportional_millionths: config.tlc_fee_proportional_millionths(),
+<<<<<<< HEAD
             gossip_actor,
+||||||| 9d94000
+=======
             announce_private_addr: config.announce_private_addr.unwrap_or_default(),
+>>>>>>> nervosnetwork/main
             broadcasted_messages: Default::default(),
             channel_subscribers,
         };
@@ -3084,8 +4348,46 @@ struct FiberProtocolHandle {
     actor: ActorRef<NetworkActorMessage>,
 }
 
+<<<<<<< HEAD
 impl FiberProtocolHandle {
     fn create_meta(self) -> ProtocolMeta {
+||||||| 9d94000
+impl Handle {
+    pub fn new(actor: ActorRef<NetworkActorMessage>) -> Self {
+        Self { actor }
+    }
+
+    fn send_actor_message(&self, message: NetworkActorMessage) {
+        // If we are closing the whole network service, we may have already stopped the network actor.
+        // In that case the send_message will fail.
+        // Ideally, we should close tentacle network service first, then stop the network actor.
+        // But ractor provides only api for `post_stop` instead of `pre_stop`.
+        let _ = self.actor.send_message(message);
+    }
+
+    fn emit_event(&self, event: NetworkServiceEvent) {
+        self.send_actor_message(NetworkActorMessage::Event(
+            NetworkActorEvent::NetworkServiceEvent(event),
+        ));
+    }
+
+    fn create_meta(self, id: ProtocolId) -> ProtocolMeta {
+=======
+impl Handle {
+    pub fn new(actor: ActorRef<NetworkActorMessage>) -> Self {
+        Self { actor }
+    }
+
+    fn send_actor_message(&self, message: NetworkActorMessage) {
+        // If we are closing the whole network service, we may have already stopped the network actor.
+        // In that case the send_message will fail.
+        // Ideally, we should close tentacle network service first, then stop the network actor.
+        // But ractor provides only api for `post_stop` instead of `pre_stop`.
+        let _ = self.actor.send_message(message);
+    }
+
+    fn create_meta(self, id: ProtocolId) -> ProtocolMeta {
+>>>>>>> nervosnetwork/main
         MetaBuilder::new()
             .id(FIBER_PROTOCOL_ID)
             .service_handle(move || {
@@ -3173,6 +4475,13 @@ impl MyServiceHandle {
     fn new(actor: ActorRef<NetworkActorMessage>) -> Self {
         MyServiceHandle { actor }
     }
+
+    fn emit_event(&self, event: NetworkServiceEvent) {
+        try_send_actor_message(
+            &self.actor,
+            NetworkActorMessage::Event(NetworkActorEvent::NetworkServiceEvent(event)),
+        );
+    }
 }
 
 impl From<&MyServiceHandle> for FiberProtocolHandle {
@@ -3196,6 +4505,7 @@ impl ServiceHandle for MyServiceHandle {
     }
 }
 
+<<<<<<< HEAD
 // If we are closing the whole network service, we may have already stopped the network actor.
 // In that case the send_message will fail.
 // Ideally, we should close tentacle network service first, then stop the network actor.
@@ -3204,6 +4514,31 @@ fn try_send_actor_message(actor: &ActorRef<NetworkActorMessage>, message: Networ
     let _ = actor.send_message(message);
 }
 
+pub(crate) fn emit_service_event(
+    network: &ActorRef<NetworkActorMessage>,
+    event: NetworkServiceEvent,
+) {
+    network
+        .send_message(NetworkActorMessage::new_event(
+            NetworkActorEvent::NetworkServiceEvent(event),
+        ))
+        .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+}
+
+||||||| 9d94000
+pub(crate) fn emit_service_event(
+    network: &ActorRef<NetworkActorMessage>,
+    event: NetworkServiceEvent,
+) {
+    network
+        .send_message(NetworkActorMessage::new_event(
+            NetworkActorEvent::NetworkServiceEvent(event),
+        ))
+        .expect(ASSUME_NETWORK_MYSELF_ALIVE);
+}
+
+=======
+>>>>>>> nervosnetwork/main
 pub async fn start_network<
     S: NetworkActorStateStore
         + ChannelActorStateStore

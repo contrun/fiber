@@ -1,31 +1,55 @@
+<<<<<<< HEAD
 use super::config::AnnouncedNodeName;
 use super::gossip::GossipMessageStore;
+||||||| 9d94000
+=======
 use super::history::{Direction, InternalResult, PaymentHistory, TimedResult};
+>>>>>>> nervosnetwork/main
 use super::network::{get_chain_hash, SendPaymentData, SendPaymentResponse};
 use super::path::NodeHeap;
+<<<<<<< HEAD
 use super::types::{
     BroadcastMessageID, BroadcastMessageWithTimestamp, ChannelAnnouncement, ChannelUpdate, Hash256,
     NodeAnnouncement,
 };
-use super::types::{Cursor, Pubkey, TlcErr};
+use super::types::{Cursor, Pubkey};
 use crate::ckb::config::UdtCfgInfos;
+||||||| 9d94000
+use super::types::Pubkey;
+use super::types::{ChannelAnnouncement, ChannelUpdate, Hash256, NodeAnnouncement};
 use crate::fiber::channel::CHANNEL_DISABLED_FLAG;
+=======
+use super::types::{ChannelAnnouncement, ChannelUpdate, Hash256, NodeAnnouncement};
+use super::types::{Pubkey, TlcErr};
+use crate::fiber::channel::CHANNEL_DISABLED_FLAG;
+>>>>>>> nervosnetwork/main
 use crate::fiber::fee::calculate_tlc_forward_fee;
 use crate::fiber::path::NodeHeapElement;
 use crate::fiber::serde_utils::EntityHex;
 use crate::fiber::types::PaymentHopData;
 use crate::invoice::CkbInvoice;
+<<<<<<< HEAD
+||||||| 9d94000
+use ckb_jsonrpc_types::JsonBytes;
+=======
 use crate::now_timestamp_as_millis_u64;
 use ckb_jsonrpc_types::JsonBytes;
+>>>>>>> nervosnetwork/main
 use ckb_types::packed::{OutPoint, Script};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use std::collections::{HashMap, HashSet};
+<<<<<<< HEAD
+use std::collections::HashMap;
 use tentacle::multiaddr::MultiAddr;
+||||||| 9d94000
+use std::collections::HashMap;
+=======
+use std::collections::{HashMap, HashSet};
+>>>>>>> nervosnetwork/main
 use tentacle::secio::PeerId;
 use thiserror::Error;
 use tracing::log::error;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, trace};
 
 const DEFAULT_MIN_PROBABILITY: f64 = 0.01;
 
@@ -135,16 +159,6 @@ impl ChannelInfo {
             _ => false,
         }
     }
-
-    fn get_update_info_with(&self, node: Pubkey) -> Option<&ChannelUpdateInfo> {
-        if self.node2() == node {
-            self.update_of_node2.as_ref()
-        } else if self.node1() == node {
-            self.update_of_node1.as_ref()
-        } else {
-            None
-        }
-    }
 }
 
 impl From<(u64, ChannelAnnouncement)> for ChannelInfo {
@@ -159,6 +173,16 @@ impl From<(u64, ChannelAnnouncement)> for ChannelInfo {
             udt_type_script: channel_announcement.udt_type_script,
             update_of_node2: None,
             update_of_node1: None,
+        }
+    }
+
+    fn get_update_info_with(&self, node: Pubkey) -> Option<&ChannelUpdateInfo> {
+        if self.node2() == node {
+            self.node1_to_node2.as_ref()
+        } else if self.node1() == node {
+            self.node2_to_node1.as_ref()
+        } else {
+            None
         }
     }
 }
@@ -189,9 +213,9 @@ impl From<&ChannelUpdate> for ChannelUpdateInfo {
         Self {
             timestamp: update.timestamp,
             enabled: !update.is_disabled(),
-            tlc_expiry_delta: update.tlc_expiry_delta,
-            tlc_minimum_value: update.tlc_minimum_value,
-            tlc_maximum_value: update.tlc_maximum_value,
+            htlc_expiry_delta: update.tlc_expiry_delta,
+            htlc_minimum_value: update.tlc_minimum_value,
+            htlc_maximum_value: update.tlc_maximum_value,
             fee_rate: update.tlc_fee_proportional_millionths as u64,
         }
     }
@@ -214,7 +238,13 @@ pub struct NetworkGraph<S> {
     // The formal use of the store is defined as a GossipMessageStore, while the latter is defined
     // as a NetworkGraphStateStore.
     store: S,
+<<<<<<< HEAD
+||||||| 9d94000
+    chain_hash: Hash256,
+=======
+    chain_hash: Hash256,
     history: PaymentHistory<S>,
+>>>>>>> nervosnetwork/main
 }
 
 #[derive(Error, Debug)]
@@ -242,9 +272,17 @@ where
             source,
             channels: HashMap::new(),
             nodes: HashMap::new(),
+<<<<<<< HEAD
             latest_cursor: Cursor::default(),
+            store,
+||||||| 9d94000
+            store,
+            chain_hash: get_chain_hash(),
+=======
             store: store.clone(),
+            chain_hash: get_chain_hash(),
             history: PaymentHistory::new(source, None, store),
+>>>>>>> nervosnetwork/main
         };
         network_graph.load_from_store();
         network_graph
@@ -254,9 +292,66 @@ where
         &self.latest_cursor
     }
 
+<<<<<<< HEAD
     fn update_lastest_cursor(&mut self, cursor: Cursor) {
         if cursor > self.latest_cursor {
             self.latest_cursor = cursor;
+||||||| 9d94000
+    pub(crate) fn load_from_store(&mut self) {
+        let channels = self.store.get_channels(None);
+        for channel in channels.iter() {
+            if self.best_height < channel.funding_tx_block_number() {
+                self.best_height = channel.funding_tx_block_number();
+            }
+            if self.last_update_timestamp < channel.timestamp {
+                self.last_update_timestamp = channel.timestamp;
+            }
+            if let Some(channel_update) = channel.node1_to_node2.as_ref() {
+                if self.last_update_timestamp < channel_update.timestamp {
+                    self.last_update_timestamp = channel_update.timestamp;
+                }
+            }
+            if let Some(channel_update) = channel.node2_to_node1.as_ref() {
+                if self.last_update_timestamp < channel_update.timestamp {
+                    self.last_update_timestamp = channel_update.timestamp;
+                }
+            }
+            self.channels.insert(channel.out_point(), channel.clone());
+        }
+        let nodes = self.store.get_nodes(None);
+        for node in nodes.iter() {
+            if self.last_update_timestamp < node.timestamp {
+                self.last_update_timestamp = node.timestamp;
+            }
+            self.nodes.insert(node.node_id, node.clone());
+=======
+    pub(crate) fn load_from_store(&mut self) {
+        for channel in self.store.get_channels(None).iter() {
+            if self.best_height < channel.funding_tx_block_number() {
+                self.best_height = channel.funding_tx_block_number();
+            }
+            if self.last_update_timestamp < channel.timestamp {
+                self.last_update_timestamp = channel.timestamp;
+            }
+            if let Some(channel_update) = channel.node1_to_node2.as_ref() {
+                if self.last_update_timestamp < channel_update.timestamp {
+                    self.last_update_timestamp = channel_update.timestamp;
+                }
+            }
+            if let Some(channel_update) = channel.node2_to_node1.as_ref() {
+                if self.last_update_timestamp < channel_update.timestamp {
+                    self.last_update_timestamp = channel_update.timestamp;
+                }
+            }
+            self.channels.insert(channel.out_point(), channel.clone());
+        }
+        let nodes = self.store.get_nodes(None);
+        for node in nodes.iter() {
+            if self.last_update_timestamp < node.timestamp {
+                self.last_update_timestamp = node.timestamp;
+            }
+            self.nodes.insert(node.node_id, node.clone());
+>>>>>>> nervosnetwork/main
         }
     }
 
@@ -475,6 +570,8 @@ where
     }
 
     pub fn get_channel(&self, outpoint: &OutPoint) -> Option<&ChannelInfo> {
+        debug!("get_channel: {:?}", outpoint);
+        debug!("channels: {:?}", &self.channels);
         self.channels.get(outpoint)
     }
 
@@ -517,6 +614,168 @@ where
             .filter(move |channel| channel.node1() == node_id || channel.node2() == node_id)
     }
 
+<<<<<<< HEAD
+||||||| 9d94000
+    pub fn get_channels_within_block_range(
+        &self,
+        start_block: u64,
+        end_block: u64,
+    ) -> (impl Iterator<Item = &ChannelInfo>, u64, bool) {
+        (
+            self.channels.values().filter(move |channel| {
+                channel.funding_tx_block_number >= start_block
+                    && channel.funding_tx_block_number < end_block
+            }),
+            end_block,
+            self.channels.is_empty()
+                || self
+                    .channels
+                    .values()
+                    .any(|channel| channel.funding_tx_block_number >= end_block),
+        )
+    }
+
+    pub fn process_channel_update(&mut self, update: ChannelUpdate) -> Result<(), GraphError> {
+        debug!("Processing channel update: {:?}", &update);
+        let channel_outpoint = &update.channel_outpoint;
+        let Some(channel) = self.channels.get_mut(channel_outpoint) else {
+            return Err(GraphError::Other("channel not found".to_string()));
+        };
+        debug!(
+            "Found channel {:?} for channel update {:?}",
+            &channel, &update
+        );
+        let update_info = if update.message_flags & 1 == 1 {
+            &mut channel.node1_to_node2
+        } else {
+            &mut channel.node2_to_node1
+        };
+
+        if let Some(info) = update_info {
+            if update.version <= info.version {
+                // update.version == info.version happens most possibly because we received the
+                // broadcast many times. Don't emit too many logs in that case.
+                if update.version < info.version {
+                    warn!(
+                        "Ignoring updating with an outdated channel update {:?} for channel {:?}, current update info: {:?}",
+                        &update, channel_outpoint, &info
+                    );
+                }
+                return Ok(());
+            }
+        }
+        let disabled = update.channel_flags & CHANNEL_DISABLED_FLAG == CHANNEL_DISABLED_FLAG;
+
+        *update_info = Some(ChannelUpdateInfo {
+            version: update.version,
+            timestamp: std::time::UNIX_EPOCH
+                .elapsed()
+                .expect("Duration since unix epoch")
+                .as_millis() as u64,
+            enabled: !disabled,
+            htlc_expiry_delta: update.tlc_expiry_delta,
+            htlc_minimum_value: update.tlc_minimum_value,
+            htlc_maximum_value: update.tlc_maximum_value,
+            fee_rate: update.tlc_fee_proportional_millionths as u64,
+            last_update_message: update.clone(),
+        });
+
+        self.store.insert_channel(channel.to_owned());
+        debug!(
+            "Processed channel update: channel {:?}, update {:?}",
+            &channel, &update
+        );
+        if disabled {
+            self.channels.remove(channel_outpoint);
+        }
+        Ok(())
+    }
+
+    pub fn check_chain_hash(&self, chain_hash: Hash256) -> bool {
+        self.chain_hash == chain_hash
+    }
+
+=======
+    pub fn get_channels_within_block_range(
+        &self,
+        start_block: u64,
+        end_block: u64,
+    ) -> (impl Iterator<Item = &ChannelInfo>, u64, bool) {
+        (
+            self.channels.values().filter(move |channel| {
+                channel.funding_tx_block_number >= start_block
+                    && channel.funding_tx_block_number < end_block
+            }),
+            end_block,
+            self.channels.is_empty()
+                || self
+                    .channels
+                    .values()
+                    .any(|channel| channel.funding_tx_block_number >= end_block),
+        )
+    }
+
+    pub fn process_channel_update(&mut self, update: ChannelUpdate) -> Result<(), PathFindError> {
+        debug!("Processing channel update: {:?}", &update);
+        let channel_outpoint = &update.channel_outpoint;
+        let Some(channel) = self.channels.get_mut(channel_outpoint) else {
+            return Err(PathFindError::Other("channel not found".to_string()));
+        };
+        debug!(
+            "Found channel {:?} for channel update {:?}",
+            &channel, &update
+        );
+        let update_info = if update.message_flags & 1 == 1 {
+            &mut channel.node1_to_node2
+        } else {
+            &mut channel.node2_to_node1
+        };
+
+        if let Some(info) = update_info {
+            if update.version <= info.version {
+                // update.version == info.version happens most possibly because we received the
+                // broadcast many times. Don't emit too many logs in that case.
+                if update.version < info.version {
+                    warn!(
+                        "Ignoring updating with an outdated channel update {:?} for channel {:?}, current update info: {:?}",
+                        &update, channel_outpoint, &info
+                    );
+                }
+                return Ok(());
+            }
+        }
+        let disabled = update.channel_flags & CHANNEL_DISABLED_FLAG == CHANNEL_DISABLED_FLAG;
+
+        *update_info = Some(ChannelUpdateInfo {
+            version: update.version,
+            timestamp: std::time::UNIX_EPOCH
+                .elapsed()
+                .expect("Duration since unix epoch")
+                .as_millis() as u64,
+            enabled: !disabled,
+            tlc_expiry_delta: update.tlc_expiry_delta,
+            tlc_minimum_value: update.tlc_minimum_value,
+            tlc_maximum_value: update.tlc_maximum_value,
+            fee_rate: update.tlc_fee_proportional_millionths as u64,
+            last_update_message: update.clone(),
+        });
+
+        self.store.insert_channel(channel.to_owned());
+        debug!(
+            "Processed channel update: channel {:?}, update {:?}",
+            &channel, &update
+        );
+        if disabled {
+            self.channels.remove(channel_outpoint);
+        }
+        Ok(())
+    }
+
+    pub fn check_chain_hash(&self, chain_hash: Hash256) -> bool {
+        self.chain_hash == chain_hash
+    }
+
+>>>>>>> nervosnetwork/main
     pub fn get_node_inbounds(
         &self,
         node_id: Pubkey,
@@ -566,6 +825,17 @@ where
         }
     }
 
+<<<<<<< HEAD
+    /// Returns a list of `PaymentHopData` for all nodes in the route, including the origin and the target node.
+||||||| 9d94000
+    #[cfg(test)]
+    pub fn reset(&mut self) {
+        self.channels.clear();
+        self.nodes.clear();
+    }
+
+    /// Returns a list of `PaymentHopData` for all nodes in the route, including the origin and the target node.
+=======
     pub(crate) fn record_payment_success(&mut self, mut payment_session: PaymentSession) {
         let session_route = &payment_session.route.nodes;
         let mut result = InternalResult::default();
@@ -601,6 +871,7 @@ where
 
     /// Returns a list of `PaymentHopData` for all nodes in the route,
     /// including the origin and the target node.
+>>>>>>> nervosnetwork/main
     pub fn build_route(
         &self,
         payment_data: SendPaymentData,
@@ -665,9 +936,25 @@ where
                 let channel_info = self
                     .get_channel(&route[i].channel_outpoint)
                     .expect("channel not found");
+<<<<<<< HEAD
+                let channel_update = &if channel_info.node1() == route[i + 1].target {
+                    channel_info.update_of_node1.as_ref()
+                } else {
+                    channel_info.update_of_node2.as_ref()
+                }
+                .expect("channel_update is none");
+||||||| 9d94000
+                let channel_update = &if channel_info.node1() == route[i + 1].target {
+                    channel_info.node2_to_node1.as_ref()
+                } else {
+                    channel_info.node1_to_node2.as_ref()
+                }
+                .expect("channel_update is none");
+=======
                 let channel_update = channel_info
                     .get_update_info_with(route[i].target)
                     .expect("channel_update is none");
+>>>>>>> nervosnetwork/main
                 let fee_rate = channel_update.fee_rate;
                 let fee =
                     calculate_tlc_forward_fee(current_amount, fee_rate as u128).expect("fee is ok");
@@ -688,7 +975,6 @@ where
             });
             current_expiry += expiry;
             current_amount += fee;
-            current_expiry += expiry;
         }
         // Add the first hop as the instruction for the current node, so the logic for send HTLC can be reused.
         hops_data.push(PaymentHopData {
@@ -820,11 +1106,6 @@ where
                 // if the amount to send is greater than the amount we have, skip this edge
                 if let Some(max_fee_amount) = max_fee_amount {
                     if amount_to_send > amount + max_fee_amount {
-                        debug!(
-                            "amount_to_send: {:?} is greater than sum_amount sum_amount: {:?}",
-                            amount_to_send,
-                            amount + max_fee_amount
-                        );
                         continue;
                     }
                 }
@@ -834,12 +1115,6 @@ where
                     || (channel_update.tlc_maximum_value != 0
                         && amount_to_send > channel_update.tlc_maximum_value)
                 {
-                    debug!(
-                        "amount_to_send is greater than channel capacity: {:?} capacity: {:?}, htlc_max_value: {:?}",
-                        amount_to_send,
-                        channel_info.capacity(),
-                        channel_update.tlc_maximum_value
-                    );
                     continue;
                 }
                 if amount_to_send < channel_update.tlc_minimum_value {
@@ -867,7 +1142,6 @@ where
                     );
 
                 if probability < DEFAULT_MIN_PROBABILITY {
-                    debug!("probability is too low: {:?}", probability);
                     continue;
                 }
                 let agg_weight =

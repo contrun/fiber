@@ -165,8 +165,21 @@ struct ChannelInfo {
     node1: Pubkey,
     /// The node ID of the second node.
     node2: Pubkey,
+<<<<<<< HEAD
     /// The created timestamp of the channel, which is the block header timestamp of the block
     /// that contains the channel funding transaction.
+||||||| 9d94000
+    /// The last updated timestamp of the channel.
+    #[serde_as(as = "Option<U64Hex>")]
+    last_updated_timestamp: Option<u64>,
+    /// The created timestamp of the channel.
+=======
+    /// The last updated timestamp of the channel, milliseconds since UNIX epoch.
+    #[serde_as(as = "Option<U64Hex>")]
+    last_updated_timestamp: Option<u64>,
+    /// The created timestamp of the channel, milliseconds since UNIX epoch.
+    #[serde_as(as = "U64Hex")]
+>>>>>>> nervosnetwork/main
     created_timestamp: u64,
     /// The timestamp of the last update to channel by node 1 (e.g. updating fee rate).
     #[serde_as(as = "Option<U64Hex>")]

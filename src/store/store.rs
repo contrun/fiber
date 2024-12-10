@@ -3,23 +3,18 @@ use super::schema::*;
 use crate::{
     fiber::{
         channel::{ChannelActorState, ChannelActorStateStore, ChannelState},
-        graph::{
-            ChannelInfo, GossipMessageStore, NetworkGraphStateStore, NodeInfo, PaymentSession,
-        },
+        gossip::GossipMessageStore,
+        graph::{NetworkGraphStateStore, PaymentSession},
         history::{Direction, TimedResult},
         network::{NetworkActorStateStore, PersistentNetworkActorState},
-        types::{BroadcastMessage, BroadcastMessageID, Cursor, Hash256, Pubkey},
+        types::{BroadcastMessage, BroadcastMessageID, Cursor, Hash256},
     },
     invoice::{CkbInvoice, CkbInvoiceStatus, InvoiceError, InvoiceStore},
     watchtower::{ChannelData, RevocationData, WatchtowerStore},
 };
-use ckb_jsonrpc_types::JsonBytes;
 use ckb_types::packed::{OutPoint, Script};
 use ckb_types::prelude::Entity;
-use rocksdb::{
-    prelude::*, DBCompressionType, DBIterator, Direction as DbDirection, IteratorMode, WriteBatch,
-    DB,
-};
+use rocksdb::{prelude::*, DBCompressionType, DBIterator, IteratorMode, WriteBatch, DB};
 use serde::Serialize;
 use std::io::Write;
 use std::{
@@ -180,13 +175,8 @@ enum KeyValue {
     CkbInvoicePreimage(Hash256, Hash256),
     CkbInvoiceStatus(Hash256, CkbInvoiceStatus),
     PeerIdChannelId((PeerId, Hash256), ChannelState),
-    NodeInfo(Pubkey, NodeInfo),
-    NodeTimestampIndex(Pubkey, u64),
-    ChannelInfo(OutPoint, ChannelInfo),
-    ChannelTimestampIndex(OutPoint, u64),
-    ChannelFundingTxIndex(OutPoint, u64, u32),
-    BroadcastMessage(Cursor, BroadcastMessage),
     BroadcastMessageTimestamp(BroadcastMessageID, u64),
+    BroadcastMessage(Cursor, BroadcastMessage),
     WatchtowerChannel(Hash256, ChannelData),
     PaymentSession(Hash256, PaymentSession),
     PaymentHistoryTimedResult((OutPoint, Direction), TimedResult),
@@ -230,53 +220,29 @@ impl StoreKeyValue for KeyValue {
                 channel_id.as_ref(),
             ]
             .concat(),
-            KeyValue::ChannelInfo(channel_id, _) => {
-                [&[CHANNEL_INFO_PREFIX], channel_id.as_slice()].concat()
-            }
             KeyValue::PaymentSession(payment_hash, _) => {
                 [&[PAYMENT_SESSION_PREFIX], payment_hash.as_ref()].concat()
             }
-            KeyValue::NodeInfo(id, _) => [&[NODE_INFO_PREFIX], id.serialize().as_slice()].concat(),
-            KeyValue::NodeTimestampIndex(_id, timestamp) => [
-                &[NODE_ANNOUNCEMENT_INDEX_PREFIX],
-                timestamp.to_be_bytes().as_slice(),
-            ]
-            .concat(),
             KeyValue::WatchtowerChannel(channel_id, _) => {
                 [&[WATCHTOWER_CHANNEL_PREFIX], channel_id.as_ref()].concat()
             }
             KeyValue::NetworkActorState(peer_id, _) => {
                 [&[PEER_ID_NETWORK_ACTOR_STATE_PREFIX], peer_id.as_bytes()].concat()
             }
-            KeyValue::ChannelTimestampIndex(_channel_id, timestamp) => [
-                CHANNEL_UPDATE_INDEX_PREFIX.to_be_bytes().as_slice(),
-                timestamp.to_be_bytes().as_slice(),
-            ]
-            .concat(),
-            KeyValue::ChannelFundingTxIndex(
-                _channel_id,
-                funding_tx_block_number,
-                funding_tx_index,
-            ) => [
-                CHANNEL_ANNOUNCEMENT_INDEX_PREFIX.to_be_bytes().as_slice(),
-                funding_tx_block_number.to_be_bytes().as_slice(),
-                funding_tx_index.to_be_bytes().as_slice(),
-            ]
-            .concat(),
-            KeyValue::BroadcastMessage(cursor, _) => {
-                [&[BROADCAST_MESSAGE_PREFIX], cursor.to_bytes().as_slice()]
-            }
-            KeyValue::BroadcastMessageTimestamp(id, _) => [
-                &[BROADCAST_MESSAGE_TIMESTAMP_PREFIX],
-                id.to_bytes().as_slice(),
-            ]
-            .concat(),
             KeyValue::PaymentHistoryTimedResult((channel_outpoint, direction), _) => [
                 &[PAYMENT_HISTORY_TIMED_RESULT_PREFIX],
                 channel_outpoint.as_slice(),
                 serialize_to_vec(direction, "Direction").as_slice(),
             ]
             .concat(),
+            KeyValue::BroadcastMessageTimestamp(broadcast_message_id, _) => [
+                &[BROADCAST_MESSAGE_TIMESTAMP_PREFIX],
+                broadcast_message_id.to_bytes().as_slice(),
+            ]
+            .concat(),
+            KeyValue::BroadcastMessage(cursor, _) => {
+                [&[BROADCAST_MESSAGE_PREFIX], cursor.to_bytes().as_slice()].concat()
+            }
         }
     }
 
@@ -287,12 +253,9 @@ impl StoreKeyValue for KeyValue {
             KeyValue::CkbInvoicePreimage(_, preimage) => serialize_to_vec(preimage, "Hash256"),
             KeyValue::CkbInvoiceStatus(_, status) => serialize_to_vec(status, "CkbInvoiceStatus"),
             KeyValue::PeerIdChannelId(_, state) => serialize_to_vec(state, "ChannelState"),
-            KeyValue::ChannelInfo(_, channel) => serialize_to_vec(channel, "ChannelInfo"),
             KeyValue::PaymentSession(_, payment_session) => {
                 serialize_to_vec(payment_session, "PaymentSession")
             }
-            KeyValue::NodeInfo(_, node) => serialize_to_vec(node, "NodeInfo"),
-            KeyValue::NodeTimestampIndex(id, _timestamp) => id.serialize().to_vec(),
             KeyValue::WatchtowerChannel(_, channel_data) => {
                 serialize_to_vec(channel_data, "ChannelData")
             }
@@ -300,19 +263,13 @@ impl StoreKeyValue for KeyValue {
                 persistent_network_actor_state,
                 "PersistentNetworkActorState",
             ),
-            KeyValue::ChannelTimestampIndex(channel_id, _timestamp) => {
-                channel_id.as_slice().to_vec()
+            KeyValue::BroadcastMessageTimestamp(_, value) => value.to_le_bytes().into(),
+            KeyValue::BroadcastMessage(_cursor, broadcast_message) => {
+                serialize_to_vec(broadcast_message, "BroadcastMessage")
             }
-            KeyValue::ChannelFundingTxIndex(channel_id, _, _) => channel_id.as_slice().to_vec(),
             KeyValue::PaymentHistoryTimedResult(_, result) => {
                 serialize_to_vec(result, "TimedResult")
             }
-            KeyValue::BroadcastMessage(_, value) => {
-                crate::fiber::gen::fiber::BroadcastMessage::from(value)
-                    .as_bytes()
-                    .into()
-            }
-            KeyValue::BroadcastMessageTimestamp(_, timestamp) => timestamp.to_be_bytes().to_vec(),
         }
     }
 }
@@ -469,125 +426,7 @@ impl InvoiceStore for Store {
     }
 }
 
-impl GossipMessageStore for Store {}
-
 impl NetworkGraphStateStore for Store {
-    fn get_channels(&self, channel_id: Option<OutPoint>) -> Vec<ChannelInfo> {
-        let (channels, _) = self.get_channels_with_params(usize::MAX, None, channel_id);
-        channels
-    }
-
-    fn get_channels_with_params(
-        &self,
-        limit: usize,
-        after: Option<JsonBytes>,
-        outpoint: Option<OutPoint>,
-    ) -> (Vec<ChannelInfo>, JsonBytes) {
-        let channel_prefix = vec![CHANNEL_INFO_PREFIX];
-        let (prefix, skip) = after
-            .as_ref()
-            .map_or((vec![CHANNEL_INFO_PREFIX], 0), |after| {
-                let key = [after.as_bytes().as_ref()].concat();
-                (key, 1)
-            });
-        let outpoint_key =
-            outpoint.map(|outpoint| [&[CHANNEL_INFO_PREFIX], outpoint.as_slice()].concat());
-
-        let mode = IteratorMode::From(prefix.as_ref(), DbDirection::Forward);
-        let mut last_key = Vec::new();
-        let channels: Vec<_> = self
-            .db
-            .iterator(mode)
-            .take_while(|(key, _)| key.starts_with(&channel_prefix))
-            .filter_map(|(col_key, value)| {
-                if let Some(key) = &outpoint_key {
-                    if !col_key.starts_with(key) {
-                        return None;
-                    }
-                }
-                let channel: ChannelInfo = deserialize_from(value.as_ref(), "ChannelInfo");
-                if !channel.is_explicitly_disabled() {
-                    last_key = col_key.to_vec();
-                    Some(channel)
-                } else {
-                    None
-                }
-            })
-            .skip(skip)
-            .take(limit)
-            .collect();
-        (channels, JsonBytes::from_bytes(last_key.into()))
-    }
-
-    fn get_nodes(&self, node_id: Option<Pubkey>) -> Vec<NodeInfo> {
-        let (nodes, _) = self.get_nodes_with_params(usize::MAX, None, node_id);
-        nodes
-    }
-
-    fn get_nodes_with_params(
-        &self,
-        limit: usize,
-        after: Option<JsonBytes>,
-        node_id: Option<Pubkey>,
-    ) -> (Vec<NodeInfo>, JsonBytes) {
-        let node_prefix = vec![NODE_INFO_PREFIX];
-        let (prefix, skip) = after.as_ref().map_or((vec![NODE_INFO_PREFIX], 0), |after| {
-            let key = [after.as_bytes().as_ref()].concat();
-            (key, 1)
-        });
-        let node_key = node_id.map(|node_id| {
-            [
-                NODE_INFO_PREFIX.to_le_bytes().as_slice(),
-                node_id.serialize().as_ref(),
-            ]
-            .concat()
-        });
-        let mode = IteratorMode::From(prefix.as_ref(), DbDirection::Forward);
-        let mut last_key = Vec::new();
-        let nodes: Vec<_> = self
-            .db
-            .iterator(mode)
-            .take_while(|(key, _)| key.starts_with(&node_prefix))
-            .filter_map(|(col_key, value)| {
-                if let Some(key) = &node_key {
-                    if !col_key.starts_with(key) {
-                        return None;
-                    }
-                }
-                last_key = col_key.to_vec();
-                Some(deserialize_from(value.as_ref(), "NodeInfo"))
-            })
-            .skip(skip)
-            .take(limit)
-            .collect();
-        (nodes, JsonBytes::from_bytes(last_key.into()))
-    }
-
-    fn insert_channel(&self, channel: ChannelInfo) {
-        let mut batch = self.batch();
-        // Save channel update timestamp to index, so that we can query channels by timestamp
-        batch.put_kv(KeyValue::ChannelTimestampIndex(
-            channel.out_point(),
-            channel.timestamp,
-        ));
-        // Save channel announcement block numbers to index, so that we can query channels by block number
-        batch.put_kv(KeyValue::ChannelFundingTxIndex(
-            channel.out_point(),
-            channel.funding_tx_block_number,
-            channel.funding_tx_index,
-        ));
-        batch.put_kv(KeyValue::ChannelInfo(channel.out_point(), channel));
-        batch.commit();
-    }
-
-    fn insert_node(&self, node: NodeInfo) {
-        let mut batch = self.batch();
-        // Save node announcement timestamp to index, so that we can query nodes by timestamp
-        batch.put_kv(KeyValue::NodeTimestampIndex(node.node_id, node.timestamp));
-        batch.put_kv(KeyValue::NodeInfo(node.node_id, node));
-        batch.commit();
-    }
-
     fn get_payment_session(&self, payment_hash: Hash256) -> Option<PaymentSession> {
         let prefix = [&[PAYMENT_SESSION_PREFIX], payment_hash.as_ref()].concat();
         self.get(prefix)
@@ -621,11 +460,66 @@ impl NetworkGraphStateStore for Store {
             let channel_outpoint: OutPoint = OutPoint::from_slice(&key[1..=36])
                 .expect("deserialize OutPoint should be OK")
                 .into();
-            let direction: Direction = deserialize_from(&key[37..], "Direction");
+            let direction = deserialize_from(&key[37..], "Direction");
             let result = deserialize_from(value.as_ref(), "TimedResult");
             (channel_outpoint, direction, result)
         })
         .collect()
+    }
+}
+
+impl GossipMessageStore for Store {
+    fn get_broadcast_messages_iter(
+        &self,
+        after_cursor: &Cursor,
+    ) -> Vec<crate::fiber::types::BroadcastMessageWithTimestamp> {
+        todo!()
+    }
+
+    fn get_broadcast_message_with_cursor(
+        &self,
+        cursor: &Cursor,
+    ) -> Option<crate::fiber::types::BroadcastMessageWithTimestamp> {
+        todo!()
+    }
+
+    fn get_latest_broadcast_message_cursor(&self) -> Option<Cursor> {
+        todo!()
+    }
+
+    fn get_latest_channel_announcement_timestamp(&self, outpoint: &OutPoint) -> Option<u64> {
+        todo!()
+    }
+
+    fn get_latest_channel_update_timestamp(
+        &self,
+        outpoint: &OutPoint,
+        is_node1: bool,
+    ) -> Option<u64> {
+        todo!()
+    }
+
+    fn get_latest_node_announcement_timestamp(
+        &self,
+        pk: &crate::fiber::types::Pubkey,
+    ) -> Option<u64> {
+        todo!()
+    }
+
+    fn save_channel_announcement(
+        &self,
+        timestamp: u64,
+        channel_announcement: crate::fiber::types::ChannelAnnouncement,
+    ) {
+        todo!()
+    }
+
+    fn save_channel_update(&self, channel_update: crate::fiber::types::ChannelUpdate) {
+        todo!()
+    }
+
+    fn save_node_announcement(&self, node_announcement: crate::fiber::types::NodeAnnouncement) {
+        todo!()
     }
 }
 

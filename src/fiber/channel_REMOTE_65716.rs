@@ -8,7 +8,7 @@ use crate::{
         fee::calculate_tlc_forward_fee,
         network::{get_chain_hash, SendOnionPacketCommand},
         serde_utils::PubNonceAsBytes,
-        types::{BroadcastMessage, ChannelUpdate, PeeledPaymentOnionPacket, TlcErr, TlcErrPacket, TlcErrorCode},
+        types::{ChannelUpdate, PeeledPaymentOnionPacket, TlcErr, TlcErrPacket, TlcErrorCode},
     },
     invoice::{CkbInvoice, CkbInvoiceStatus, InvoiceStore},
     now_timestamp_as_millis_u64,
@@ -89,14 +89,6 @@ pub const FUNDING_CELL_WITNESS_LEN: usize = 16 + 32 + 64;
 // so that we can get previous commitment point/number without checking if the channel
 // is funded or not.
 pub const INITIAL_COMMITMENT_NUMBER: u64 = 0;
-
-// Whether we are receiving a channel update from node1 or node2.
-// If the flag is set, it means the channel update is from node2, otherwise it is from node1.
-pub const MESSAGE_OF_NODE1_FLAG: u32 = 0;
-
-// Whether we are receiving a channel update from node1 or node2.
-// If the flag is set, it means the channel update is from node2, otherwise it is from node1.
-pub const MESSAGE_OF_NODE2_FLAG: u32 = 1;
 
 // The channel is disabled, and no more tlcs can be added to the channel.
 pub const CHANNEL_DISABLED_FLAG: u32 = 1;
@@ -1642,9 +1634,10 @@ where
 
                 self.network
                     .send_message(NetworkActorMessage::new_command(
-                        NetworkActorCommand::BroadcastMessages(vec![
-                            BroadcastMessage::ChannelUpdate(update),
-                        ]),
+                        NetworkActorCommand::ProccessChannelUpdate(
+                            self.get_remote_peer_id(),
+                            update,
+                        ),
                     ))
                     .expect(ASSUME_NETWORK_ACTOR_ALIVE);
 
@@ -3283,11 +3276,6 @@ impl ChannelActorState {
             .get_unsigned_channel_update_message()
             .expect("public channel can generate channel update message");
         f(&mut channel_update);
-        debug!(
-            "Generated channel update message for channel {:?}: {:?}",
-            &self.get_id(),
-            &channel_update
-        );
         let node_signature =
             sign_network_message(network.clone(), channel_update.message_to_sign())
                 .await
@@ -3328,9 +3316,10 @@ impl ChannelActorState {
 
         network
             .send_message(NetworkActorMessage::new_command(
-                NetworkActorCommand::BroadcastMessages(vec![BroadcastMessage::ChannelUpdate(
+                NetworkActorCommand::ProccessChannelUpdate(
+                    self.get_remote_peer_id(),
                     channel_update,
-                )]),
+                ),
             ))
             .expect(ASSUME_NETWORK_ACTOR_ALIVE);
     }
@@ -3375,7 +3364,7 @@ impl ChannelActorState {
                 ) => Some(ChannelUpdate::new_unsigned(
                     Default::default(),
                     self.must_get_funding_transaction_outpoint(),
-                    now_timestamp_as_millis_u64(),
+                    std::time::UNIX_EPOCH.elapsed().expect("Duration since unix epoch").as_secs(),
                     message_flags,
                     0,
                     expiry_delta,
@@ -5256,15 +5245,30 @@ impl ChannelActorState {
             self.on_channel_ready(network).await;
 
             debug!(
-                "Broadcasting channel announcement {:?} and channel update {:?}",
-                &channel_announcement, &channel_update
+                "Broadcasting channel announcement message {:?}",
+                &channel_announcement,
             );
             network
                 .send_message(NetworkActorMessage::new_command(
-                    NetworkActorCommand::BroadcastMessages(vec![
-                        BroadcastMessage::ChannelAnnouncement(channel_announcement),
-                        BroadcastMessage::ChannelUpdate(channel_update),
-                    ]),
+                    NetworkActorCommand::ProcessChannelAnnouncement(
+                        self.get_remote_peer_id(),
+                        self.get_funding_transaction_block_number(),
+                        self.get_funding_transaction_index(),
+                        channel_announcement,
+                    ),
+                ))
+                .expect(ASSUME_NETWORK_ACTOR_ALIVE);
+            debug!(
+                "Broadcasting channel update message to peers: {:?}",
+                &channel_update
+            );
+
+            network
+                .send_message(NetworkActorMessage::new_command(
+                    NetworkActorCommand::ProccessChannelUpdate(
+                        self.get_remote_peer_id(),
+                        channel_update,
+                    ),
                 ))
                 .expect(ASSUME_NETWORK_ACTOR_ALIVE);
         }
