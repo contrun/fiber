@@ -736,6 +736,12 @@ where
         Ok(())
     }
 
+    async fn update_graph(&self) {
+        debug!("Updating network graph");
+        let mut graph = self.network_graph.write().await;
+        graph.load_from_store();
+    }
+
     pub async fn handle_event(
         &self,
         myself: ActorRef<NetworkActorMessage>,
@@ -900,6 +906,7 @@ where
                     ));
             }
             NetworkActorEvent::GossipMessageUpdates(gossip_message_updates) => {
+                trace!("Gossip message update received, updating network graph for gossip messages {:?}", &gossip_message_updates);
                 let mut graph = self.network_graph.write().await;
                 graph.update_for_messages(gossip_message_updates.messages);
             }
@@ -1590,6 +1597,7 @@ where
         let Some(mut payment_session) = self.store.get_payment_session(payment_hash) else {
             return Err(Error::InvalidParameter(payment_hash.to_string()));
         };
+        debug!("Trying payment session: {:?}", payment_session);
 
         let payment_data = payment_session.request.clone();
         if payment_session.can_retry() {

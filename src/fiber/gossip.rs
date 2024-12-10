@@ -1004,6 +1004,12 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
         cursor: &Cursor,
         result: Result<BroadcastMessageWithTimestamp, GossipMessageProcessingError>,
     ) {
+        debug!(
+            "ExtendedGossipMessageActor saving message: cursor {:?}, result {:?}, notifier {:?}",
+            &cursor,
+            &result,
+            &self.message_saving_notifier.keys()
+        );
         if let Some(notifier) = self.message_saving_notifier.remove(cursor) {
             debug!(
                 "ExtendedGossipMessageActor sending message saving notifier: cursor {:?}, result {:?}",
@@ -1287,10 +1293,6 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                         message
                     );
                     state.save_broadcast_message(message.clone());
-                    let cursor = message.cursor();
-                    if let Some(notifier) = state.message_saving_notifier.remove(&cursor) {
-                        let _ = notifier.send(Ok(message));
-                    }
                 } else {
                     trace!(
                         "ExtendedGossipMessageActor saving message to be saved later: {:?}",
@@ -1303,9 +1305,6 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
             }
 
             ExtendedGossipMessageStoreMessage::Tick => {
-                // These subscriptions are the subscriptions that are not loading "historic" messages from the store.
-                let all_subscriptions = state.output_ports.values().collect::<Vec<_>>();
-
                 debug!(
                     "ExtendedGossipMessageActor processing tick: last_cursor = {:?} #subscriptions = {}, #lagged_messages = {}, #messages_to_be_saved = {}",
                     state.last_cursor,
@@ -1411,6 +1410,11 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                     } else {
                         filter
                     };
+                    trace!(
+                        "ExtendedGossipMessageActor sending messages to subscriber {}: starting_cursor_in_the_loop = {:?}, state.last_cursor = {:?}",
+                        subscription.id,
+                        &starting_cursor_in_the_loop, &state.last_cursor
+                    );
                     loop {
                         let messages = state
                             .store
@@ -1424,6 +1428,12 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                         match messages.last() {
                             Some(m) => {
                                 starting_cursor_in_the_loop = m.cursor();
+                                trace!(
+                                    "ExtendedGossipMessageActor sending messages to subscriber {}: next after cursor = {:?}, messages = {:?}",
+                                    subscription.id,
+                                    &starting_cursor_in_the_loop,
+                                    &messages
+                                );
                                 subscription
                                     .output_port
                                     .send(GossipMessageUpdates::new(messages));
@@ -2225,6 +2235,7 @@ where
                 drop(state.peer_states.remove(&peer_id));
             }
             GossipActorMessage::ProcessBroadcastMessage(message) => {
+                dbg!("processing broadcast message", &message);
                 state
                     .try_to_verify_and_save_broadcast_message(message.clone())
                     .await;
@@ -2285,6 +2296,7 @@ where
                 }
             }
             GossipActorMessage::BroadcastMessageImmediately(message) => {
+                debug!("Broadcasting message immediately: {:?}", &message);
                 for (peer, peer_state) in &state.peer_states {
                     let session = peer_state.session;
                     match &peer_state.filter_processor {

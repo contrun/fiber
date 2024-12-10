@@ -246,7 +246,9 @@ where
             store: store.clone(),
             history: PaymentHistory::new(source, None, store),
         };
+        dbg!("loading graph from store");
         network_graph.load_from_store();
+        dbg!("loaded graph from store");
         network_graph
     }
 
@@ -319,7 +321,9 @@ where
     // Process them and set nodes and channels accordingly.
     pub(crate) fn load_from_store(&mut self) {
         loop {
+            dbg!("loading from store");
             let messages = self.store.get_broadcast_messages(&self.latest_cursor, None);
+            dbg!("loaded messages from store", &self.latest_cursor, &messages,);
             if messages.is_empty() {
                 break;
             }
@@ -429,6 +433,7 @@ where
                     channel_update.timestamp,
                     BroadcastMessageID::ChannelUpdate(channel_update.channel_outpoint.clone()),
                 );
+                dbg!("Inserting new channel update: {:?}", &channel_update);
                 *update_info = Some(ChannelUpdateInfo::from(channel_update));
                 return Some(cursor);
             }
@@ -548,6 +553,7 @@ where
         &self,
         node_id: Pubkey,
     ) -> impl Iterator<Item = (Pubkey, Pubkey, &ChannelInfo, &ChannelUpdateInfo)> {
+        dbg!(&self.channels);
         self.channels.values().filter_map(move |channel| {
             if let Some(info) = channel.update_of_node2.as_ref() {
                 if info.enabled && channel.node2() == node_id {
@@ -817,6 +823,7 @@ where
 
             for (from, to, channel_info, channel_update) in self.get_node_inbounds(cur_hop.node_id)
             {
+                dbg!(&from, &to, &channel_info, &channel_update);
                 if from == target && !route_to_self {
                     continue;
                 }
@@ -858,11 +865,6 @@ where
                 // if the amount to send is greater than the amount we have, skip this edge
                 if let Some(max_fee_amount) = max_fee_amount {
                     if amount_to_send > amount + max_fee_amount {
-                        debug!(
-                            "amount_to_send: {:?} is greater than sum_amount sum_amount: {:?}",
-                            amount_to_send,
-                            amount + max_fee_amount
-                        );
                         continue;
                     }
                 }
@@ -872,12 +874,6 @@ where
                     || (channel_update.tlc_maximum_value != 0
                         && amount_to_send > channel_update.tlc_maximum_value)
                 {
-                    debug!(
-                        "amount_to_send is greater than channel capacity: {:?} capacity: {:?}, htlc_max_value: {:?}",
-                        amount_to_send,
-                        channel_info.capacity(),
-                        channel_update.tlc_maximum_value
-                    );
                     continue;
                 }
                 if amount_to_send < channel_update.tlc_minimum_value {
@@ -905,7 +901,6 @@ where
                     );
 
                 if probability < DEFAULT_MIN_PROBABILITY {
-                    debug!("probability is too low: {:?}", probability);
                     continue;
                 }
                 let agg_weight =

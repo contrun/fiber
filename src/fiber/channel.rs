@@ -8,7 +8,10 @@ use crate::{
         fee::calculate_tlc_forward_fee,
         network::{get_chain_hash, SendOnionPacketCommand},
         serde_utils::PubNonceAsBytes,
-        types::{BroadcastMessage, ChannelUpdate, PeeledPaymentOnionPacket, TlcErr, TlcErrPacket, TlcErrorCode},
+        types::{
+            BroadcastMessage, ChannelUpdate, PeeledPaymentOnionPacket, TlcErr, TlcErrPacket,
+            TlcErrorCode,
+        },
     },
     invoice::{CkbInvoice, CkbInvoiceStatus, InvoiceStore},
     now_timestamp_as_millis_u64,
@@ -3354,7 +3357,11 @@ impl ChannelActorState {
 
     pub fn get_unsigned_channel_update_message(&self) -> Option<ChannelUpdate> {
         let local_is_node1 = self.local_is_node1();
-        let message_flags = if local_is_node1 { 0 } else { 1 };
+        let message_flags = if local_is_node1 {
+            MESSAGE_OF_NODE1_FLAG
+        } else {
+            MESSAGE_OF_NODE2_FLAG
+        };
 
         self.public_channel_info.as_ref().and_then(|info| {
             match (

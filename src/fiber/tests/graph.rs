@@ -60,6 +60,8 @@ impl MockNetworkGraph {
         }
         let graph = NetworkGraph::new(store.clone(), public_key1.into());
 
+        dbg!("created graph", &graph);
+
         Self {
             keys: keypairs.into_iter().map(|x| x.1).collect(),
             edges: vec![],
@@ -270,6 +272,7 @@ fn test_graph_channel_info() {
 
 #[test]
 fn test_graph_graph_apis() {
+    crate::fiber::tests::test_utils::init_tracing();
     let mut mock_network = MockNetworkGraph::new(4);
     let node1 = mock_network.keys[1];
     let node2 = mock_network.keys[2];
