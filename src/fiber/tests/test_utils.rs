@@ -1,15 +1,19 @@
-use ckb_types::packed::OutPoint;
-use ckb_types::{core::TransactionView, packed::Byte32};
+use ckb_jsonrpc_types::Status;
+use ckb_types::{
+    core::TransactionView,
+    packed::{Byte32, OutPoint},
+};
 use ractor::{call, Actor, ActorRef};
+use rand::rngs::OsRng;
 use rand::Rng;
-use secp256k1::{rand, PublicKey, Secp256k1, SecretKey};
+use secp256k1::Keypair;
+use secp256k1::{rand, Message, PublicKey, Secp256k1, SecretKey};
 use std::{
-    collections::HashMap,
     env,
     ffi::OsStr,
     mem::ManuallyDrop,
     path::{Path, PathBuf},
-    sync::{Arc, RwLock},
+    sync::Arc,
     time::Duration,
 };
 use tempfile::TempDir as OldTempDir;
@@ -21,31 +25,33 @@ use tokio::{
     time::sleep,
 };
 
-use crate::fiber::gossip::{GossipMessageStore, DEFAULT_NUM_OF_BROADCAST_MESSAGE};
 use crate::fiber::network::{AcceptChannelCommand, OpenChannelCommand};
+use crate::fiber::types::Pubkey;
 use crate::fiber::types::{
     BroadcastMessageID, BroadcastMessageWithTimestamp, ChannelAnnouncement, ChannelUpdate, Cursor,
-    NodeAnnouncement, Privkey,
+    EcdsaSignature, NodeAnnouncement, Privkey,
 };
+use crate::fiber::{channel::ChannelActorStateStore, graph::NodeInfo};
+use crate::fiber::{
+    gossip::{GossipMessageStore, DEFAULT_NUM_OF_BROADCAST_MESSAGE},
+    graph::ChannelInfo,
+};
+use crate::store::Store;
 use crate::{
     actors::{RootActor, RootActorMessage},
     ckb::tests::test_utils::{
         get_tx_from_hash, submit_tx, trace_tx, trace_tx_hash, MockChainActor,
     },
     ckb::CkbChainMessage,
-    fiber::channel::{ChannelActorState, ChannelActorStateStore, ChannelState},
-    fiber::graph::NetworkGraphStateStore,
-    fiber::graph::PaymentSession,
-    fiber::graph::{ChannelInfo, NetworkGraph, NodeInfo},
+    fiber::graph::NetworkGraph,
     fiber::network::{
         NetworkActor, NetworkActorCommand, NetworkActorMessage, NetworkActorStartArguments,
-        NetworkActorStateStore, PersistentNetworkActorState,
     },
-    fiber::types::{Hash256, Pubkey},
-    invoice::{CkbInvoice, InvoiceError, InvoiceStore},
+    fiber::types::Hash256,
     tasks::{new_tokio_cancellation_token, new_tokio_task_tracker},
     FiberConfig, NetworkServiceEvent,
 };
+use tentacle::secio::SecioKeyPair;
 
 static RETAIN_VAR: &str = "TEST_TEMP_RETAIN";
 
@@ -127,11 +133,11 @@ pub fn generate_seckey() -> SecretKey {
     SecretKey::new(&mut rand::thread_rng())
 }
 
-pub fn generate_pubkey() -> PublicKey {
+pub fn generate_pubkey() -> Pubkey {
     let secp = Secp256k1::new();
     let secret_key = SecretKey::new(&mut rand::thread_rng());
     let public_key = PublicKey::from_secret_key(&secp, &secret_key);
-    public_key
+    public_key.into()
 }
 
 pub fn gen_sha256_hash() -> Hash256 {
@@ -156,28 +162,60 @@ pub fn get_fiber_config<P: AsRef<Path>>(base_dir: P, node_name: Option<&str>) ->
         // Without this, some tests may fail due to the delay in processing gossip messages.
         gossip_store_maintenance_interval_ms: Some(50),
         auto_accept_channel_ckb_funding_amount: Some(0), // Disable auto accept for unit tests
+        announce_private_addr: Some(true),               // Announce private address for unit tests
         ..Default::default()
     }
+}
+
+// Mock function to create a dummy EcdsaSignature
+pub fn mock_ecdsa_signature() -> EcdsaSignature {
+    let secp = Secp256k1::new();
+    let mut rng = OsRng::default();
+    let (secret_key, _public_key) = secp.generate_keypair(&mut rng);
+    let message = Message::from_digest_slice(&[0u8; 32]).expect("32 bytes");
+    let signature = secp.sign_ecdsa(&message, &secret_key);
+    EcdsaSignature(signature)
+}
+
+pub fn generate_store() -> Store {
+    let temp_dir = TempDir::new("fnn-test");
+    let store = Store::new(temp_dir.as_ref());
+    store.expect("create store")
 }
 
 pub struct NetworkNode {
     /// The base directory of the node, will be deleted after this struct dropped.
     pub base_dir: Arc<TempDir>,
     pub node_name: Option<String>,
-    pub store: MemoryStore,
+    pub store: Store,
     pub fiber_config: FiberConfig,
     pub listening_addrs: Vec<MultiAddr>,
     pub network_actor: ActorRef<NetworkActorMessage>,
-    pub network_graph: Arc<TokioRwLock<NetworkGraph<MemoryStore>>>,
+    pub network_graph: Arc<TokioRwLock<NetworkGraph<Store>>>,
     pub chain_actor: ActorRef<CkbChainMessage>,
     pub private_key: Privkey,
     pub peer_id: PeerId,
     pub event_emitter: mpsc::Receiver<NetworkServiceEvent>,
+    pub pubkey: Pubkey,
 }
 
 impl NetworkNode {
     pub fn get_node_address(&self) -> &MultiAddr {
         &self.listening_addrs[0]
+    }
+
+    pub fn get_local_balance_from_channel(&self, channel_id: Hash256) -> u128 {
+        self.store
+            .get_channel_actor_state(&channel_id)
+            .expect("get channel")
+            .to_local_amount
+    }
+
+    pub fn get_remote_balance_from_channel(&self, channel_id: Hash256) -> u128 {
+        self.store
+            .get_channel_actor_state(&channel_id)
+            .expect("get channel")
+            .to_remote_amount
     }
 
     pub fn get_private_key(&self) -> &Privkey {
@@ -192,7 +230,7 @@ impl NetworkNode {
 pub struct NetworkNodeConfig {
     base_dir: Arc<TempDir>,
     node_name: Option<String>,
-    store: MemoryStore,
+    store: Store,
     fiber_config: FiberConfig,
 }
 
@@ -205,7 +243,6 @@ impl NetworkNodeConfig {
 pub struct NetworkNodeConfigBuilder {
     base_dir: Option<Arc<TempDir>>,
     node_name: Option<String>,
-    store: Option<MemoryStore>,
     // We may generate a FiberConfig based on the base_dir and node_name,
     // but allow user to override it.
     fiber_config_updater: Option<Box<dyn FnOnce(&mut FiberConfig) + 'static>>,
@@ -216,7 +253,6 @@ impl NetworkNodeConfigBuilder {
         Self {
             base_dir: None,
             node_name: None,
-            store: None,
             fiber_config_updater: None,
         }
     }
@@ -235,11 +271,6 @@ impl NetworkNodeConfigBuilder {
         self
     }
 
-    pub fn store(mut self, store: MemoryStore) -> Self {
-        self.store = Some(store);
-        self
-    }
-
     pub fn fiber_config_updater(
         mut self,
         updater: impl FnOnce(&mut FiberConfig) + 'static,
@@ -254,7 +285,7 @@ impl NetworkNodeConfigBuilder {
             .clone()
             .unwrap_or_else(|| Arc::new(TempDir::new("fnn-test")));
         let node_name = self.node_name.clone();
-        let store = self.store.clone().unwrap_or_default();
+        let store = generate_store();
         let fiber_config = get_fiber_config(base_dir.as_ref(), node_name.as_deref());
         let mut config = NetworkNodeConfig {
             base_dir,
@@ -272,9 +303,11 @@ impl NetworkNodeConfigBuilder {
 pub async fn establish_channel_between_nodes(
     node_a: &mut NetworkNode,
     node_b: &mut NetworkNode,
+    public: bool,
     node_a_funding_amount: u128,
     node_b_funding_amount: u128,
-    public: bool,
+    max_tlc_number_in_flight: Option<u64>,
+    max_tlc_value_in_flight: Option<u128>,
 ) -> (Hash256, TransactionView) {
     let message = |rpc_reply| {
         NetworkActorMessage::Command(NetworkActorCommand::OpenChannel(
@@ -291,8 +324,8 @@ pub async fn establish_channel_between_nodes(
                 tlc_min_value: None,
                 tlc_max_value: None,
                 tlc_fee_proportional_millionths: None,
-                max_tlc_number_in_flight: None,
-                max_tlc_value_in_flight: None,
+                max_tlc_number_in_flight,
+                max_tlc_value_in_flight,
             },
             rpc_reply,
         ))
@@ -360,7 +393,66 @@ pub async fn establish_channel_between_nodes(
         .get_tx_from_hash(funding_tx_outpoint.tx_hash())
         .await
         .expect("tx found");
+
     (new_channel_id, funding_tx)
+}
+
+pub async fn create_nodes_with_established_channel(
+    node_a_funding_amount: u128,
+    node_b_funding_amount: u128,
+    public: bool,
+) -> (NetworkNode, NetworkNode, Hash256) {
+    let [mut node_a, mut node_b] = NetworkNode::new_n_interconnected_nodes().await;
+
+    let (channel_id, _funding_tx) = establish_channel_between_nodes(
+        &mut node_a,
+        &mut node_b,
+        public,
+        node_a_funding_amount,
+        node_b_funding_amount,
+        None,
+        None,
+    )
+    .await;
+
+    (node_a, node_b, channel_id)
+}
+
+pub async fn create_3_nodes_with_established_channel(
+    (channel_1_amount_a, channel_1_amount_b): (u128, u128),
+    (channel_2_amount_b, channel_2_amount_c): (u128, u128),
+    public: bool,
+) -> (NetworkNode, NetworkNode, NetworkNode, Hash256, Hash256) {
+    let [mut node_a, mut node_b, mut node_c] = NetworkNode::new_n_interconnected_nodes().await;
+
+    let (channel_id_ab, funding_tx_ab) = establish_channel_between_nodes(
+        &mut node_a,
+        &mut node_b,
+        public,
+        channel_1_amount_a,
+        channel_1_amount_b,
+        None,
+        None,
+    )
+    .await;
+
+    let res = node_c.submit_tx(funding_tx_ab).await;
+    assert_eq!(res, Status::Committed);
+
+    let (channel_id_bc, funding_tx_bc) = establish_channel_between_nodes(
+        &mut node_b,
+        &mut node_c,
+        public,
+        channel_2_amount_b,
+        channel_2_amount_c,
+        None,
+        None,
+    )
+    .await;
+
+    let res = node_a.submit_tx(funding_tx_bc).await;
+    assert_eq!(res, Status::Committed);
+    (node_a, node_b, node_c, channel_id_ab, channel_id_bc)
 }
 
 impl NetworkNode {
@@ -406,7 +498,7 @@ impl NetworkNode {
 
         let network_graph = Arc::new(TokioRwLock::new(NetworkGraph::new(
             store.clone(),
-            public_key.into(),
+            public_key.clone(),
         )));
 
         let network_actor = Actor::spawn_linked(
@@ -459,6 +551,7 @@ impl NetworkNode {
             private_key: secret_key.into(),
             peer_id,
             event_emitter: event_receiver,
+            pubkey: public_key.into(),
         }
     }
 
@@ -529,9 +622,11 @@ impl NetworkNode {
         let (channel_id, funding_tx) = establish_channel_between_nodes(
             &mut node_a,
             &mut node_b,
+            public,
             node_a_funding_amount,
             node_b_funding_amount,
-            public,
+            None,
+            None,
         )
         .await;
 
@@ -631,13 +726,13 @@ impl NetworkNode {
         get_tx_from_hash(self.chain_actor.clone(), tx_hash).await
     }
 
-    pub fn get_network_graph(&self) -> &Arc<TokioRwLock<NetworkGraph<MemoryStore>>> {
+    pub fn get_network_graph(&self) -> &Arc<TokioRwLock<NetworkGraph<Store>>> {
         &self.network_graph
     }
 
     pub async fn with_network_graph<F, T>(&self, f: F) -> T
     where
-        F: FnOnce(&NetworkGraph<MemoryStore>) -> T,
+        F: FnOnce(&NetworkGraph<Store>) -> T,
     {
         let graph = self.get_network_graph().read().await;
         f(&*graph)
@@ -671,280 +766,32 @@ impl NetworkNode {
     }
 }
 
-#[derive(Clone, Default)]
-pub struct MemoryStore {
-    network_actor_sate_map: Arc<RwLock<HashMap<PeerId, PersistentNetworkActorState>>>,
-    channel_actor_state_map: Arc<RwLock<HashMap<Hash256, ChannelActorState>>>,
-    channels_map: Arc<RwLock<HashMap<OutPoint, ChannelInfo>>>,
-    nodes_map: Arc<RwLock<HashMap<Pubkey, NodeInfo>>>,
-    // The bool value in the key is to distinguish between channel updates of node1 or node2.
-    // It always is set to true for all other messages.
-    // This is to avoid overwriting the channel update of node2 with the channel update of node1.
-    gossip_messages_map:
-        Arc<RwLock<HashMap<(BroadcastMessageID, bool), BroadcastMessageWithTimestamp>>>,
-    payment_sessions: Arc<RwLock<HashMap<Hash256, PaymentSession>>>,
-    invoice_store: Arc<RwLock<HashMap<Hash256, CkbInvoice>>>,
-    invoice_hash_to_preimage: Arc<RwLock<HashMap<Hash256, Hash256>>>,
+pub(crate) fn rand_sha256_hash() -> Hash256 {
+    let mut rng = rand::thread_rng();
+    let mut result = [0u8; 32];
+    rng.fill(&mut result[..]);
+    result.into()
 }
 
-impl NetworkActorStateStore for MemoryStore {
-    fn get_network_actor_state(&self, id: &PeerId) -> Option<PersistentNetworkActorState> {
-        self.network_actor_sate_map.read().unwrap().get(id).cloned()
-    }
-
-    fn insert_network_actor_state(&self, id: &PeerId, state: PersistentNetworkActorState) {
-        self.network_actor_sate_map
-            .write()
-            .unwrap()
-            .insert(id.clone(), state);
-    }
+pub(crate) fn gen_rand_public_key() -> Pubkey {
+    let secp = Secp256k1::new();
+    let key_pair = Keypair::new(&secp, &mut rand::thread_rng());
+    PublicKey::from_keypair(&key_pair).into()
 }
 
-impl MemoryStore {
-    fn save_broadcast_message(&self, message: BroadcastMessageWithTimestamp) {
-        let is_node_1 = match &message {
-            BroadcastMessageWithTimestamp::ChannelUpdate(msg) if msg.is_update_of_node_2() => false,
-            _ => true,
-        };
-        let key = (message.message_id(), is_node_1);
-        match self.gossip_messages_map.read().unwrap().get(&key) {
-            Some(old) if old.timestamp() > message.timestamp() => {
-                return;
-            }
-            _ => {}
-        }
-        self.gossip_messages_map
-            .write()
-            .unwrap()
-            .insert(key, message);
-    }
+pub(crate) fn gen_rand_private_key() -> SecretKey {
+    let secp = Secp256k1::new();
+    let key_pair = Keypair::new(&secp, &mut rand::thread_rng());
+    SecretKey::from_keypair(&key_pair)
 }
 
-impl GossipMessageStore for MemoryStore {
-    fn get_broadcast_messages_iter(
-        &self,
-        after_cursor: &Cursor,
-    ) -> impl IntoIterator<Item = BroadcastMessageWithTimestamp> {
-        let mut v: Vec<_> = self
-            .gossip_messages_map
-            .read()
-            .unwrap()
-            .values()
-            .filter_map(|msg| (after_cursor < &msg.cursor()).then_some(msg.clone()))
-            .collect();
-        v.sort_by(|a, b| a.cursor().cmp(&b.cursor()));
-        v
-    }
-
-    fn get_broadcast_messages(
-        &self,
-        after_cursor: &Cursor,
-        count: Option<u16>,
-    ) -> Vec<BroadcastMessageWithTimestamp> {
-        let mut messages = self
-            .gossip_messages_map
-            .read()
-            .unwrap()
-            .values()
-            .filter_map(|msg| (after_cursor < &msg.cursor()).then_some(msg.clone()))
-            .take(count.unwrap_or(DEFAULT_NUM_OF_BROADCAST_MESSAGE as u16) as usize)
-            .collect::<Vec<_>>();
-        messages.sort_by(|a, b| a.cursor().cmp(&b.cursor()));
-        messages
-    }
-
-    fn save_channel_announcement(&self, timestamp: u64, channel_announcement: ChannelAnnouncement) {
-        self.save_broadcast_message(BroadcastMessageWithTimestamp::ChannelAnnouncement(
-            timestamp,
-            channel_announcement,
-        ));
-    }
-
-    fn save_channel_update(&self, channel_update: ChannelUpdate) {
-        self.save_broadcast_message(BroadcastMessageWithTimestamp::ChannelUpdate(channel_update));
-    }
-
-    fn save_node_announcement(&self, node_announcement: NodeAnnouncement) {
-        self.save_broadcast_message(BroadcastMessageWithTimestamp::NodeAnnouncement(
-            node_announcement,
-        ));
-    }
-
-    fn get_broadcast_message_with_cursor(
-        &self,
-        cursor: &Cursor,
-    ) -> Option<BroadcastMessageWithTimestamp> {
-        let timestamp = cursor.timestamp;
-        let map = self.gossip_messages_map.read().unwrap();
-        // It is possible that the cursor is for a channel update of node2.
-        let key1 = (cursor.message_id.clone(), true);
-        let key2 = (cursor.message_id.clone(), false);
-        // It is possible that the user is querying an older message and we may have replaced the
-        // older message with a new one.
-        let get = |key| {
-            map.get(&key)
-                .and_then(|d| (d.timestamp() == timestamp).then_some(d))
-                .cloned()
-        };
-        get(key1).or_else(|| get(key2))
-    }
-
-    fn get_latest_broadcast_message_cursor(&self) -> Option<Cursor> {
-        let map = self.gossip_messages_map.read().unwrap();
-        map.iter()
-            .map(|((k, _), v)| Cursor::new(v.timestamp(), k.clone()))
-            .max()
-    }
-
-    fn get_latest_channel_announcement_timestamp(&self, outpoint: &OutPoint) -> Option<u64> {
-        self.gossip_messages_map
-            .read()
-            .unwrap()
-            .get(&(
-                BroadcastMessageID::ChannelAnnouncement(outpoint.clone()),
-                true,
-            ))
-            .map(|msg| msg.timestamp())
-    }
-
-    fn get_latest_channel_update_timestamp(
-        &self,
-        outpoint: &OutPoint,
-        is_node1: bool,
-    ) -> Option<u64> {
-        self.gossip_messages_map
-            .read()
-            .unwrap()
-            .get(&(
-                BroadcastMessageID::ChannelUpdate(outpoint.clone()),
-                is_node1,
-            ))
-            .map(|msg| msg.timestamp())
-    }
-
-    fn get_latest_node_announcement_timestamp(&self, pk: &Pubkey) -> Option<u64> {
-        self.gossip_messages_map
-            .read()
-            .unwrap()
-            .get(&(BroadcastMessageID::NodeAnnouncement(pk.clone()), true))
-            .map(|msg| msg.timestamp())
-    }
-}
-
-impl NetworkGraphStateStore for MemoryStore {
-    fn get_payment_session(&self, id: Hash256) -> Option<PaymentSession> {
-        self.payment_sessions.read().unwrap().get(&id).cloned()
-    }
-
-    fn insert_payment_session(&self, session: PaymentSession) {
-        self.payment_sessions
-            .write()
-            .unwrap()
-            .insert(session.payment_hash(), session);
-    }
-}
-
-impl ChannelActorStateStore for MemoryStore {
-    fn get_channel_actor_state(&self, id: &Hash256) -> Option<ChannelActorState> {
-        self.channel_actor_state_map
-            .read()
-            .unwrap()
-            .get(id)
-            .cloned()
-    }
-
-    fn insert_channel_actor_state(&self, state: ChannelActorState) {
-        self.channel_actor_state_map
-            .write()
-            .unwrap()
-            .insert(state.id, state);
-    }
-
-    fn delete_channel_actor_state(&self, id: &Hash256) {
-        self.channel_actor_state_map.write().unwrap().remove(id);
-    }
-
-    fn get_channel_ids_by_peer(&self, peer_id: &PeerId) -> Vec<Hash256> {
-        self.channel_actor_state_map
-            .read()
-            .unwrap()
-            .values()
-            .filter_map(|state| {
-                if peer_id == &state.get_remote_peer_id() {
-                    Some(state.id.clone())
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
-    fn get_channel_states(&self, peer_id: Option<PeerId>) -> Vec<(PeerId, Hash256, ChannelState)> {
-        let map = self.channel_actor_state_map.read().unwrap();
-        let values = map.values();
-        match peer_id {
-            Some(peer_id) => values
-                .filter_map(|state| {
-                    if peer_id == state.get_remote_peer_id() {
-                        Some((state.get_remote_peer_id(), state.id, state.state.clone()))
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
-            None => values
-                .map(|state| {
-                    (
-                        state.get_remote_peer_id(),
-                        state.id.clone(),
-                        state.state.clone(),
-                    )
-                })
-                .collect(),
-        }
-    }
-}
-
-impl InvoiceStore for MemoryStore {
-    fn get_invoice(&self, id: &Hash256) -> Option<CkbInvoice> {
-        self.invoice_store.read().unwrap().get(id).cloned()
-    }
-
-    fn insert_invoice(
-        &self,
-        invoice: CkbInvoice,
-        preimage: Option<Hash256>,
-    ) -> Result<(), InvoiceError> {
-        let id = invoice.payment_hash();
-        if let Some(preimage) = preimage {
-            self.invoice_hash_to_preimage
-                .write()
-                .unwrap()
-                .insert(*id, preimage);
-        }
-        self.invoice_store.write().unwrap().insert(*id, invoice);
-        Ok(())
-    }
-
-    fn get_invoice_preimage(&self, hash: &Hash256) -> Option<Hash256> {
-        self.invoice_hash_to_preimage
-            .read()
-            .unwrap()
-            .get(hash)
-            .cloned()
-    }
-
-    fn get_invoice_status(&self, _id: &Hash256) -> Option<crate::invoice::CkbInvoiceStatus> {
-        unimplemented!()
-    }
-
-    fn update_invoice_status(
-        &self,
-        _id: &Hash256,
-        _status: crate::invoice::CkbInvoiceStatus,
-    ) -> Result<(), InvoiceError> {
-        unimplemented!()
-    }
+pub(crate) fn gen_rand_keypair() -> (PublicKey, SecretKey) {
+    let secp = Secp256k1::new();
+    let key_pair = Keypair::new(&secp, &mut rand::thread_rng());
+    (
+        PublicKey::from_keypair(&key_pair),
+        SecretKey::from_keypair(&key_pair),
+    )
 }
 
 #[tokio::test]

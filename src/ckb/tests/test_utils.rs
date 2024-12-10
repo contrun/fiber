@@ -18,7 +18,7 @@ use crate::{
         contracts::{Contract, ContractsContext, ContractsInfo},
         TraceTxRequest, TraceTxResponse,
     },
-    now_timestamp,
+    now_timestamp_as_millis_u64,
 };
 
 use crate::ckb::CkbChainMessage;
@@ -510,7 +510,7 @@ impl Actor for MockChainActor {
                     .write()
                     .await
                     .entry(request.block_hash())
-                    .or_insert(now_timestamp());
+                    .or_insert(now_timestamp_as_millis_u64());
 
                 debug!(
                     "Get block timestamp: block_hash: {:?}, timestamp: {}",

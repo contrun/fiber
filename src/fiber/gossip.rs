@@ -26,7 +26,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::{
     ckb::{CkbChainMessage, GetBlockTimestampRequest, TraceTxRequest, TraceTxResponse},
     fiber::{network::DEFAULT_CHAIN_ACTOR_TIMEOUT, types::secp256k1_instance},
-    now_timestamp, unwrap_or_return, Error,
+    now_timestamp_as_millis_u64, unwrap_or_return, Error,
 };
 
 use super::{
@@ -1225,7 +1225,7 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                 };
 
                 if message.timestamp()
-                    > now_timestamp() + MAX_BROADCAST_MESSAGE_TIMESTAMP_DRIFT_MILLIS
+                    > now_timestamp_as_millis_u64() + MAX_BROADCAST_MESSAGE_TIMESTAMP_DRIFT_MILLIS
                 {
                     error!(
                         "Broadcast message timestamp is too far in the future: {:?}",
@@ -2329,7 +2329,7 @@ where
                 );
                 if let Some(peer_state) = state.peer_states.get_mut(&peer_id) {
                     peer_state.sync_status =
-                        PeerSyncStatus::FinishedSyncing(now_timestamp(), cursor);
+                        PeerSyncStatus::FinishedSyncing(now_timestamp_as_millis_u64(), cursor);
                 }
             }
 
