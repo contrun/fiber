@@ -2,6 +2,7 @@ use crate::fiber::channel::{
     AddTlcInfo, CommitmentNumbers, RemoveTlcInfo, TLCId, TlcKind, TlcState,
 };
 use crate::fiber::config::MAX_PAYMENT_TLC_EXPIRY_LIMIT;
+use crate::fiber::gossip::GossipActorMessage;
 use crate::fiber::graph::PaymentSessionStatus;
 use crate::fiber::network::SendPaymentCommand;
 use crate::fiber::tests::test_utils::{
@@ -1312,6 +1313,20 @@ async fn test_send_payment_with_max_nodes() {
 
     // sleep for seconds to make sure the channel is established
     tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    for node in &nodes {
+        // Rotate the passive syncing peers so that we can properly propagate the channel updates.
+        // In current implementation, we will almost certainly receiving updates from the peers
+        // that we connected to first, which do not contain all the channel gossip messages.
+        node.network_actor
+            .send_message(NetworkActorMessage::new_command(
+                NetworkActorCommand::GossipActorMessage(
+                    GossipActorMessage::RotatePassiveSyncingPeers,
+                ),
+            ))
+            .expect("node_a alive");
+    }
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
     let sent_amount = 1000000 + 5;
 
     let message = |rpc_reply| -> NetworkActorMessage {
