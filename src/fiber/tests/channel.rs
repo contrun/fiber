@@ -1311,7 +1311,7 @@ async fn test_send_payment_with_max_nodes() {
     let receiver_local = nodes[last].get_local_balance_from_channel(channels[last - 1]);
 
     // sleep for seconds to make sure the channel is established
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000 * 2)).await;
     let sent_amount = 1000000 + 5;
 
     let message = |rpc_reply| -> NetworkActorMessage {
@@ -1335,6 +1335,7 @@ async fn test_send_payment_with_max_nodes() {
         ))
     };
     let res = call!(source_node.network_actor, message).expect("node_a alive");
+    dbg!(&res);
     assert!(res.is_ok());
 
     let message = |rpc_reply| -> NetworkActorMessage {

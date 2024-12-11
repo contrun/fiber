@@ -57,7 +57,7 @@ const MAX_NUM_OF_BROADCAST_MESSAGES: u16 = 1000;
 pub(crate) const DEFAULT_NUM_OF_BROADCAST_MESSAGE: u16 = 100;
 
 const MAX_NUM_OF_ACTIVE_SYNCING_PEERS: usize = 1;
-const MIN_NUM_OF_PASSIVE_SYNCING_PEERS: usize = 2;
+const MIN_NUM_OF_PASSIVE_SYNCING_PEERS: usize = 20;
 
 const NUM_SIMULTANEOUS_GET_REQUESTS: usize = 1;
 const GET_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
@@ -1344,9 +1344,18 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
             }
 
             ExtendedGossipMessageStoreMessage::SaveMessage(message, wait_for_saving, reply) => {
+                debug!(
+                    "ExtendedGossipMessageActor received message to save: {:?}",
+                    message
+                );
                 if let Some(existing_message) =
                     get_existing_newer_broadcast_message(&message, &state.store)
                 {
+                    debug!(
+                        "An existing broadcast message already saved to store: existing {:?}, new message to store {:?}",
+                        existing_message,
+                        message
+                    );
                     let _ = reply.send(Err(Error::InvalidParameter(format!(
                             "An existing broadcast message already saved to store: existing {:?}, new message to store {:?}",
                             existing_message,
@@ -1412,8 +1421,11 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
 
                 let complete_messages = state.prune_messages_to_be_saved();
 
-                // We need to send the lagged complete messages to the subscribers. After doing this,
-                // we may remove the messages from the lagged_messages.
+                debug!(
+                    "ExtendedGossipMessageActor sending complete messages to subscribers: number of messages = {}, messages = {:?}",
+                    complete_messages.len(),
+                    complete_messages
+                );
                 for subscription in state.output_ports.values() {
                     let messages_to_send = match subscription.filter {
                         Some(ref filter) => complete_messages
@@ -1424,7 +1436,7 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                         None => complete_messages.clone(),
                     };
                     debug!(
-                        "ExtendedGossipMessageActor sending lagged complete messages to subscriber: number of messages = {}",
+                        "ExtendedGossipMessageActor sending complete messages to subscriber: number of messages = {}",
                         messages_to_send.len()
                     );
                     for chunk in messages_to_send.chunks(MAX_NUM_OF_BROADCAST_MESSAGES as usize) {
@@ -1641,6 +1653,10 @@ where
     }
 
     async fn try_to_verify_and_save_broadcast_message(&mut self, message: BroadcastMessage) {
+        debug!(
+            "Trying to verify and save broadcast message: {:?}",
+            &message
+        );
         // If there is any messages related to this message that we haven't obtained yet, we will
         // add them to pending_queries, which would be processed later.
         // TODO: It is possible the message here comes from a malicious peer. We should check bookkeep
@@ -1799,6 +1815,13 @@ fn get_existing_newer_broadcast_message<S: GossipMessageStore>(
     store: &S,
 ) -> Option<BroadcastMessageWithTimestamp> {
     get_existing_broadcast_message(message, store).and_then(|existing_message| {
+        dbg!(
+            &existing_message,
+            &message,
+            existing_message.cursor(),
+            message.cursor(),
+            message.cursor() > Some(existing_message.cursor())
+        );
         match message.cursor() {
             Some(cursor) if cursor > existing_message.cursor() => None,
             _ => Some(existing_message),
