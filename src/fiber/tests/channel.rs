@@ -1350,6 +1350,7 @@ async fn test_send_payment_with_max_nodes() {
         ))
     };
     let res = call!(source_node.network_actor, message).expect("node_a alive");
+    dbg!(&res);
     assert!(res.is_ok());
 
     let message = |rpc_reply| -> NetworkActorMessage {
