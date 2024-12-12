@@ -267,14 +267,20 @@ where
         if messages.is_empty() {
             return false;
         }
-        debug!("Updating network graph for messages: {:?}", messages);
         debug!(
-            "Current channels in network graph {:?}",
+            "Updating network graph for with {} messages: {:?}",
+            messages.len(),
+            messages
+        );
+        debug!(
+            "Current channels in network graph before update ({}) {:?}",
+            self.channels().into_iter().collect::<Vec<_>>().len(),
             self.channels().into_iter().collect::<Vec<_>>()
         );
         debug!(
-            "Current nodes in network graph {:?}",
-            self.channels().into_iter().collect::<Vec<_>>()
+            "Current nodes in network graph before update ({}) {:?}",
+            self.nodes().into_iter().collect::<Vec<_>>().len(),
+            self.nodes().into_iter().collect::<Vec<_>>()
         );
         for message in messages {
             self.update_lastest_cursor(message.cursor());
@@ -303,11 +309,13 @@ where
             }
         }
         debug!(
-            "Current channels in network graph after update {:?}",
+            "Current channels in network graph after update ({}) {:?}",
+            self.channels().into_iter().collect::<Vec<_>>().len(),
             self.channels().into_iter().collect::<Vec<_>>()
         );
         debug!(
-            "Current nodes in network graph after update {:?}",
+            "Current nodes in network graph after update ({}) {:?}",
+            self.nodes().into_iter().collect::<Vec<_>>().len(),
             self.nodes().into_iter().collect::<Vec<_>>()
         );
         return true;
