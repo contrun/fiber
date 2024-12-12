@@ -2,6 +2,7 @@ use crate::fiber::channel::{MESSAGE_OF_NODE1_FLAG, MESSAGE_OF_NODE2_FLAG};
 use crate::fiber::config::{DEFAULT_TLC_EXPIRY_DELTA, MAX_PAYMENT_TLC_EXPIRY_LIMIT};
 use crate::fiber::gossip::GossipMessageStore;
 use crate::fiber::graph::{PathFindError, SessionRoute};
+use crate::fiber::tests::test_utils::init_tracing;
 use crate::fiber::types::Pubkey;
 use crate::now_timestamp_as_millis_u64;
 use crate::{
@@ -1261,6 +1262,8 @@ fn test_graph_payment_pay_self_will_ok() {
 
 #[test]
 fn test_graph_build_route_with_path_limits() {
+    init_tracing();
+
     let mut network = MockNetworkGraph::new(100);
     // Add edges with min_htlc_value set to 50
     let mut fee_rate = 100000;
@@ -1298,6 +1301,7 @@ fn test_graph_build_route_with_path_limits() {
     };
     let payment_data = SendPaymentData::new(command).unwrap();
     let route = network.graph.build_route(payment_data);
+    dbg!(&route);
     assert!(route.is_ok());
     let route = route.unwrap();
     assert_eq!(route.len(), 100);

@@ -623,6 +623,7 @@ impl GossipMessageStore for Store {
     }
 
     fn save_channel_update(&self, channel_update: crate::fiber::types::ChannelUpdate) {
+        tracing::debug!("save_channel_update: {:?}", channel_update);
         let mut batch = self.batch();
         let message_id = BroadcastMessageID::ChannelUpdate(channel_update.channel_outpoint.clone());
 
