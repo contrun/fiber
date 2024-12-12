@@ -1312,7 +1312,7 @@ async fn test_send_payment_with_max_nodes() {
     let receiver_local = nodes[last].get_local_balance_from_channel(channels[last - 1]);
 
     // sleep for seconds to make sure the channel is established
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
     for node in &nodes {
         // Rotate the passive syncing peers so that we can properly propagate the channel updates.
         // In current implementation, we will almost certainly receiving updates from the peers
@@ -1326,7 +1326,7 @@ async fn test_send_payment_with_max_nodes() {
             .expect("node_a alive");
     }
     // It takes quite some time to propagate the channel updates to all nodes.
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
 
     let sent_amount = 1000000 + 5;
 
@@ -1351,6 +1351,7 @@ async fn test_send_payment_with_max_nodes() {
         ))
     };
     let res = call!(source_node.network_actor, message).expect("node_a alive");
+    dbg!(&res);
     assert!(res.is_ok());
 
     let message = |rpc_reply| -> NetworkActorMessage {

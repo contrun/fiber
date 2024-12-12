@@ -528,18 +528,12 @@ where
                     }
 
                     for message in messages {
-                        let _ = state
+                        state
                             .store
                             .actor
-                            .call(
-                                |reply| {
-                                    ExtendedGossipMessageStoreMessage::SaveMessage(
-                                        message, false, reply,
-                                    )
-                                },
-                                None,
-                            )
-                            .await
+                            .send_message(ExtendedGossipMessageStoreMessage::SaveMessageAsync(
+                                message,
+                            ))
                             .expect("store actor alive");
                     }
                     debug!("Sending new GetBroadcastMessages request after receiving response: peer_id {:?}", &state.peer_id);
@@ -690,7 +684,12 @@ where
     ) -> Result<(), ActorProcessingErr> {
         match message {
             PeerFilterProcessorMessage::NewStoreUpdates(updates) => {
+                debug!("Received new store updates: {:?}", &updates);
                 if let Some(result) = updates.create_broadcast_messages_filter_result() {
+                    debug!(
+                        "Sending BroadcastMessagesFilterResult to peer {:?}: messages {:?}",
+                        &self.peer, &result
+                    );
                     self.gossip_actor
                         .send_message(GossipActorMessage::SendGossipMessage(
                             GossipMessageWithPeerId {
@@ -974,8 +973,8 @@ impl BroadcastMessageOutput {
 pub enum GossipMessageProcessingError {
     #[error("Failed to process the message: {0}")]
     ProcessingError(String),
-    #[error("Failed to save the message as a newer message is already saved: {0}")]
-    NewerMessageSaved(String),
+    #[error("Failed to save the message as a newer message is already saved: {0:?}")]
+    NewerMessageSaved(BroadcastMessageWithTimestamp),
 }
 
 // We use this notifier to notify the caller that the message has been saved to the store.
@@ -1349,15 +1348,40 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                 }
             }
 
-            ExtendedGossipMessageStoreMessage::SaveMessage(message, wait_for_saving, reply) => {
+            ExtendedGossipMessageStoreMessage::SaveMessageAsync(message) => {
+                ractor::concurrency::tokio_primatives::spawn(async move {
+                    match call!(
+                        myself,
+                        ExtendedGossipMessageStoreMessage::SaveMessage,
+                        message.clone()
+                    ) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            error!(
+                                "Failed to save message to the store: message {:?}, error {:?}",
+                                message, e
+                            );
+                        }
+                    }
+                });
+            }
+
+            ExtendedGossipMessageStoreMessage::SaveMessage(message, reply) => {
+                debug!(
+                    "ExtendedGossipMessageActor received message to save: {:?}",
+                    message
+                );
+
                 if let Some(existing_message) =
                     get_existing_newer_broadcast_message(&message, &state.store)
                 {
-                    let _ = reply.send(Err(Error::InvalidParameter(format!(
-                            "An existing broadcast message already saved to store: existing {:?}, new message to store {:?}",
+                    if BroadcastMessage::from(existing_message.clone()) == message {
+                        let _ = reply.send(Ok(existing_message));
+                    } else {
+                        let _ = reply.send(Err(GossipMessageProcessingError::NewerMessageSaved(
                             existing_message,
-                            message
-                        ))));
+                        )));
+                    }
                     return Ok(());
                 }
 
@@ -1369,11 +1393,9 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                 .await
                 {
                     Err(error) => {
-                        error!(
-                            "Failed to verify broadcast message {:?}: {:?}",
-                            &message, &error
-                        );
-                        let _ = reply.send(Err(error));
+                        let _ = reply.send(Err(GossipMessageProcessingError::ProcessingError(
+                            error.to_string(),
+                        )));
                         return Ok(());
                     }
                     Ok((verified_message, is_complete)) => (verified_message, is_complete),
@@ -1386,22 +1408,26 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                         "Broadcast message timestamp is too far in the future: {:?}",
                         message
                     );
-                    let _ = reply.send(Err(Error::InvalidParameter(format!(
-                        "Broadcast message timestamp is too far in the future {:?}",
-                        message
-                    ))));
+                    let _ =
+                        reply.send(Err(GossipMessageProcessingError::ProcessingError(format!(
+                            "Broadcast message timestamp is too far in the future {:?}",
+                            message
+                        ))));
                     return Ok(());
                 }
 
-                if wait_for_saving {
-                    let notifier = state.create_message_saving_notifier(&message);
-                    let _ = reply.send(Ok(Some(notifier)));
-                } else {
-                    let _ = reply.send(Ok(None));
-                }
-
+                let mut receiver = state.create_message_saving_notifier(&message);
                 trace!("ExtendedGossipMessageActor saving message: {:?}", message);
                 state.messages_to_be_saved.insert(message);
+
+                ractor::concurrency::tokio_primatives::spawn(async move {
+                    let result = receiver.recv().await;
+                    let _ = reply.send(result.unwrap_or_else(|err| {
+                        Err(GossipMessageProcessingError::ProcessingError(
+                            err.to_string(),
+                        ))
+                    }));
+                });
             }
 
             ExtendedGossipMessageStoreMessage::Tick => {
@@ -1418,8 +1444,11 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
 
                 let complete_messages = state.prune_messages_to_be_saved();
 
-                // We need to send the lagged complete messages to the subscribers. After doing this,
-                // we may remove the messages from the lagged_messages.
+                debug!(
+                    "ExtendedGossipMessageActor sending complete messages to subscribers: number of messages = {}, messages = {:?}",
+                    complete_messages.len(),
+                    complete_messages
+                );
                 for subscription in state.output_ports.values() {
                     let messages_to_send = match subscription.filter {
                         Some(ref filter) => complete_messages
@@ -1430,7 +1459,7 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                         None => complete_messages.clone(),
                     };
                     debug!(
-                        "ExtendedGossipMessageActor sending lagged complete messages to subscriber: number of messages = {}",
+                        "ExtendedGossipMessageActor sending complete messages to subscriber: number of messages = {}",
                         messages_to_send.len()
                     );
                     for chunk in messages_to_send.chunks(MAX_NUM_OF_BROADCAST_MESSAGES as usize) {
@@ -1458,15 +1487,13 @@ pub enum ExtendedGossipMessageStoreMessage {
     // Update the subscription with a new cursor. If the outer Option is None, the subscription will be cancelled.
     // If the inner Option is None, the subscription will start from the very latest message in the store.
     UpdateSubscription(u64, Option<Option<Cursor>>, RpcReplyPort<()>),
-    // Save a new broadcast message to the store. We will check if the message has any dependencies that are not
-    // saved yet. If it has, we will save it to messages_to_be_saved, otherwise we will save it to the store.
-    // We may also save the message to lagged_messages if the message is lagged.
-    // We may pass a bool parameter to indicate if a output port to wait for the message to be saved should be
-    // returned. If there is any error while saving the message, we will send an error message to the output port.
+    // Save a broadcast message to the store without waiting for the message to be saved.
+    SaveMessageAsync(BroadcastMessage),
+    // Save a broadcast message to the store. We will check if the message has any dependencies that are not
+    // saved yet. If it has, we will wait until the dependencies to be saved.
     SaveMessage(
         BroadcastMessage,
-        bool,
-        RpcReplyPort<Result<Option<GossipMessageSavingNotificationReceiver>, Error>>,
+        RpcReplyPort<Result<BroadcastMessageWithTimestamp, GossipMessageProcessingError>>,
     ),
     // Send broadcast messages after the cursor to the subscriber specified in the u64 id.
     // This is normally called immediately after a new subscription is created. This is the time when
@@ -1703,6 +1730,10 @@ where
     }
 
     async fn try_to_verify_and_save_broadcast_message(&mut self, message: BroadcastMessage) {
+        debug!(
+            "Trying to verify and save broadcast message: {:?}",
+            &message
+        );
         // If there is any messages related to this message that we haven't obtained yet, we will
         // add them to pending_queries, which would be processed later.
         // TODO: It is possible the message here comes from a malicious peer. We should check bookkeep
@@ -1710,14 +1741,9 @@ where
         let queries = get_dependent_message_queries(&message, self.get_store());
         self.pending_queries.extend(queries);
 
-        let _ = self
-            .store
+        self.store
             .actor
-            .call(
-                |reply| ExtendedGossipMessageStoreMessage::SaveMessage(message, false, reply),
-                None,
-            )
-            .await
+            .send_message(ExtendedGossipMessageStoreMessage::SaveMessageAsync(message))
             .expect("store actor alive");
     }
 
@@ -1861,6 +1887,13 @@ fn get_existing_newer_broadcast_message<S: GossipMessageStore>(
     store: &S,
 ) -> Option<BroadcastMessageWithTimestamp> {
     get_existing_broadcast_message(message, store).and_then(|existing_message| {
+        dbg!(
+            &existing_message,
+            &message,
+            existing_message.cursor(),
+            message.cursor(),
+            message.cursor() > Some(existing_message.cursor())
+        );
         match message.cursor() {
             Some(cursor) if cursor > existing_message.cursor() => None,
             _ => Some(existing_message),
@@ -2354,67 +2387,49 @@ where
                     .await;
             }
             GossipActorMessage::TryBroadcastMessages(messages) => {
-                debug!("Trying to broadcast message: {:?}", &messages);
+                debug!("Trying to broadcast messages: {:?}", &messages);
                 for message in messages {
-                    match call!(
-                        state.store.actor,
-                        ExtendedGossipMessageStoreMessage::SaveMessage,
-                        message.clone(),
-                        true
-                    )
-                    .expect("store actor alive")
-                    {
-                        Ok(Some(mut receiver)) => {
-                            debug!(
-                                "Broadcast message saving subscribed, waiting for it to be saved: {:?}",
-                                &message
-                            );
-                            let myself = myself.clone();
-                            ractor::concurrency::tokio_primatives::spawn(async move {
-                                // TODO: We should set a timeout here.
-                                match receiver.recv().await {
-                                    Ok(Ok(message)) => {
-                                        debug!("Broadcast message saved: {:?}", &message);
-                                        let _ = myself.send_message(
-                                            GossipActorMessage::BroadcastMessageImmediately(
-                                                message,
-                                            ),
-                                        );
-                                    }
-                                    Ok(Err(error)) => {
-                                        error!(
-                                            "Failed to save broadcast message (maybe message is invalid) {:?}: {:?}",
-                                            &message, &error
-                                        );
-                                    }
-                                    Err(error) => {
-                                        error!(
-                                            "Failed to save broadcast message {:?}: {:?}",
-                                            &message, &error
-                                        );
-                                    }
-                                }
-                            });
-                        }
-                        Ok(None) => {
-                            panic!("output port not returned while saving broadcast message");
-                        }
-                        Err(error) => {
-                            error!(
+                    let myself = myself.clone();
+                    let store_actor = state.store.actor.clone();
+                    ractor::concurrency::tokio_primatives::spawn(async move {
+                        match call!(
+                            store_actor,
+                            ExtendedGossipMessageStoreMessage::SaveMessage,
+                            message.clone()
+                        )
+                        .expect("store actor alive")
+                        {
+                            Ok(message) => {
+                                debug!(
+                                    "Broadcast message saving subscribed, waiting for it to be saved: {:?}",
+                                    &message
+                                );
+                                let _ = myself.send_message(
+                                    GossipActorMessage::BroadcastMessageImmediately(message),
+                                );
+                            }
+                            Err(error) => {
+                                error!(
                                 "Failed to save broadcast message (calling actor error) {:?}: {:?}",
                                 &message, &error
                             );
+                            }
                         }
-                    }
+                    });
                 }
             }
             GossipActorMessage::BroadcastMessageImmediately(message) => {
+                debug!("Broadcasting message immediately: {:?}", &message);
                 for (peer, peer_state) in &state.peer_states {
                     let session = peer_state.session;
                     match &peer_state.filter_processor {
                         Some(filter_processor)
                             if filter_processor.get_filter() < &message.cursor() =>
                         {
+                            debug!(
+                                "Broadcasting message immediately to peer {:?}: {:?}",
+                                peer, &message
+                            );
                             state
                                 .send_message_to_session(
                                     session,
@@ -2518,6 +2533,10 @@ where
             }
 
             GossipActorMessage::SendGossipMessage(GossipMessageWithPeerId { peer_id, message }) => {
+                debug!(
+                    "Sending gossip message to peer {:?}: {:?}",
+                    &peer_id, &message
+                );
                 if let Err(error) = state.send_message_to_peer(&peer_id, message).await {
                     error!(
                         "Failed to send gossip message to peer {:?}: {:?}",

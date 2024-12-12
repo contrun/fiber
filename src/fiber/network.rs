@@ -911,7 +911,10 @@ where
                     ));
             }
             NetworkActorEvent::GossipMessageUpdates(gossip_message_updates) => {
-                debug!("Updating network graph for gossip message updates");
+                debug!(
+                    "Updating network graph for gossip message updates: num of messages {}",
+                    gossip_message_updates.messages.len()
+                );
                 let mut graph = self.network_graph.write().await;
                 graph.update_for_messages(gossip_message_updates.messages);
             }
@@ -2857,6 +2860,10 @@ where
 
         store_update_subscriber
             .subscribe(Some(graph_subscribing_cursor), myself.clone(), |m| {
+                trace!(
+                    "Received gossip store update: num of messages {:?}",
+                    &m.messages.len()
+                );
                 Some(NetworkActorMessage::new_event(
                     NetworkActorEvent::GossipMessageUpdates(m),
                 ))
