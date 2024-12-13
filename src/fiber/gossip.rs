@@ -1057,12 +1057,15 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
             }
         }
 
+        debug!("Pruned messages: {:?}", messages_map);
+
         loop {
             let key = match messages_map.keys().next() {
                 None => break,
                 Some(key) => key.clone(),
             };
             let message = messages_map.remove(&key).expect("key exists");
+            debug!("Processing message: {:?}", message);
             if let BroadcastMessageWithTimestamp::ChannelUpdate(channel_update) = &message {
                 let outpoint = channel_update.channel_outpoint.clone();
                 if let Some(message) =
@@ -1072,9 +1075,12 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
                 }
             }
             sorted_messages.push(message);
+            debug!("Sorted messages: {:?}", sorted_messages);
         }
 
         let mut verified_sorted_messages = Vec::with_capacity(sorted_messages.len());
+
+        debug!("Pruned messages to be saved: {:?}", sorted_messages);
 
         for message in sorted_messages {
             if let Err(error) =
@@ -1887,6 +1893,7 @@ async fn verify_and_save_broadcast_message<S: GossipMessageStore>(
             }
         }
     }
+    debug!("Verified and saved message: {:?}", message);
     Ok(())
 }
 

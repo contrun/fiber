@@ -944,6 +944,7 @@ async fn test_network_send_previous_tlc_error() {
         NetworkActorMessage::Command(NetworkActorCommand::GetPayment(payment_hash, rpc_reply))
     };
     let res = call!(node_a.network_actor, message).expect("node_a alive");
+    dbg!(&res);
     assert!(res.is_ok());
     assert_eq!(res.unwrap().status, PaymentSessionStatus::Success);
 }
@@ -1152,6 +1153,7 @@ async fn test_network_send_payment_amount_is_too_large() {
     };
     let res = call!(node_a.network_actor, message).expect("node_a alive");
     assert!(res.is_err());
+    dbg!(&res);
     assert!(res
         .err()
         .unwrap()
