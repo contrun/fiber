@@ -1045,6 +1045,7 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
             .collect::<HashSet<_>>();
         self.messages_to_be_saved
             .retain(|v| !complete_messages.contains(v));
+
         for message in &complete_messages {
             self.save_broadcast_message(message.clone());
         }
@@ -1072,18 +1073,16 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
                     let mut messages = self.get_dependent_messages_in_memory(&message);
                     messages.push(message);
                     for message in &messages {
-                        if let Err(error) = verify_and_save_broadcast_message(
-                            message,
-                            &self.store,
-                            &self.chain_actor,
-                        )
-                        .await
+                        match verify_broadcast_message(message, &self.store, &self.chain_actor)
+                            .await
                         {
-                            warn!(
-                                "Failed to verify and save message {:?}: {:?}",
-                                message, error
-                            );
-                            break;
+                            Ok(is_saved) => {
+                                self.save_broadcast_message(message.clone());
+                            }
+                            Err(error) => {
+                                warn!("Failed to verify message {:?}: {:?}", message, error);
+                                break;
+                            }
                         }
                     }
 
@@ -1953,37 +1952,24 @@ async fn get_broadcast_message_with_timestamp<S: GossipMessageStore>(
     }
 }
 
-// Channel updates depends on channel announcements to obtain the node public keys.
-// If a channel update is saved before the channel announcement, we can't reliably determine if
-// this channel update is valid. So we need to save the channel update to lagged_messages and
-// wait for the channel announcement to be saved. The bool value returned indicates if the
-// message is fully verified and can be saved to the store.
-// In the same vein, channel announcement contains references to node announcements. If a node
-// announcement is saved before the channel announcement, we need to temporarily save the channel
-// announcement to lagged_messages and wait for the node announcement to be saved.
-async fn verify_and_save_broadcast_message<S: GossipMessageStore>(
+// Verify the broadcast message and determine if a message is already saved in the store.
+// If the message is not saved in the store, then a true value is returned.
+async fn verify_broadcast_message<S: GossipMessageStore>(
     message: &BroadcastMessageWithTimestamp,
     store: &S,
     chain: &ActorRef<CkbChainMessage>,
-) -> Result<(), Error> {
+) -> Result<bool, Error> {
     match message {
-        BroadcastMessageWithTimestamp::ChannelAnnouncement(timestamp, channel_announcement) => {
-            if !verify_channel_announcement(channel_announcement, store, chain).await? {
-                store.save_channel_announcement(*timestamp, channel_announcement.clone());
-            }
+        BroadcastMessageWithTimestamp::ChannelAnnouncement(_, channel_announcement) => {
+            Ok(verify_channel_announcement(channel_announcement, store, chain).await?)
         }
         BroadcastMessageWithTimestamp::ChannelUpdate(channel_update) => {
-            if !verify_channel_update(channel_update, store)? {
-                store.save_channel_update(channel_update.clone());
-            }
+            Ok(verify_channel_update(channel_update, store)?)
         }
         BroadcastMessageWithTimestamp::NodeAnnouncement(node_announcement) => {
-            if !verify_node_announcement(node_announcement, store)? {
-                store.save_node_announcement(node_announcement.clone());
-            }
+            Ok(verify_node_announcement(node_announcement, store)?)
         }
     }
-    Ok(())
 }
 
 async fn get_channel_tx(
