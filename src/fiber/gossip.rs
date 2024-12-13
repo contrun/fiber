@@ -1045,9 +1045,6 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
             .collect::<HashSet<_>>();
         self.messages_to_be_saved
             .retain(|v| !complete_messages.contains(v));
-        for message in &complete_messages {
-            self.save_broadcast_message(message.clone());
-        }
 
         let mut sorted_messages = Vec::with_capacity(complete_messages.len());
         let mut message_latest_cursors = HashMap::new();
