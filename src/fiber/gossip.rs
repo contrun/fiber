@@ -1455,16 +1455,23 @@ where
             .collect()
     }
 
+    // Check if we have finished syncing with at least n peers.
+    // When we have finished syncing with a peer, we may turn the peer state either to PassiveFilter
+    // or FinishedSyncing.
+    fn has_finished_active_syncing_with_n_peers(&self, n: usize) -> bool {
+        self.num_of_finished_syncing_peers() + self.num_of_passive_syncing_peers() >= n
+    }
+
     // Passive syncer should be started when there is at least one peer is in the state of passive syncing.
     // Or there is at least one peer has finished syncing.
     fn is_ready_for_passive_syncing(&self) -> bool {
-        self.num_of_passive_syncing_peers() > 0 || self.num_of_finished_syncing_peers() > 0
+        self.has_finished_active_syncing_with_n_peers(1)
     }
 
     // Currently we only start new active syncer when there is no successful active syncer finished their job.
     // It is actually sensible to start a new active syncer once in a while.
     fn is_ready_for_active_syncing(&self) -> bool {
-        self.num_of_finished_syncing_peers() == 0
+        !self.has_finished_active_syncing_with_n_peers(1)
     }
 
     fn peers_to_start_active_syncing(&self) -> Vec<PeerId> {
