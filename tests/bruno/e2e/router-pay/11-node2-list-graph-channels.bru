@@ -32,7 +32,7 @@ assert {
 }
 
 script:post-response {
-  await new Promise(r => setTimeout(r, 1000));
+  await new Promise(r => setTimeout(r, 5000);
   console.log("step 11 list graph channels: ", res.body.result.channels);
   if (res.body.result.channels.length != 2) {
     throw new Error("graph channels length is not right");

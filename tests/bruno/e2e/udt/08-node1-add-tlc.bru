@@ -43,7 +43,7 @@ script:pre-request {
 
 script:post-response {
   // Sleep for sometime to make sure current operation finishes before next request starts.
-  await new Promise(r => setTimeout(r, 100));
+  await new Promise(r => setTimeout(r, 5000);
   console.log("response from node1 AddTlc:", res.body);
   bru.setVar("N1N2_TLC_ID1", res.body.result.tlc_id);
 

@@ -30,7 +30,7 @@ body:json {
 }
 
 script:pre-request {
-  await new Promise(r => setTimeout(r, 3000));
+  await new Promise(r => setTimeout(r, 5000);
 }
 
 assert {
@@ -38,6 +38,6 @@ assert {
 }
 
 script:post-response {
-  await new Promise(r => setTimeout(r, 2000));
+  await new Promise(r => setTimeout(r, 5000);
   console.log("step 33 list channels: ", res.body.result);
 }

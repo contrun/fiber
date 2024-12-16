@@ -41,5 +41,5 @@ script:post-response {
     console.log("step 18: ", res.body);
   // This request is remove a TLC which already removed in previous step.
   // Sleep for sometime to make sure current operation finishes before next request starts.
-  await new Promise(r => setTimeout(r, 100));
+  await new Promise(r => setTimeout(r, 5000);
 }

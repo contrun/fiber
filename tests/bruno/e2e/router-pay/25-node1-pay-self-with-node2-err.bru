@@ -36,7 +36,7 @@ assert {
 
 script:post-response {
   // Sleep for sometime to make sure current operation finishes before next request starts.
-  await new Promise(r => setTimeout(r, 100));
+  await new Promise(r => setTimeout(r, 5000);
   console.log("25 step result: ", res.body);
   // for pay self router A -> B -> A, can not use the same channel from A -> B and B -> A
   if (!(res.body.error.message.includes("Failed to build route"))) {

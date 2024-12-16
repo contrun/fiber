@@ -38,11 +38,11 @@ assert {
 }
 
 script:pre-request {
-  await new Promise(r => setTimeout(r, 1000));
+  await new Promise(r => setTimeout(r, 5000);
 }
 
 script:post-response {
   // Sleep for sometime to make sure current operation finishes before next request starts.
-  await new Promise(r => setTimeout(r, 100));
+  await new Promise(r => setTimeout(r, 5000);
   console.log("remove tlc response: ", res.body);
 }

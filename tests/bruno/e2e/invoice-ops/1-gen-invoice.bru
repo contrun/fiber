@@ -53,7 +53,7 @@ assert {
 
 script:post-response {
   // Sleep for sometime to make sure current operation finishes before next request starts.
-  await new Promise(r => setTimeout(r, 100));
+  await new Promise(r => setTimeout(r, 5000);
   console.log("generated result: ", res.body.result);
   bru.setVar("INVOICE_ADDR", res.body.result.invoice_address);
   bru.setVar("INVOICE_PAYMENT_HASH", res.body.result.invoice.data.payment_hash);

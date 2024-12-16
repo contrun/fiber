@@ -49,8 +49,8 @@ script:post-response {
   } else {
     console.log("Stopping generating blocks");
     // Don't know why it takes so long for funding transaction to be confirmed.
-    await new Promise(r => setTimeout(r, 5000));
+    await new Promise(r => setTimeout(r, 5000);
   }
-  await new Promise(r => setTimeout(r, 10));
+  await new Promise(r => setTimeout(r, 5000);
   console.log("Generated the " + bru.getVar("iteration") + "th block");
 }

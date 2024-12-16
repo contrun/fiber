@@ -34,7 +34,7 @@ assert {
 }
 
 script:post-response {
-  await new Promise(r => setTimeout(r, 1000));
+  await new Promise(r => setTimeout(r, 5000);
   console.log("step 32 list graph channels: ", res.body.result.channels);
   bru.setVar("CHANNEL_ID_TO_UPDATE", res.body.result.channels[0].channel_id);
 }

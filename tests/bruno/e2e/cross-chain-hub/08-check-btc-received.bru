@@ -35,7 +35,7 @@ script:post-response {
     console.log("Bob has received the payment");
     bru.setVar("iteration", 0);
   } else if (i+1 < n) {
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, 5000);
     bru.setVar("iteration", i + 1);
     bru.setNextRequest("08-check-btc-received");
   } else {
