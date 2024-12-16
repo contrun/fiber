@@ -1113,7 +1113,7 @@ where
                         "Signing commitment transactions while shutdown is pending, current state {:?}",
                         &state.state
                     );
-                    CommitmentSignedFlags::PendingShutdown(flags)
+                    CommitmentSignedFlags::PendingShutdown()
                 } else {
                     return Err(ProcessingChannelError::InvalidState(format!(
                         "Unable to process commitment_signed message in shutdowning state with flags {:?}",
@@ -1183,7 +1183,7 @@ where
                 state.maybe_transition_to_tx_signatures(flags, &self.network)?;
             }
             CommitmentSignedFlags::ChannelReady() => {}
-            CommitmentSignedFlags::PendingShutdown(_) => {
+            CommitmentSignedFlags::PendingShutdown() => {
                 state.maybe_transition_to_shutdown(&self.network)?;
             }
         }
@@ -3081,7 +3081,7 @@ bitflags! {
 #[derive(Debug)]
 enum CommitmentSignedFlags {
     SigningCommitment(SigningCommitmentFlags),
-    PendingShutdown(ShuttingDownFlags),
+    PendingShutdown(),
     ChannelReady(),
 }
 
@@ -5205,7 +5205,7 @@ impl ChannelActorState {
                         "Signing commitment transactions while shutdown is pending, current state {:?}",
                         &self.state
                     );
-                    CommitmentSignedFlags::PendingShutdown(flags)
+                    CommitmentSignedFlags::PendingShutdown()
                 } else {
                     return Err(ProcessingChannelError::InvalidState(format!(
                         "Unable to process commitment_signed message in shutdowning state with flags {:?}",
@@ -5259,11 +5259,11 @@ impl ChannelActorState {
                 self.update_state(ChannelState::SigningCommitment(flags));
                 self.maybe_transition_to_tx_signatures(flags, network)?;
             }
-            CommitmentSignedFlags::ChannelReady() | CommitmentSignedFlags::PendingShutdown(_) => {
+            CommitmentSignedFlags::ChannelReady() | CommitmentSignedFlags::PendingShutdown() => {
                 self.send_revoke_and_ack_message(network);
                 match flags {
                     CommitmentSignedFlags::ChannelReady() => {}
-                    CommitmentSignedFlags::PendingShutdown(_) => {
+                    CommitmentSignedFlags::PendingShutdown() => {
                         // TODO: Handle error in the below function call.
                         // We've already updated our state, we should never fail here.
                         self.maybe_transition_to_shutdown(network)?;
