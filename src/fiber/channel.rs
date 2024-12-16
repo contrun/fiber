@@ -3497,10 +3497,7 @@ impl ChannelActorState {
         self.public_channel_info.as_ref().and_then(|info| {
             Some(ChannelUpdate::new_unsigned(
                 self.must_get_funding_transaction_outpoint(),
-                std::time::UNIX_EPOCH
-                    .elapsed()
-                    .expect("Duration since unix epoch")
-                    .as_secs(),
+                now_timestamp_as_millis_u64(),
                 message_flags,
                 0,
                 info.tlc_expiry_delta,
