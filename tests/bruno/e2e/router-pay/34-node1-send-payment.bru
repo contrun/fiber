@@ -36,7 +36,7 @@ assert {
 
 script:post-response {
   // Sleep for sometime to make sure current operation finishes before next request starts.
-  await new Promise(r => setTimeout(r, 2000));
+  await new Promise(r => setTimeout(r, 5000));
   bru.setVar("payment_hash", res.body.result.payment_hash);
   console.log("33 step result: ", res.body);
 }

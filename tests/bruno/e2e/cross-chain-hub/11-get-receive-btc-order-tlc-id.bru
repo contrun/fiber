@@ -51,9 +51,9 @@ script:post-response {
     console.log(`Node 3 has sent a pending tlc: ${res.body.result.tlc_id}`);
     bru.setVar("iteration", 0);
     // wait for confirmation
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 5000));
   } else if (i+1 < n) {
-    await new Promise(r => setTimeout(r, 10));
+    await new Promise(r => setTimeout(r, 5000));
     bru.setVar("iteration", i + 1);
     bru.setNextRequest("11-get-receive-btc-order-tlc-id");
   } else {

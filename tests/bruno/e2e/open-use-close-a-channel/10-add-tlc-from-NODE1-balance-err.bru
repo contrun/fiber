@@ -44,5 +44,5 @@ script:pre-request {
 script:post-response {
   console.log("step 10 response: ", res.body);
   // Sleep for sometime to make sure current operation finishes before next request starts.
-  await new Promise(r => setTimeout(r, 100));
+  await new Promise(r => setTimeout(r, 5000));
 }
