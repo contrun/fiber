@@ -11,7 +11,6 @@ use crate::fiber::types::EcdsaSignature;
 use crate::{
     fiber::{
         config::AnnouncedNodeName,
-        network::get_chain_hash,
         types::{ChannelAnnouncement, NodeAnnouncement, Privkey, Pubkey},
     },
     now_timestamp_as_millis_u64,
@@ -112,7 +111,6 @@ pub fn gen_rand_channel_announcement() -> (
         &sk1.pubkey(),
         &sk2.pubkey(),
         outpoint.clone(),
-        get_chain_hash(),
         &xonly,
         0,
         None,

@@ -5,7 +5,7 @@ use crate::{
         config::DEFAULT_TLC_EXPIRY_DELTA,
         gossip::GossipMessageStore,
         graph::ChannelUpdateInfo,
-        network::{get_chain_hash, NetworkActorStateStore, SendPaymentCommand, SendPaymentData},
+        network::{NetworkActorStateStore, SendPaymentCommand, SendPaymentData},
         tests::test_utils::NetworkNodeConfigBuilder,
         types::{
             BroadcastMessage, ChannelAnnouncement, ChannelUpdate, NodeAnnouncement, Privkey, Pubkey,
@@ -76,7 +76,6 @@ fn create_fake_channel_announcement_mesage(
         &sk1.pubkey(),
         &sk2.pubkey(),
         outpoint,
-        get_chain_hash(),
         &x_only_pub_key,
         capacity as u128,
         None,
@@ -199,7 +198,6 @@ async fn test_node1_node2_channel_update() {
 
     let create_channel_update = |timestamp: u64, message_flags: u32, key: Privkey| {
         let mut channel_update = ChannelUpdate::new_unsigned(
-            get_chain_hash(),
             channel_announcement.out_point().clone(),
             timestamp,
             message_flags,
@@ -264,7 +262,6 @@ async fn test_channel_update_version() {
             MESSAGE_OF_NODE2_FLAG
         };
         let mut channel_update = ChannelUpdate::new_unsigned(
-            get_chain_hash(),
             channel_info.out_point().clone(),
             now_timestamp_as_millis_u64(),
             message_flag,

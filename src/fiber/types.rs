@@ -1862,7 +1862,6 @@ impl ChannelAnnouncement {
         node1_pubkey: &Pubkey,
         node2_pubkey: &Pubkey,
         channel_outpoint: OutPoint,
-        chain_hash: Hash256,
         ckb_pubkey: &XOnlyPublicKey,
         capacity: u128,
         udt_type_script: Option<Script>,
@@ -1872,7 +1871,7 @@ impl ChannelAnnouncement {
             node2_signature: None,
             ckb_signature: None,
             features: Default::default(),
-            chain_hash,
+            chain_hash: get_chain_hash(),
             channel_outpoint,
             node1_id: *node1_pubkey,
             node2_id: *node2_pubkey,
@@ -1988,7 +1987,6 @@ pub struct ChannelUpdate {
 
 impl ChannelUpdate {
     pub fn new_unsigned(
-        chain_hash: Hash256,
         channel_outpoint: OutPoint,
         timestamp: u64,
         message_flags: u32,
@@ -2006,7 +2004,7 @@ impl ChannelUpdate {
         };
         Self {
             signature: None,
-            chain_hash,
+            chain_hash: get_chain_hash(),
             channel_outpoint,
             timestamp,
             message_flags,

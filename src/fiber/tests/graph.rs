@@ -124,7 +124,6 @@ impl MockNetworkGraph {
             },
         );
         self.store.save_channel_update(ChannelUpdate::new_unsigned(
-            get_chain_hash(),
             channel_outpoint.clone(),
             now_timestamp_as_millis_u64(),
             if node_a_is_node1 {
@@ -139,7 +138,6 @@ impl MockNetworkGraph {
         ));
         if let Some(fee_rate) = other_fee_rate {
             self.store.save_channel_update(ChannelUpdate::new_unsigned(
-                get_chain_hash(),
                 channel_outpoint.clone(),
                 now_timestamp_as_millis_u64(),
                 if node_a_is_node1 {

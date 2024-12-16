@@ -3336,7 +3336,6 @@ impl ChannelActorState {
                     &node1_id,
                     &node2_id,
                     channel_outpoint,
-                    get_chain_hash(),
                     &self.get_funding_lock_script_xonly_key(),
                     capacity,
                     self.funding_udt_type_script.clone(),
@@ -3497,7 +3496,6 @@ impl ChannelActorState {
 
         self.public_channel_info.as_ref().and_then(|info| {
             Some(ChannelUpdate::new_unsigned(
-                Default::default(),
                 self.must_get_funding_transaction_outpoint(),
                 std::time::UNIX_EPOCH
                     .elapsed()

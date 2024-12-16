@@ -63,7 +63,6 @@ fn mock_channel() -> ChannelAnnouncement {
             .tx_hash(rand_hash256.into())
             .index(0u32.pack())
             .build(),
-        Hash256::default(),
         &xonly,
         0,
         None,
@@ -179,7 +178,6 @@ fn test_store_save_channel_update() {
 
     let flags_for_update_of_node1 = 0;
     let channel_update_of_node1 = ChannelUpdate::new_unsigned(
-        Hash256::default(),
         OutPoint::new_builder()
             .tx_hash(gen_rand_sha256_hash().into())
             .index(0u32.pack())
