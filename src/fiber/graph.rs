@@ -277,9 +277,10 @@ where
             self.update_lastest_cursor(message.cursor());
             if message.chain_hash() != get_chain_hash() {
                 tracing::warn!(
-                    "Chain hash mismatch: message chain hash {:?}, ours {:?}",
+                    "Chain hash mismatch: having {:?}, expecting {:?}, full message {:?}",
                     message.chain_hash(),
-                    get_chain_hash()
+                    get_chain_hash(),
+                    &message
                 );
                 continue;
             }
