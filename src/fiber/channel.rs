@@ -5,12 +5,15 @@ use secp256k1::XOnlyPublicKey;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::fiber::serde_utils::U64Hex;
+use crate::fiber::types::{BroadcastMessageQuery, BroadcastMessageQueryFlags};
 use crate::{
     fiber::{
         fee::calculate_tlc_forward_fee,
         network::{get_chain_hash, SendOnionPacketCommand},
-        serde_utils::PubNonceAsBytes,
-        types::{ChannelUpdate, PeeledPaymentOnionPacket, TlcErr, TlcErrPacket, TlcErrorCode},
+        types::{
+            BroadcastMessage, ChannelUpdate, PeeledPaymentOnionPacket, TlcErr, TlcErrPacket,
+            TlcErrorCode,
+        },
     },
     invoice::{CkbInvoice, CkbInvoiceStatus, InvoiceStore},
     now_timestamp_as_millis_u64,
@@ -73,7 +76,7 @@ use super::{
     hash_algorithm::HashAlgorithm,
     key::blake2b_hash_with_salt,
     network::FiberMessageWithPeerId,
-    serde_utils::EntityHex,
+    serde_utils::{EntityHex, PubNonceAsBytes},
     types::{
         AcceptChannel, AddTlc, ChannelAnnouncement, ChannelReady, ClosingSigned, CommitmentSigned,
         EcdsaSignature, FiberChannelMessage, FiberMessage, Hash256, OpenChannel,
@@ -92,6 +95,14 @@ pub const FUNDING_CELL_WITNESS_LEN: usize = 16 + 32 + 64;
 // so that we can get previous commitment point/number without checking if the channel
 // is funded or not.
 pub const INITIAL_COMMITMENT_NUMBER: u64 = 0;
+
+// Whether we are receiving a channel update from node1 or node2.
+// If the flag is set, it means the channel update is from node1, otherwise it is from node2.
+pub const MESSAGE_OF_NODE1_FLAG: u32 = 0;
+
+// Whether we are receiving a channel update from node1 or node2.
+// If the flag is set, it means the channel update is from node2, otherwise it is from node1.
+pub const MESSAGE_OF_NODE2_FLAG: u32 = 1;
 
 // The channel is disabled, and no more tlcs can be added to the channel.
 pub const CHANNEL_DISABLED_FLAG: u32 = 1;
@@ -1717,10 +1728,9 @@ where
 
                 self.network
                     .send_message(NetworkActorMessage::new_command(
-                        NetworkActorCommand::ProccessChannelUpdate(
-                            self.get_remote_peer_id(),
-                            update,
-                        ),
+                        NetworkActorCommand::BroadcastMessages(vec![
+                            BroadcastMessage::ChannelUpdate(update),
+                        ]),
                     ))
                     .expect(ASSUME_NETWORK_ACTOR_ALIVE);
 
@@ -3300,7 +3310,6 @@ impl ChannelActorState {
                     &node1_id,
                     &node2_id,
                     channel_outpoint,
-                    get_chain_hash(),
                     &self.get_funding_lock_script_xonly_key(),
                     capacity,
                     self.funding_udt_type_script.clone(),
@@ -3382,6 +3391,11 @@ impl ChannelActorState {
             .get_unsigned_channel_update_message()
             .expect("public channel can generate channel update message");
         f(&mut channel_update);
+        debug!(
+            "Generated channel update message for channel {:?}: {:?}",
+            &self.get_id(),
+            &channel_update
+        );
         let node_signature =
             sign_network_message(network.clone(), channel_update.message_to_sign())
                 .await
@@ -3422,10 +3436,9 @@ impl ChannelActorState {
 
         network
             .send_message(NetworkActorMessage::new_command(
-                NetworkActorCommand::ProccessChannelUpdate(
-                    self.get_remote_peer_id(),
+                NetworkActorCommand::BroadcastMessages(vec![BroadcastMessage::ChannelUpdate(
                     channel_update,
-                ),
+                )]),
             ))
             .expect(ASSUME_NETWORK_ACTOR_ALIVE);
     }
@@ -3457,12 +3470,8 @@ impl ChannelActorState {
 
         self.public_channel_info.as_ref().and_then(|info| {
             Some(ChannelUpdate::new_unsigned(
-                Default::default(),
                 self.must_get_funding_transaction_outpoint(),
-                std::time::UNIX_EPOCH
-                    .elapsed()
-                    .expect("Duration since unix epoch")
-                    .as_secs(),
+                now_timestamp_as_millis_u64(),
                 message_flags,
                 0,
                 info.tlc_expiry_delta,
@@ -5354,30 +5363,52 @@ impl ChannelActorState {
             self.on_channel_ready(network).await;
 
             debug!(
-                "Broadcasting channel announcement message {:?}",
-                &channel_announcement,
+                "Broadcasting channel announcement {:?} and channel update {:?}",
+                &channel_announcement, &channel_update
             );
             network
                 .send_message(NetworkActorMessage::new_command(
-                    NetworkActorCommand::ProcessChannelAnnouncement(
-                        self.get_remote_peer_id(),
-                        self.get_funding_transaction_block_number(),
-                        self.get_funding_transaction_index(),
-                        channel_announcement,
-                    ),
+                    NetworkActorCommand::BroadcastMessages(vec![
+                        BroadcastMessage::ChannelAnnouncement(channel_announcement),
+                        BroadcastMessage::ChannelUpdate(channel_update),
+                    ]),
                 ))
                 .expect(ASSUME_NETWORK_ACTOR_ALIVE);
-            debug!(
-                "Broadcasting channel update message to peers: {:?}",
-                &channel_update
-            );
 
+            // Note that there is a racing condition here. The peer may have not finished
+            // generating the channel update message yet. In order to reliably query the
+            // peer for the channel update message, we may to retry the query a few times.
+            let peer_id = self.get_remote_peer_id();
+            let queries = if self.local_is_node1() {
+                vec![
+                    BroadcastMessageQuery {
+                        channel_outpoint: self.must_get_funding_transaction_outpoint(),
+                        flags: BroadcastMessageQueryFlags::ChannelUpdateOfNode2,
+                    },
+                    BroadcastMessageQuery {
+                        channel_outpoint: self.must_get_funding_transaction_outpoint(),
+                        flags: BroadcastMessageQueryFlags::NodeAnnouncementNode2,
+                    },
+                ]
+            } else {
+                vec![
+                    BroadcastMessageQuery {
+                        channel_outpoint: self.must_get_funding_transaction_outpoint(),
+                        flags: BroadcastMessageQueryFlags::ChannelUpdateOfNode1,
+                    },
+                    BroadcastMessageQuery {
+                        channel_outpoint: self.must_get_funding_transaction_outpoint(),
+                        flags: BroadcastMessageQueryFlags::NodeAnnouncementNode1,
+                    },
+                ]
+            };
+            debug!(
+                "Querying for channel update and node announcement messages from {:?}",
+                &peer_id
+            );
             network
                 .send_message(NetworkActorMessage::new_command(
-                    NetworkActorCommand::ProccessChannelUpdate(
-                        self.get_remote_peer_id(),
-                        channel_update,
-                    ),
+                    NetworkActorCommand::QueryBroadcastMessages(peer_id, queries),
                 ))
                 .expect(ASSUME_NETWORK_ACTOR_ALIVE);
         }
