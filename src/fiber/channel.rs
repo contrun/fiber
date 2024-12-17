@@ -5409,6 +5409,9 @@ impl ChannelActorState {
                 ))
                 .expect(ASSUME_NETWORK_ACTOR_ALIVE);
 
+            // Note that there is a racing condition here. The peer may have not finished
+            // generating the channel update message yet. In order to reliably query the
+            // peer for the channel update message, we may to retry the query a few times.
             let peer_id = self.get_remote_peer_id();
             let queries = if self.local_is_node1() {
                 vec![
