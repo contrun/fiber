@@ -2650,7 +2650,7 @@ where
                         }
                         // TODO: mark requests corresponding to id as finished
                         // TODO: if not finished, send another QueryBroadcastMessages to other peers.
-                        // Must be careful since some queries may be initiated by malformaed messsages
+                        // Must be careful since some queries may be initiated by malformed messages
                         // from malicious peers.
                     }
                 }
