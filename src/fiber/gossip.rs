@@ -413,6 +413,7 @@ impl<S> GossipSyncingActor<S> {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum GossipSyncingActorMessage {
     // A GetBroadcastMessages request to the syncing peer has timed out.
     RequestTimeout(u64),
@@ -461,6 +462,11 @@ where
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        trace!(
+            "GossipSyncingActor received message {:?} from peer {:?}",
+            message,
+            &state.peer_id
+        );
         match message {
             GossipSyncingActorMessage::RequestTimeout(request_id) => {
                 state.inflight_requests.remove(&request_id);
@@ -1282,6 +1288,11 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
             }
 
             ExtendedGossipMessageStoreMessage::LoadMessagesFromStore(id, cursor) => {
+                trace!(
+                    "ExtendedGossipMessageActor received message: LoadMessagesFromStore {} {:?}",
+                    id,
+                    cursor
+                );
                 let subscription = match state.output_ports.get_mut(&id) {
                     Some(output) => output,
                     // Subscriber has already unsubscribed, early return.
@@ -2438,12 +2449,10 @@ where
                     &state.peer_states
                 );
                 for peer in state.peers_to_start_active_syncing() {
-                    debug!("Starting new active syncer for peer {:?}", &peer);
                     state.start_new_active_syncer(&peer).await;
                 }
 
                 for peer in state.peers_to_start_passive_syncing() {
-                    debug!("Starting new passive syncer for peer {:?}", &peer);
                     state.start_passive_syncer(&peer).await;
                 }
 
@@ -2500,6 +2509,11 @@ where
                 peer_id,
                 message,
             }) => {
+                trace!(
+                    "Gossip message received from peer {:?}: {:?}",
+                    &peer_id,
+                    &message
+                );
                 match message {
                     GossipMessage::BroadcastMessagesFilter(BroadcastMessagesFilter {
                         chain_hash,
@@ -2585,6 +2599,11 @@ where
                                 id,
                                 messages: messages.into_iter().map(|m| m.into()).collect(),
                             });
+                        trace!(
+                            "Sending GetBroadcastMessagesResult to peer {:?}: {:?}",
+                            &peer_id,
+                            &result
+                        );
                         if let Err(error) = state.send_message_to_peer(&peer_id, result).await {
                             error!(
                                 "Failed to send GetBroadcastMessagesResult to peer {:?}: {:?}",

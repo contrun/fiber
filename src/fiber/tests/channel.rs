@@ -2841,6 +2841,8 @@ async fn test_channel_update_tlc_expiry() {
 
 #[tokio::test]
 async fn test_channel_update_tlc_sync_up() {
+    init_tracing();
+
     let node_a_funding_amount = 100000000000;
     let node_b_funding_amount = 6200000000;
 
