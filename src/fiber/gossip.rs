@@ -998,6 +998,61 @@ pub struct ExtendedGossipMessageStoreState<S> {
     messages_to_be_saved: HashSet<BroadcastMessageWithTimestamp>,
 }
 
+struct InMemoryMessages {
+    messages: HashMap<(BroadcastMessageID, bool), VecDeque<BroadcastMessageWithTimestamp>>,
+}
+
+impl InMemoryMessages {
+    fn new() -> Self {
+        Self {
+            messages: Default::default(),
+        }
+    }
+
+    fn has_dependencies_available(&self, message: &BroadcastMessageWithTimestamp) -> bool {
+        match message {
+            BroadcastMessageWithTimestamp::ChannelUpdate(channel_update) => self
+                .messages
+                .get(&(
+                    BroadcastMessageID::ChannelAnnouncement(
+                        channel_update.channel_outpoint.clone(),
+                    ),
+                    true,
+                ))
+                .is_some(),
+            _ => true,
+        }
+    }
+
+    fn get_key_for_message(message: &BroadcastMessageWithTimestamp) -> (BroadcastMessageID, bool) {
+        (
+            message.message_id(),
+            match message {
+                // Message id alone is not enough to differentiate channel updates.
+                // We need a flag to indicate if the message is an update of node 1.
+                BroadcastMessageWithTimestamp::ChannelUpdate(channel_update) => {
+                    channel_update.is_update_of_node_1()
+                }
+                _ => true,
+            },
+        )
+    }
+
+    fn insert(&mut self, new_message: BroadcastMessageWithTimestamp) {
+        let key = Self::get_key_for_message(&new_message);
+        let messages = self.messages.entry(key).or_default();
+        let index = messages.partition_point(|m| m.cursor() < new_message.cursor());
+        match messages.get(index + 1) {
+            Some(message) if message == &new_message => {
+                // The same message is already saved.
+            }
+            _ => {
+                messages.insert(index, new_message);
+            }
+        }
+    }
+}
+
 impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
     fn new(
         store: S,
