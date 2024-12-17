@@ -56,7 +56,7 @@ const MAX_BROADCAST_MESSAGE_TIMESTAMP_DRIFT_MILLIS: u64 =
 const MAX_NUM_OF_BROADCAST_MESSAGES: u16 = 1000;
 pub(crate) const DEFAULT_NUM_OF_BROADCAST_MESSAGE: u16 = 100;
 
-const MAX_NUM_OF_ACTIVE_SYNCING_PEERS: usize = 3;
+const MAX_NUM_OF_ACTIVE_SYNCING_PEERS: usize = 10;
 const MIN_NUM_OF_PASSIVE_SYNCING_PEERS: usize = 3;
 
 const NUM_SIMULTANEOUS_GET_REQUESTS: usize = 1;
@@ -736,7 +736,7 @@ enum PeerSyncStatus {
     // We have finished syncing with the peer. The cursor here is the latest cursor
     // that we have received from the peer. The u64 here is the timestamp
     // of the finishing syncing time.
-    FinishedSyncing(u64, Cursor),
+    FinishedActiveSyncing(u64, Cursor),
 }
 
 impl PeerSyncStatus {
@@ -754,15 +754,17 @@ impl PeerSyncStatus {
         }
     }
 
-    fn has_finished_syncing(&self) -> bool {
+    fn is_finished_active_syncing(&self) -> bool {
         match self {
-            PeerSyncStatus::FinishedSyncing(_, _) => true,
+            PeerSyncStatus::FinishedActiveSyncing(_, _) => true,
             _ => false,
         }
     }
 
     fn can_start_active_syncing(&self) -> bool {
-        !self.is_active_syncing() && !self.is_passive_syncing()
+        !self.is_active_syncing()
+            && !self.is_passive_syncing()
+            && !self.is_finished_active_syncing()
     }
 
     fn can_start_passive_syncing(&self) -> bool {
@@ -1400,12 +1402,16 @@ pub enum ExtendedGossipMessageStoreMessage {
 pub(crate) struct GossipActorState<S> {
     store: ExtendedGossipMessageStore<S>,
     control: ServiceAsyncControl,
-    num_active_syncing_peers: usize,
+    num_targeted_active_syncing_peers: usize,
+    // The number of active syncing peers that we have finished syncing with.
+    // Together with the number of currect active syncing peers, this is
+    // used to determine if we should start a new active syncing peer.
+    num_finished_active_syncing_peers: usize,
     // The number of outbound passive syncing peers that we want to have.
     // We only count outbound peers because the purpose of this number is to avoid eclipse attacks.
     // By maintaining a certain number of outbound passive syncing peers, we can ensure that we are
     // not isolated from the network.
-    num_outbound_passive_syncing_peers: usize,
+    num_targeted_outbound_passive_syncing_peers: usize,
     next_request_id: u64,
     myself: ActorRef<GossipActorMessage>,
     chain_actor: ActorRef<CkbChainMessage>,
@@ -1420,11 +1426,8 @@ impl<S> GossipActorState<S>
 where
     S: GossipMessageStore + Clone + Send + Sync + 'static,
 {
-    fn num_of_finished_syncing_peers(&self) -> usize {
-        self.peer_states
-            .values()
-            .filter(|state| state.sync_status.has_finished_syncing())
-            .count()
+    fn is_ready_for_passive_syncing(&self) -> bool {
+        self.num_finished_active_syncing_peers > 0
     }
 
     fn num_of_active_syncing_peers(&self) -> usize {
@@ -1464,65 +1467,50 @@ where
             .collect()
     }
 
-    // Check if we have finished syncing with at least n peers.
-    // When we have finished syncing with a peer, we may turn the peer state either to PassiveFilter
-    // or FinishedSyncing.
-    fn has_finished_active_syncing_with_n_peers(&self, n: usize) -> bool {
-        self.num_of_finished_syncing_peers() + self.num_of_passive_syncing_peers() >= n
-    }
-
-    // Passive syncer should be started when there is at least one peer is in the state of passive syncing.
-    // Or there is at least one peer has finished syncing.
-    fn is_ready_for_passive_syncing(&self) -> bool {
-        self.has_finished_active_syncing_with_n_peers(1)
-    }
-
-    // Currently we only start new active syncer when there is no successful active syncer finished their job.
-    // It is actually sensible to start a new active syncer once in a while.
-    fn is_ready_for_active_syncing(&self) -> bool {
-        !self.has_finished_active_syncing_with_n_peers(1)
-    }
-
     fn peers_to_start_active_syncing(&self) -> Vec<PeerId> {
-        if !self.is_ready_for_active_syncing() {
-            return vec![];
+        match self.num_targeted_active_syncing_peers.checked_sub(
+            self.num_finished_active_syncing_peers + self.num_of_active_syncing_peers(),
+        ) {
+            None => vec![],
+            Some(num) => self
+                .peer_states
+                .iter()
+                .filter(|(_, state)| state.sync_status.can_start_active_syncing())
+                .take(num)
+                .map(|(peer_id, _)| peer_id)
+                .cloned()
+                .collect(),
         }
-
-        let num_of_active_syncing_peers = self.num_of_active_syncing_peers();
-        if num_of_active_syncing_peers >= self.num_active_syncing_peers {
-            return vec![];
-        }
-
-        self.peer_states
-            .iter()
-            .filter(|(_, state)| state.sync_status.can_start_active_syncing())
-            .take(self.num_active_syncing_peers - num_of_active_syncing_peers)
-            .map(|(peer_id, _)| peer_id)
-            .cloned()
-            .collect()
     }
 
     fn new_outbound_peers_to_start_passive_syncing(&self) -> Vec<PeerId> {
         if !self.is_ready_for_passive_syncing() {
             return vec![];
         }
-        self.peer_states
-            .iter()
-            .filter(|(_, state)| {
-                state.session_type.is_outbound()
-                    && (state.sync_status.can_start_passive_syncing()
-                        || state.sync_status.is_passive_syncing())
-            })
-            .take(self.num_outbound_passive_syncing_peers)
-            .map(|(peer_id, _)| peer_id)
-            .cloned()
-            .collect()
+        match self
+            .num_targeted_outbound_passive_syncing_peers
+            .checked_sub(self.num_of_outbound_passive_syncing_peers())
+        {
+            None => vec![],
+            Some(num) => self
+                .peer_states
+                .iter()
+                .filter(|(_, state)| {
+                    state.session_type.is_outbound()
+                        && state.sync_status.can_start_passive_syncing()
+                })
+                .take(num)
+                .map(|(peer_id, _)| peer_id)
+                .cloned()
+                .collect(),
+        }
     }
 
     fn peers_to_start_passive_syncing(&self) -> Vec<PeerId> {
         [
             self.peers_to_start_mutual_passive_syncing().as_slice(),
-            self.outbound_peers_to_start_passive_syncing().as_slice(),
+            self.new_outbound_peers_to_start_passive_syncing()
+                .as_slice(),
         ]
         .concat()
     }
@@ -1542,33 +1530,12 @@ where
             .collect::<Vec<_>>()
     }
 
-    fn outbound_peers_to_start_passive_syncing(&self) -> Vec<PeerId> {
-        if !self.is_ready_for_passive_syncing() {
-            return vec![];
-        }
-
-        let current_num_outbound_passive_syncing_peers =
-            self.num_of_outbound_passive_syncing_peers();
-        if current_num_outbound_passive_syncing_peers >= self.num_outbound_passive_syncing_peers {
-            return vec![];
-        }
-
-        self.peer_states
-            .iter()
-            .filter(|(_, state)| {
-                state.session_type.is_outbound() && state.sync_status.can_start_passive_syncing()
-            })
-            .take(
-                self.num_outbound_passive_syncing_peers
-                    - current_num_outbound_passive_syncing_peers,
-            )
-            .map(|(peer_id, _)| peer_id)
-            .cloned()
-            .collect()
-    }
-
     async fn start_new_active_syncer(&mut self, peer_id: &PeerId) {
         let safe_cursor = self.get_safe_cursor_to_start_syncing();
+        debug!(
+            "Starting active syncer to peer {:?} with cursor {:?}",
+            peer_id, safe_cursor
+        );
         let sync_actor = Actor::spawn_linked(
             Some(format!(
                 "gossip syncing actor to peer {:?} supervised by {:?}",
@@ -1595,8 +1562,11 @@ where
     }
 
     async fn start_passive_syncer(&mut self, peer_id: &PeerId) {
-        debug!("Starting passive syncer to peer {:?}", peer_id);
         let cursor = self.get_safe_cursor_to_start_syncing();
+        debug!(
+            "Starting passive syncer to peer {:?} from cursor {:?}",
+            peer_id, cursor
+        );
         let filter = BroadcastMessagesFilter {
             chain_hash: get_chain_hash(),
             after_cursor: cursor.clone(),
@@ -2290,12 +2260,13 @@ where
         let state = Self::State {
             store,
             control,
-            num_active_syncing_peers: MAX_NUM_OF_ACTIVE_SYNCING_PEERS,
-            num_outbound_passive_syncing_peers: MIN_NUM_OF_PASSIVE_SYNCING_PEERS,
+            num_targeted_active_syncing_peers: MAX_NUM_OF_ACTIVE_SYNCING_PEERS,
+            num_targeted_outbound_passive_syncing_peers: MIN_NUM_OF_PASSIVE_SYNCING_PEERS,
             myself,
             chain_actor,
             next_request_id: Default::default(),
             pending_queries: Default::default(),
+            num_finished_active_syncing_peers: Default::default(),
             peer_states: Default::default(),
         };
         Ok(state)
@@ -2396,27 +2367,34 @@ where
             }
 
             GossipActorMessage::RotateOutboundPassiveSyncingPeers => {
+                if !state.is_ready_for_passive_syncing() {
+                    debug!("Not ready for passive syncing, skipping rotation");
+                    return Ok(());
+                }
+
                 let current_peers = state
-                    .passive_syncing_peers()
+                    .outbound_passive_syncing_peers()
                     .into_iter()
                     .collect::<HashSet<_>>();
                 let new_peers = state
-                    .new_outbound_peers_to_start_passive_syncing()
-                    .into_iter()
+                    .peer_states
+                    .iter()
+                    .filter_map(|(peer, state)| {
+                        (state.session_type.is_outbound()
+                            && (state.sync_status.can_start_passive_syncing()
+                                || state.sync_status.is_passive_syncing()))
+                        .then_some(peer.clone())
+                    })
+                    .take(state.num_targeted_outbound_passive_syncing_peers)
                     .collect::<HashSet<_>>();
                 debug!(
                     "Rotating passive syncing peers: current {:?}, new {:?}",
                     &current_peers, &new_peers
                 );
                 for peers in new_peers.difference(&current_peers) {
-                    debug!(
-                        "Starting new passive syncer to peer for rotation {:?}",
-                        &peers
-                    );
                     state.start_passive_syncer(&peers).await;
                 }
                 for peers in current_peers.difference(&new_peers) {
-                    debug!("Stopping passive syncer to peer for rotation {:?}", &peers);
                     state.stop_passive_syncer(&peers).await;
                 }
             }
@@ -2425,7 +2403,7 @@ where
                 trace!(
                     "Gossip network maintenance ticked, current state: num of peers: {}, num of finished syncing peers: {}, num of active syncing peers: {}, num of passive syncing peers: {}, num of pending queries: {}, peer states: {:?}",
                     state.peer_states.len(),
-                    state.num_of_finished_syncing_peers(),
+                    state.num_finished_active_syncing_peers,
                     state.num_of_active_syncing_peers(),
                     state.num_of_passive_syncing_peers(),
                     state.pending_queries.len(),
@@ -2468,8 +2446,9 @@ where
                     "Active syncing finished for peer {:?}: {:?}",
                     &peer_id, &cursor
                 );
+                state.num_finished_active_syncing_peers += 1;
                 if let Some(peer_state) = state.peer_states.get_mut(&peer_id) {
-                    peer_state.change_sync_status(PeerSyncStatus::FinishedSyncing(
+                    peer_state.change_sync_status(PeerSyncStatus::FinishedActiveSyncing(
                         now_timestamp_as_millis_u64(),
                         cursor,
                     ));
