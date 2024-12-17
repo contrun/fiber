@@ -2343,7 +2343,6 @@ where
                 state
                     .peer_states
                     .insert(peer_id.clone(), PeerState::new(session.id, session.ty));
-                state.start_new_active_syncer(&peer_id).await;
             }
             GossipActorMessage::PeerDisconnected(peer_id, session) => {
                 debug!(
