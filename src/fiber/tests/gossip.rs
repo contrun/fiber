@@ -18,6 +18,7 @@ use tentacle::{
 use tokio::{spawn, sync::RwLock};
 
 use crate::create_invalid_ecdsa_signature;
+use crate::fiber::tests::test_utils::{establish_channel_between_nodes, NetworkNode};
 use crate::fiber::types::NodeAnnouncement;
 use crate::{
     ckb::{
@@ -442,4 +443,48 @@ async fn test_gossip_store_updates_saving_invalid_message_3() {
     new_announcement.signature = Some(create_invalid_ecdsa_signature());
 
     check_two_node_announcements_with_one_invalid(old_announcement, new_announcement).await;
+}
+
+#[tokio::test]
+async fn test_our_own_channel_gossip_message_propagated() {
+    crate::fiber::tests::test_utils::init_tracing();
+    let node_a_funding_amount = 100000000000;
+    let node_b_funding_amount = 6200000000;
+
+    let [mut node_a, mut node_b] = NetworkNode::new_n_interconnected_nodes().await;
+
+    let (_new_channel_id, _funding_tx) = establish_channel_between_nodes(
+        &mut node_a,
+        &mut node_b,
+        true,
+        node_a_funding_amount,
+        node_b_funding_amount,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+    for node in [&node_a, &node_b] {
+        node.with_network_graph(|graph| {
+            let channels = graph.channels().into_iter().collect::<Vec<_>>();
+            assert_eq!(channels.len(), 1);
+
+            let channel = channels[0].clone();
+            assert!(channel.update_of_node1.is_some());
+            assert!(channel.update_of_node2.is_some());
+
+            let nodes = graph.nodes().into_iter().collect::<Vec<_>>();
+            assert_eq!(nodes.len(), 2);
+        })
+        .await;
+    }
 }
