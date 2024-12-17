@@ -911,8 +911,13 @@ impl<S: GossipMessageStore + Sync> SubscribableGossipMessageStore
             DEFAULT_TIMEOUT,
             cursor
         ) {
-            Ok((subscription, output_port)) => {
+            Ok((subscription, tx, output_port)) => {
                 output_port.subscribe(receiver, converter);
+                // It is sometimes possible that some messages are sent to the output_port even
+                // before we subscribe to it (in this case we will miss these messages).
+                // So we use a channel to notify that we have already subscribed to the output_port,
+                // and messages can now be sent to the output_port.
+                tx.send(()).expect("notify new subscription ready");
                 Ok(subscription)
             }
             Err(e) => Err(Error::InternalError(anyhow::anyhow!(e.to_string()))),
@@ -1223,8 +1228,12 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                 );
                 let id = state.next_id;
                 state.next_id += 1;
+                let (tx, rx) = oneshot::channel();
                 let output_port = Arc::new(OutputPort::default());
-                let _ = reply.send((id, Arc::clone(&output_port)));
+                reply
+                    .send((id, tx, Arc::clone(&output_port)))
+                    .expect("send reply");
+                rx.await.expect("receive notification");
                 match &cursor {
                     Some(cursor) => {
                         debug!(
@@ -1377,7 +1386,11 @@ pub enum ExtendedGossipMessageStoreMessage {
     // via the returned output port.
     NewSubscription(
         Option<Cursor>,
-        RpcReplyPort<(u64, Arc<OutputPort<GossipMessageUpdates>>)>,
+        RpcReplyPort<(
+            u64,
+            oneshot::Sender<()>, // A channel to notify the subscriber that the subscription is ready.
+            Arc<OutputPort<GossipMessageUpdates>>,
+        )>,
     ),
     // Update the subscription with a new cursor. If the outer Option is None, the subscription will be cancelled.
     // If the inner Option is None, the subscription will start from the very latest message in the store.
