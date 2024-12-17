@@ -722,7 +722,8 @@ where
 // After we have been in sync with enough number of peers, we will send a
 // BroadcastMessageFilter to enough number of peers to passively receive
 // updates.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
+#[allow(dead_code)]
 enum PeerSyncStatus {
     // We are not syncing with the peer.
     NotSyncing(),
@@ -812,6 +813,14 @@ impl PeerState {
             filter_processor: Default::default(),
             sync_status: Default::default(),
         }
+    }
+
+    fn change_sync_status(&mut self, new_status: PeerSyncStatus) {
+        println!(
+            "Peer {:?} sync status changed from {:?} to {:?}",
+            self.session_id, self.sync_status, new_status
+        );
+        self.sync_status = new_status;
     }
 }
 
@@ -1578,10 +1587,11 @@ where
         )
         .await
         .expect("start gossip syncing actor");
+
         self.peer_states
             .get_mut(peer_id)
             .expect("get peer state")
-            .sync_status = PeerSyncStatus::ActiveGet(sync_actor.0);
+            .change_sync_status(PeerSyncStatus::ActiveGet(sync_actor.0));
     }
 
     async fn start_passive_syncer(&mut self, peer_id: &PeerId) {
@@ -1597,7 +1607,7 @@ where
                 self.peer_states
                     .get_mut(peer_id)
                     .expect("get peer state")
-                    .sync_status = PeerSyncStatus::PassiveFilter(cursor);
+                    .change_sync_status(PeerSyncStatus::PassiveFilter(cursor));
             }
             Err(e) => {
                 error!(
@@ -1621,7 +1631,7 @@ where
                         self.peer_states
                             .get_mut(peer_id)
                             .expect("get peer state")
-                            .sync_status = PeerSyncStatus::NotSyncing();
+                            .change_sync_status(PeerSyncStatus::NotSyncing());
                     }
                     Err(e) => {
                         error!(
@@ -2460,8 +2470,10 @@ where
                     &peer_id, &cursor
                 );
                 if let Some(peer_state) = state.peer_states.get_mut(&peer_id) {
-                    peer_state.sync_status =
-                        PeerSyncStatus::FinishedSyncing(now_timestamp_as_millis_u64(), cursor);
+                    peer_state.change_sync_status(PeerSyncStatus::FinishedSyncing(
+                        now_timestamp_as_millis_u64(),
+                        cursor,
+                    ));
                 }
             }
 
@@ -2620,18 +2632,20 @@ where
                         }
                     }
                     GossipMessage::QueryBroadcastMessagesResult(QueryBroadcastMessagesResult {
-                        id,
+                        id: _id,
                         messages,
                         missing_queries,
                     }) => {
-                        let is_finished = missing_queries.is_empty();
+                        let _is_finished = missing_queries.is_empty();
                         for message in messages {
                             state
                                 .try_to_verify_and_save_broadcast_message(message)
                                 .await;
                         }
                         // TODO: mark requests corresponding to id as finished
-                        // TODO: if not finished, send another QueryBroadcastMessages.
+                        // TODO: if not finished, send another QueryBroadcastMessages to other peers.
+                        // Must be careful since some queries may be initiated by malformaed messsages
+                        // from malicious peers.
                     }
                 }
             }
