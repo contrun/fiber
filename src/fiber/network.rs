@@ -60,9 +60,9 @@ use super::gossip::{GossipActorMessage, GossipMessageStore, GossipMessageUpdates
 use super::graph::{NetworkGraph, NetworkGraphStateStore, SessionRoute};
 use super::key::blake2b_hash_with_salt;
 use super::types::{
-    BroadcastMessage, EcdsaSignature, FiberMessage, GossipMessage, Hash256, NodeAnnouncement,
-    OpenChannel, PaymentHopData, Privkey, Pubkey, RemoveTlcReason, TlcErr, TlcErrData,
-    TlcErrPacket, TlcErrorCode,
+    BroadcastMessage, BroadcastMessageQuery, EcdsaSignature, FiberMessage, GossipMessage, Hash256,
+    NodeAnnouncement, OpenChannel, PaymentHopData, Privkey, Pubkey, RemoveTlcReason, TlcErr,
+    TlcErrData, TlcErrPacket, TlcErrorCode,
 };
 use super::{FiberConfig, ASSUME_NETWORK_ACTOR_ALIVE};
 
@@ -228,6 +228,9 @@ pub enum NetworkActorCommand {
     SignTx(PeerId, Hash256, Transaction, Option<Vec<Vec<u8>>>),
     // Process a broadcast message from the network.
     ProcessBroadcastMessage(BroadcastMessage),
+    // Query broadcast messages from a peer. Some messages may have been missed
+    // we use this to query them.
+    QueryBroadcastMessages(PeerId, Vec<BroadcastMessageQuery>),
     // Broadcast our BroadcastMessage to the network.
     BroadcastMessages(Vec<BroadcastMessage>),
     // Broadcast local information to the network.
@@ -1272,6 +1275,11 @@ where
                 let _ = state
                     .gossip_actor
                     .send_message(GossipActorMessage::ProcessBroadcastMessage(message));
+            }
+            NetworkActorCommand::QueryBroadcastMessages(peer, queries) => {
+                let _ = state
+                    .gossip_actor
+                    .send_message(GossipActorMessage::QueryBroadcastMessages(peer, queries));
             }
             NetworkActorCommand::BroadcastMessages(message) => {
                 let _ = state

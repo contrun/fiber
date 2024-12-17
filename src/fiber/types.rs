@@ -2556,8 +2556,8 @@ impl BroadcastMessage {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum BroadcastMessageQueryFlags {
     ChannelAnnouncement,
-    ChannelUpdateNode1,
-    ChannelUpdateNode2,
+    ChannelUpdateOfNode1,
+    ChannelUpdateOfNode2,
     NodeAnnouncementNode1,
     NodeAnnouncementNode2,
 }
@@ -2568,8 +2568,8 @@ impl From<BroadcastMessageQueryFlags> for u8 {
             // The numbers are chosen to be powers of 2 so that they can be combined using bitwise OR.
             // But we disallow querying for multiple types of broadcast messages at a time for now.
             BroadcastMessageQueryFlags::ChannelAnnouncement => 0,
-            BroadcastMessageQueryFlags::ChannelUpdateNode1 => 1,
-            BroadcastMessageQueryFlags::ChannelUpdateNode2 => 2,
+            BroadcastMessageQueryFlags::ChannelUpdateOfNode1 => 1,
+            BroadcastMessageQueryFlags::ChannelUpdateOfNode2 => 2,
             BroadcastMessageQueryFlags::NodeAnnouncementNode1 => 4,
             BroadcastMessageQueryFlags::NodeAnnouncementNode2 => 8,
         }
@@ -2582,8 +2582,8 @@ impl TryFrom<u8> for BroadcastMessageQueryFlags {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(BroadcastMessageQueryFlags::ChannelAnnouncement),
-            1 => Ok(BroadcastMessageQueryFlags::ChannelUpdateNode1),
-            2 => Ok(BroadcastMessageQueryFlags::ChannelUpdateNode2),
+            1 => Ok(BroadcastMessageQueryFlags::ChannelUpdateOfNode1),
+            2 => Ok(BroadcastMessageQueryFlags::ChannelUpdateOfNode2),
             4 => Ok(BroadcastMessageQueryFlags::NodeAnnouncementNode1),
             8 => Ok(BroadcastMessageQueryFlags::NodeAnnouncementNode2),
             _ => Err(Error::AnyHow(anyhow!(

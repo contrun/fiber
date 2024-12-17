@@ -5,6 +5,7 @@ use secp256k1::XOnlyPublicKey;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::fiber::serde_utils::U64Hex;
+use crate::fiber::types::{BroadcastMessageQuery, BroadcastMessageQueryFlags};
 use crate::{
     fiber::{
         fee::calculate_tlc_forward_fee,
@@ -5405,6 +5406,40 @@ impl ChannelActorState {
                         BroadcastMessage::ChannelAnnouncement(channel_announcement),
                         BroadcastMessage::ChannelUpdate(channel_update),
                     ]),
+                ))
+                .expect(ASSUME_NETWORK_ACTOR_ALIVE);
+
+            let peer_id = self.get_remote_peer_id();
+            let queries = if self.local_is_node1() {
+                vec![
+                    BroadcastMessageQuery {
+                        channel_outpoint: self.must_get_funding_transaction_outpoint(),
+                        flags: BroadcastMessageQueryFlags::ChannelUpdateOfNode2,
+                    },
+                    BroadcastMessageQuery {
+                        channel_outpoint: self.must_get_funding_transaction_outpoint(),
+                        flags: BroadcastMessageQueryFlags::NodeAnnouncementNode2,
+                    },
+                ]
+            } else {
+                vec![
+                    BroadcastMessageQuery {
+                        channel_outpoint: self.must_get_funding_transaction_outpoint(),
+                        flags: BroadcastMessageQueryFlags::ChannelUpdateOfNode1,
+                    },
+                    BroadcastMessageQuery {
+                        channel_outpoint: self.must_get_funding_transaction_outpoint(),
+                        flags: BroadcastMessageQueryFlags::NodeAnnouncementNode1,
+                    },
+                ]
+            };
+            debug!(
+                "Querying for channel update and node announcement messages from {:?}",
+                &peer_id
+            );
+            network
+                .send_message(NetworkActorMessage::new_command(
+                    NetworkActorCommand::QueryBroadcastMessages(peer_id, queries),
                 ))
                 .expect(ASSUME_NETWORK_ACTOR_ALIVE);
         }

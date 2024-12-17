@@ -113,10 +113,10 @@ pub trait GossipMessageStore {
                         channel_announcement,
                     )
                 }),
-            BroadcastMessageQueryFlags::ChannelUpdateNode1 => self
+            BroadcastMessageQueryFlags::ChannelUpdateOfNode1 => self
                 .get_latest_channel_update(&query.channel_outpoint, true)
                 .map(|channel_update| BroadcastMessageWithTimestamp::ChannelUpdate(channel_update)),
-            BroadcastMessageQueryFlags::ChannelUpdateNode2 => self
+            BroadcastMessageQueryFlags::ChannelUpdateOfNode2 => self
                 .get_latest_channel_update(&query.channel_outpoint, false)
                 .map(|channel_update| BroadcastMessageWithTimestamp::ChannelUpdate(channel_update)),
 
@@ -318,6 +318,8 @@ pub enum GossipActorMessage {
     // not received from gossip message protocol to the store. Examples of such messages are
     // our own node announcement messages, channel updates from the onion error packets, etc.
     ProcessBroadcastMessage(BroadcastMessage),
+    // Query some broadcast messages from a peer.
+    QueryBroadcastMessages(PeerId, Vec<BroadcastMessageQuery>),
     // Try to broadcast BroadcastMessage created by us to the network.
     // We will save and broadcast the messages. Note that we don't check the dependencies of
     // these messages because we assume that the messages created by us are always valid.
@@ -2326,6 +2328,19 @@ where
                 state
                     .try_to_verify_and_save_broadcast_message(message.clone())
                     .await;
+            }
+            GossipActorMessage::QueryBroadcastMessages(peer, queries) => {
+                let id = state.get_and_increment_request_id();
+                state
+                    .send_message_to_peer(
+                        &peer,
+                        GossipMessage::QueryBroadcastMessages(QueryBroadcastMessages {
+                            id,
+                            chain_hash: get_chain_hash(),
+                            queries,
+                        }),
+                    )
+                    .await?;
             }
             GossipActorMessage::TryBroadcastMessages(messages) => {
                 debug!("Trying to broadcast message: {:?}", &messages);
