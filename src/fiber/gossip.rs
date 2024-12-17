@@ -949,13 +949,6 @@ impl<S: GossipMessageStore + Sync> SubscribableGossipMessageStore
 }
 
 struct BroadcastMessageOutput {
-    // This is the last cursor of the ExtendedGossipMessageStore when the subscriber is created.
-    // We have to send all messages up to this cursor to the subscriber immediately after the
-    // subscription is created. Other messages (messages after this cursor) are automatically
-    // forwarded to the subscriber by the store actor.
-    // This somewhat prevents sending duplicate messages to the subscriber (because we will
-    // both read messages from the store and `messages_to_be_saved` list to the subscriber).
-    store_last_cursor_while_starting: Cursor,
     // The filter that a subscriber has set. We will only send messages that are newer than this filter.
     // This is normally a cursor that the subscriber is confident that it has received all the messages
     // before this cursor.
@@ -965,13 +958,8 @@ struct BroadcastMessageOutput {
 }
 
 impl BroadcastMessageOutput {
-    fn new(
-        store_last_cursor_while_starting: Cursor,
-        filter: Option<Cursor>,
-        output_port: Arc<OutputPort<GossipMessageUpdates>>,
-    ) -> Self {
+    fn new(filter: Option<Cursor>, output_port: Arc<OutputPort<GossipMessageUpdates>>) -> Self {
         Self {
-            store_last_cursor_while_starting,
             filter,
             output_port,
         }
@@ -1229,16 +1217,19 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
     ) -> Result<(), ActorProcessingErr> {
         match message {
             ExtendedGossipMessageStoreMessage::NewSubscription(cursor, reply) => {
+                trace!(
+                    "ExtendedGossipMessageActor received message: NewSubscription {:?}",
+                    cursor
+                );
                 let id = state.next_id;
                 state.next_id += 1;
                 let output_port = Arc::new(OutputPort::default());
                 let _ = reply.send((id, Arc::clone(&output_port)));
-                let store_last_cursor_while_starting = state.last_cursor.clone();
                 match &cursor {
-                    Some(cursor) if cursor < &store_last_cursor_while_starting => {
+                    Some(cursor) => {
                         debug!(
-                            "Loading messages from store for subscriber {}: subscription cursor {:?}, store cursor {:?}",
-                            id, cursor, store_last_cursor_while_starting
+                            "Loading messages from store for subscriber {}: subscription cursor {:?}",
+                            id, cursor
                         );
                         // Since the handling of LoadMessagesFromStore interleaves with the handling of Tick,
                         // we may send the messages in an order that is different from both the dependency order
@@ -1257,15 +1248,16 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                 }
                 state.output_ports.insert(
                     id,
-                    BroadcastMessageOutput::new(
-                        store_last_cursor_while_starting,
-                        cursor,
-                        Arc::clone(&output_port),
-                    ),
+                    BroadcastMessageOutput::new(cursor, Arc::clone(&output_port)),
                 );
             }
 
             ExtendedGossipMessageStoreMessage::UpdateSubscription(id, cursor, reply) => {
+                trace!(
+                    "ExtendedGossipMessageActor received message: UpdateSubscription {:?}",
+                    cursor
+                );
+
                 match cursor {
                     Some(cursor) => {
                         state
@@ -1290,23 +1282,31 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                     .store
                     .get_broadcast_messages(&cursor, Some(DEFAULT_NUM_OF_BROADCAST_MESSAGE))
                     .into_iter()
-                    .filter(|m| m.cursor() <= subscription.store_last_cursor_while_starting)
                     .collect::<Vec<_>>();
+                trace!(
+                    "ExtendedGossipMessageActor received message: LoadMessagesFromStore {} {:?}, {:?}",
+                    id,
+                    cursor,
+                    messages
+                );
                 match messages.last() {
                     Some(m) => {
-                        myself.send_message(
-                            ExtendedGossipMessageStoreMessage::LoadMessagesFromStore(
+                        myself
+                            .send_message(ExtendedGossipMessageStoreMessage::LoadMessagesFromStore(
                                 id,
                                 m.cursor(),
-                            ),
-                        )?;
+                            ))
+                            .expect("actor alive");
+                        debug!(
+                            "ExtendedGossipMessageActor sending messages to subscriber #{}: number of messages = {}, messages {:?}",
+                            id, messages.len(), messages
+                        );
                         subscription
                             .output_port
                             .send(GossipMessageUpdates::new(messages));
                     }
                     None => {
-                        // All the messages that are newer than store_last_cursor_while_starting
-                        // This means that we have finished initial loading.
+                        // We have finished initial loading.
                     }
                 }
             }
