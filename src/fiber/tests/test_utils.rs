@@ -55,7 +55,7 @@ static RETAIN_VAR: &str = "TEST_TEMP_RETAIN";
 pub struct TempDir(ManuallyDrop<OldTempDir>);
 
 impl TempDir {
-    fn new<S: AsRef<OsStr>>(prefix: S) -> Self {
+    pub fn new<S: AsRef<OsStr>>(prefix: S) -> Self {
         Self(ManuallyDrop::new(
             OldTempDir::with_prefix(prefix).expect("create temp directory"),
         ))
