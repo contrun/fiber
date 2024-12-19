@@ -28,7 +28,26 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    env:
+      TEST_TEMP_RETAIN: yes
     steps:
+      - uses: gacts/run-and-post-run@v1
+        if: always()
+        with:
+          run: |
+            mount
+            df -h
+            sudo du -h --one-file-system --max-depth=3 / | sort -r -h
+            sudo du -h --one-file-system --max-depth=3 /tmp | sort -r -h
+            sudo du -h --one-file-system --max-depth=3 ~ | sort -r -h
+            sudo du -h --one-file-system --max-depth=3 ${{ runner.temp }} | sort -r -h
+          post: |
+            mount
+            df -h
+            sudo du -h --one-file-system --max-depth=3 / | sort -r -h
+            sudo du -h --one-file-system --max-depth=3 /tmp | sort -r -h
+            sudo du -h --one-file-system --max-depth=3 ~ | sort -r -h
+            sudo du -h --one-file-system --max-depth=3 ${{ runner.temp }} | sort -r -h
       - uses: actions/checkout@v2
       - uses: dsherret/rust-toolchain-file@v1
       - uses: Swatinem/rust-cache@v2
@@ -37,7 +56,6 @@ jobs:
           tool: nextest
       - run: |
           RUST_BACKTRACE=full RUST_LOG=trace cargo nextest run --no-fail-fast
-
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
