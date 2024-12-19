@@ -264,15 +264,7 @@ where
         if messages.is_empty() {
             return false;
         }
-        debug!("Updating network graph for messages: {:?}", messages);
-        debug!(
-            "Current channels in network graph {:?}",
-            self.channels().into_iter().collect::<Vec<_>>()
-        );
-        debug!(
-            "Current nodes in network graph {:?}",
-            self.channels().into_iter().collect::<Vec<_>>()
-        );
+        debug!("Updating network graph with {} messages", messages.len());
         for message in messages {
             self.update_lastest_cursor(message.cursor());
             if message.chain_hash() != get_chain_hash() {
@@ -284,7 +276,6 @@ where
                 );
                 continue;
             }
-            debug!("Updating network graph for message: {:?}", &message);
             match message {
                 BroadcastMessageWithTimestamp::ChannelAnnouncement(
                     timestamp,
@@ -300,14 +291,6 @@ where
                 }
             }
         }
-        debug!(
-            "Current channels in network graph after update {:?}",
-            self.channels().into_iter().collect::<Vec<_>>()
-        );
-        debug!(
-            "Current nodes in network graph after update {:?}",
-            self.nodes().into_iter().collect::<Vec<_>>()
-        );
         return true;
     }
 
@@ -347,7 +330,6 @@ where
     }
 
     fn load_channel_info_mut(&mut self, channel_outpoint: &OutPoint) -> Option<&mut ChannelInfo> {
-        debug!("Loading channel info: {:?}", channel_outpoint);
         if !self.channels.contains_key(channel_outpoint) {
             if let Some((timestamp, channel_announcement)) =
                 self.store.get_latest_channel_announcement(channel_outpoint)
@@ -367,10 +349,6 @@ where
         timestamp: u64,
         channel_announcement: ChannelAnnouncement,
     ) -> Option<Cursor> {
-        debug!(
-            "Processing channel announcement: timestamp {}, channel announcement {:?}",
-            timestamp, &channel_announcement
-        );
         match self.channels.get(&channel_announcement.channel_outpoint) {
             Some(_channel) => {
                 trace!(
@@ -386,7 +364,7 @@ where
                         channel_announcement.channel_outpoint.clone(),
                     ),
                 );
-                debug!(
+                trace!(
                     "Inserting new channel announcement: {:?}",
                     &channel_announcement
                 );
@@ -411,7 +389,6 @@ where
     }
 
     fn process_channel_update(&mut self, channel_update: ChannelUpdate) -> Option<Cursor> {
-        debug!("Processing channel update: {:?}", &channel_update);
         let channel_outpoint = &channel_update.channel_outpoint;
         // The channel update message may have smaller timestamp than channel announcement.
         // So it is possible that the channel announcement is not loaded into the graph yet,
@@ -437,6 +414,10 @@ where
                     channel_update.timestamp,
                     BroadcastMessageID::ChannelUpdate(channel_update.channel_outpoint.clone()),
                 );
+                trace!(
+                    "Saving new channel update to the graph: {:?}",
+                    &channel_update
+                );
                 *update_info = Some(ChannelUpdateInfo::from(channel_update));
                 return Some(cursor);
             }
@@ -444,7 +425,6 @@ where
     }
 
     fn process_node_announcement(&mut self, node_announcement: NodeAnnouncement) -> Option<Cursor> {
-        debug!("Processing node announcement: {:?}", &node_announcement);
         let node_info = NodeInfo::from(node_announcement);
         match self.nodes.get(&node_info.node_id) {
             Some(old_node) if old_node.timestamp > node_info.timestamp => {
@@ -460,7 +440,7 @@ where
                     node_info.timestamp,
                     BroadcastMessageID::NodeAnnouncement(node_info.node_id),
                 );
-                debug!("Inserting new node info: {:?}", &node_info);
+                trace!("Saving new node info to the graph: {:?}", &node_info);
                 self.nodes.insert(node_info.node_id, node_info);
                 return Some(cursor);
             }

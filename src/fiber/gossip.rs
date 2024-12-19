@@ -550,7 +550,7 @@ where
             GossipSyncingActorMessage::NewGetRequest() => {
                 let latest_cursor = state.get_cursor().clone();
                 let request_id = state.get_and_increment_request_id();
-                debug!(
+                trace!(
                     "Sending GetBroadcastMessages request to peers: request_id {}, latest_cursor {:?}",
                     request_id, latest_cursor
                 );
@@ -819,7 +819,7 @@ impl PeerState {
     }
 
     fn change_sync_status(&mut self, new_status: PeerSyncStatus) {
-        println!(
+        debug!(
             "Peer {:?} sync status changed from {:?} to {:?}",
             self.session_id, self.sync_status, new_status
         );
@@ -1150,7 +1150,7 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
             ));
         }
 
-        trace!("ExtendedGossipMessageActor saving message: {:?}", message);
+        trace!("New gossip message saved to memory: {:?}", message);
         self.messages_to_be_saved.insert(message.clone());
         Ok(message)
     }
@@ -1220,7 +1220,7 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
         match message {
             ExtendedGossipMessageStoreMessage::NewSubscription(cursor, reply) => {
                 trace!(
-                    "ExtendedGossipMessageActor received message: NewSubscription {:?}",
+                    "Creating subscription to the store updates with cursor {:?}",
                     cursor
                 );
                 let id = state.next_id;
@@ -1231,9 +1231,10 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                     .send((id, tx, Arc::clone(&output_port)))
                     .expect("send reply");
                 rx.await.expect("receive notification");
-                debug!(
+                trace!(
                     "Loading messages from store for subscriber {}: subscription cursor {:?}",
-                    id, cursor
+                    id,
+                    cursor
                 );
                 // Since the handling of LoadMessagesFromStore interleaves with the handling of Tick,
                 // we may send the messages in an order that is different from both the dependency order
@@ -1253,7 +1254,8 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
 
             ExtendedGossipMessageStoreMessage::UpdateSubscription(id, cursor, reply) => {
                 trace!(
-                    "ExtendedGossipMessageActor received message: UpdateSubscription {:?}",
+                    "Updating subscription to store updates for #{} with cursor {:?}",
+                    id,
                     cursor
                 );
 
@@ -1283,10 +1285,10 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                     .into_iter()
                     .collect::<Vec<_>>();
                 trace!(
-                    "ExtendedGossipMessageActor received message: LoadMessagesFromStore {} {:?}, {:?}",
+                    "Loaded messages for subscription #{} with cursor {:?} (number of messages {:?})",
                     id,
                     cursor,
-                    messages
+                    messages.len()
                 );
                 match messages.last() {
                     Some(m) => {
@@ -1297,8 +1299,9 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                             ))
                             .expect("actor alive");
                         debug!(
-                            "ExtendedGossipMessageActor sending messages to subscriber #{}: number of messages = {}, messages {:?}",
-                            id, messages.len(), messages
+                            "Sending messages to subscription #{}: number of messages = {}",
+                            id,
+                            messages.len()
                         );
                         subscription
                             .output_port
@@ -1346,6 +1349,9 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
 
                 // These are the messages that have complete dependencies and can be sent to the subscribers.
                 let complete_messages = state.prune_messages_to_be_saved().await;
+                if complete_messages.is_empty() {
+                    return Ok(());
+                }
                 for (id, subscription) in state.output_ports.iter() {
                     let messages_to_send = complete_messages
                         .iter()
@@ -1353,8 +1359,9 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                         .cloned()
                         .collect::<Vec<_>>();
                     trace!(
-                        "ExtendedGossipMessageActor sending complete messages to subscriber #{}: number of messages = {}",
-                        id, messages_to_send.len()
+                        "Sending complete messages in memory to subscription #{}: number of messages = {}",
+                        id,
+                        messages_to_send.len()
                     );
                     for chunk in messages_to_send.chunks(MAX_NUM_OF_BROADCAST_MESSAGES as usize) {
                         subscription
@@ -2298,8 +2305,6 @@ where
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        trace!("Gossip actor received message: {:?}", &message);
-
         match message {
             GossipActorMessage::PeerConnected(peer_id, pubkey, session) => {
                 if state.is_peer_connected(&peer_id) {
@@ -2310,7 +2315,7 @@ where
                     return Ok(());
                 }
                 debug!(
-                    "Saving gossip peer pubkey and session: peer {:?}, pubkey {:?}, session {:?}",
+                    "Gossip peer connected: peer {:?}, pubkey {:?}, session {:?}",
                     &peer_id, &pubkey, &session.id
                 );
                 state
@@ -2416,21 +2421,18 @@ where
 
             GossipActorMessage::TickNetworkMaintenance => {
                 trace!(
-                    "Gossip network maintenance ticked, current state: num of peers: {}, num of finished syncing peers: {}, num of active syncing peers: {}, num of passive syncing peers: {}, num of pending queries: {}, peer states: {:?}",
+                    "Gossip network maintenance ticked, current state: num of peers: {}, num of finished syncing peers: {}, num of active syncing peers: {}, num of passive syncing peers: {}, num of pending queries: {}",
                     state.peer_states.len(),
                     state.num_finished_active_syncing_peers,
                     state.num_of_active_syncing_peers(),
                     state.num_of_passive_syncing_peers(),
                     state.pending_queries.len(),
-                    &state.peer_states
                 );
                 for peer in state.peers_to_start_active_syncing() {
-                    debug!("Starting new active syncer for peer {:?}", &peer);
                     state.start_new_active_syncer(&peer).await;
                 }
 
                 for peer in state.peers_to_start_passive_syncing() {
-                    debug!("Starting new passive syncer for peer {:?}", &peer);
                     state.start_passive_syncer(&peer).await;
                 }
 
@@ -2661,7 +2663,7 @@ impl ServiceProtocol for GossipProtocolHandle {
     }
 
     async fn connected(&mut self, context: ProtocolContextMutRef<'_>, version: &str) {
-        info!(
+        trace!(
             "proto id [{}] open on session [{}], address: [{}], type: [{:?}], version: {}",
             context.proto_id,
             context.session.id,
@@ -2683,9 +2685,12 @@ impl ServiceProtocol for GossipProtocolHandle {
     }
 
     async fn disconnected(&mut self, context: ProtocolContextMutRef<'_>) {
-        info!(
+        trace!(
             "proto id [{}] close on session [{}], address: [{}], type: [{:?}]",
-            context.proto_id, context.session.id, &context.session.address, &context.session.ty
+            context.proto_id,
+            context.session.id,
+            &context.session.address,
+            &context.session.ty
         );
 
         match context.session.remote_pubkey.as_ref() {
