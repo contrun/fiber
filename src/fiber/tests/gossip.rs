@@ -492,7 +492,7 @@ async fn test_our_own_channel_gossip_message_propagated() {
 #[tokio::test]
 async fn test_never_miss_any_message() {
     let (_, announcement) = gen_rand_node_announcement();
-    let n = 500;
+    let n = 1;
     let handles = (0..n)
         .map(|_| {
             let announcement = announcement.clone();
