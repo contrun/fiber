@@ -380,9 +380,10 @@ where
                 state.handle_tx_collaboration_msg(TxCollaborationMsg::TxUpdate(tx), &self.network)
             }
             FiberChannelMessage::TxComplete(tx) => {
-                state
-                    .handle_tx_collaboration_msg(TxCollaborationMsg::TxComplete(tx), &self.network)
-                    .unwrap();
+                state.handle_tx_collaboration_msg(
+                    TxCollaborationMsg::TxComplete(tx),
+                    &self.network,
+                )?;
                 if let ChannelState::CollaboratingFundingTx(flags) = state.state {
                     if flags.contains(CollaboratingFundingTxFlags::COLLABRATION_COMPLETED) {
                         self.handle_commitment_signed_command(state)?;
@@ -1535,8 +1536,7 @@ where
             }
             TxCollaborationCommand::TxComplete() => {
                 state.check_tx_complete_preconditions()?;
-                let commitment_tx_partial_signature =
-                    state.build_init_commitment_tx_signature().unwrap();
+                let commitment_tx_partial_signature = state.build_init_commitment_tx_signature()?;
                 let fiber_message = FiberMessage::tx_complete(TxComplete {
                     channel_id: state.get_id(),
                     commitment_tx_partial_signature,
@@ -5071,9 +5071,9 @@ impl ChannelActorState {
             }
             TxCollaborationMsg::TxComplete(tx_complete) => {
                 self.check_tx_complete_preconditions()?;
-                let settlement_data = self
-                    .check_init_commitment_tx_signature(tx_complete.commitment_tx_partial_signature)
-                    .unwrap();
+                let settlement_data = self.check_init_commitment_tx_signature(
+                    tx_complete.commitment_tx_partial_signature,
+                )?;
                 network
                     .send_message(NetworkActorMessage::new_notification(
                         NetworkServiceEvent::RemoteTxComplete(
