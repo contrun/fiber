@@ -6134,6 +6134,8 @@ impl ChannelActorState {
     }
 
     fn get_commitment_lock_script_xonly(&self, for_remote: bool) -> [u8; 32] {
+        return self.get_funding_lock_script_xonly();
+
         let local_pubkey = self.get_local_channel_public_keys().funding_pubkey;
         let remote_pubkey = self.get_remote_channel_public_keys().funding_pubkey;
         let pubkeys = if for_remote {
