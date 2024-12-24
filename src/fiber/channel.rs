@@ -3947,7 +3947,17 @@ impl ChannelActorState {
                 ]
                 .concat(),
             );
-            sign_ctx.sign(message.as_slice()).expect("valid signature")
+            let our_signature = sign_ctx.sign(message.as_slice()).expect("valid signature");
+            dbg!(
+                &message.as_slice(),
+                &sign_ctx.common_ctx,
+                &our_signature,
+                &sign_ctx.seckey,
+                &sign_ctx.seckey.pubkey(),
+                &sign_ctx.secnonce,
+                &sign_ctx.secnonce.public_nonce()
+            );
+            our_signature
         };
 
         let commitment_tx_partial_signature = {
@@ -5394,8 +5404,8 @@ impl ChannelActorState {
             next_per_commitment_point,
         } = revoke_and_ack;
 
+        let x_only_aggregated_pubkey = self.get_commitment_lock_script_xonly(false);
         let sign_ctx = self.get_sign_context_to_verify_revoke_and_ack_message();
-        let x_only_aggregated_pubkey = sign_ctx.common_ctx.x_only_aggregated_pubkey();
 
         let revocation_data = {
             let commitment_tx_fee = calculate_commitment_tx_fee(
@@ -5446,6 +5456,32 @@ impl ChannelActorState {
                 self.order_things_for_musig2(our_signature, revocation_partial_signature),
                 message.as_slice(),
             )?;
+            dbg!(
+                &hex::encode(message.as_slice()),
+                &hex::encode(
+                    [
+                        output.as_slice(),
+                        output_data.as_slice(),
+                        commitment_lock_script_args.as_slice(),
+                    ]
+                    .concat(),
+                ),
+                &hex::encode(output.as_slice()),
+                &hex::encode(output_data.as_slice()),
+                &hex::encode(commitment_lock_script_args.as_slice()),
+                &hex::encode(x_only_aggregated_pubkey.as_slice()),
+                &hex::encode(&blake2b_256(x_only_aggregated_pubkey)[0..20]),
+                &hex::encode(aggregated_signature.serialize()),
+                &hex::encode(sign_ctx.common_ctx.x_only_aggregated_pubkey()),
+                &sign_ctx.common_ctx,
+                &our_signature,
+                &revocation_partial_signature,
+                &hex::encode(aggregated_signature.serialize()),
+                &sign_ctx.seckey,
+                &sign_ctx.seckey.pubkey(),
+                &sign_ctx.secnonce,
+                &sign_ctx.secnonce.public_nonce()
+            );
             RevocationData {
                 commitment_number,
                 x_only_aggregated_pubkey,
