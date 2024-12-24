@@ -3914,7 +3914,6 @@ impl ChannelActorState {
         let x_only_aggregated_pubkey = sign_ctx.common_ctx.x_only_aggregated_pubkey();
 
         let revocation_partial_signature = {
-            let deterministic_sign_ctx = self.get_deterministic_sign_context();
             let commitment_tx_fee = calculate_commitment_tx_fee(
                 self.commitment_fee_rate,
                 &self.funding_udt_type_script,
@@ -3957,17 +3956,15 @@ impl ChannelActorState {
                 ]
                 .concat(),
             );
-            let our_signature = deterministic_sign_ctx
-                .sign(message.as_slice())
-                .expect("valid signature");
+            let our_signature = sign_ctx.sign(message.as_slice()).expect("valid signature");
             dbg!(
                 &message.as_slice(),
-                &deterministic_sign_ctx.common_ctx,
+                &sign_ctx.common_ctx,
                 &our_signature,
-                &deterministic_sign_ctx.seckey,
-                &deterministic_sign_ctx.seckey.pubkey(),
-                &deterministic_sign_ctx.secnonce,
-                &deterministic_sign_ctx.secnonce.public_nonce()
+                &sign_ctx.seckey,
+                &sign_ctx.seckey.pubkey(),
+                &sign_ctx.secnonce,
+                &sign_ctx.secnonce.public_nonce()
             );
             our_signature
         };
@@ -4870,7 +4867,7 @@ impl ChannelActorState {
 
         if self.local_shutdown_info.is_some() && self.remote_shutdown_info.is_some() {
             let shutdown_tx = self.build_shutdown_tx()?;
-            let sign_ctx = self.get_deterministic_sign_context();
+            let deterministic_sign_ctx = self.get_deterministic_sign_context();
 
             let local_shutdown_info = self
                 .local_shutdown_info
@@ -4887,7 +4884,7 @@ impl ChannelActorState {
             let local_shutdown_signature = match local_shutdown_info.signature {
                 Some(signature) => signature,
                 None => {
-                    let signature = sign_ctx.sign(shutdown_tx.hash().as_slice())?;
+                    let signature = deterministic_sign_ctx.sign(shutdown_tx.hash().as_slice())?;
                     local_shutdown_info.signature = Some(signature);
 
                     network
@@ -4908,7 +4905,7 @@ impl ChannelActorState {
             if let Some(remote_shutdown_signature) = remote_shutdown_info.signature {
                 let tx: TransactionView = self
                     .aggregate_partial_signatures_to_consume_funding_cell(
-                        &sign_ctx.common_ctx,
+                        &deterministic_sign_ctx.common_ctx,
                         local_shutdown_signature,
                         remote_shutdown_signature,
                         &shutdown_tx,
@@ -5419,7 +5416,6 @@ impl ChannelActorState {
         let x_only_aggregated_pubkey = sign_ctx.common_ctx.x_only_aggregated_pubkey();
 
         let revocation_data = {
-            let deterministic_sign_ctx = self.get_deterministic_sign_context();
             let commitment_tx_fee = calculate_commitment_tx_fee(
                 self.commitment_fee_rate,
                 &self.funding_udt_type_script,
@@ -5463,8 +5459,8 @@ impl ChannelActorState {
                 ]
                 .concat(),
             );
-            let aggregated_signature = deterministic_sign_ctx
-                .sign_and_aggregate(message.as_slice(), revocation_partial_signature)?;
+            let aggregated_signature =
+                sign_ctx.sign_and_aggregate(message.as_slice(), revocation_partial_signature)?;
             dbg!(
                 &hex::encode(message.as_slice()),
                 &hex::encode(
@@ -5481,13 +5477,6 @@ impl ChannelActorState {
                 &hex::encode(x_only_aggregated_pubkey.as_slice()),
                 &hex::encode(&blake2b_256(x_only_aggregated_pubkey)[0..20]),
                 &hex::encode(aggregated_signature.serialize()),
-                &hex::encode(deterministic_sign_ctx.common_ctx.x_only_aggregated_pubkey()),
-                &deterministic_sign_ctx.common_ctx,
-                &hex::encode(aggregated_signature.serialize()),
-                &deterministic_sign_ctx.seckey,
-                &deterministic_sign_ctx.seckey.pubkey(),
-                &deterministic_sign_ctx.secnonce,
-                &deterministic_sign_ctx.secnonce.public_nonce()
             );
             RevocationData {
                 commitment_number,
