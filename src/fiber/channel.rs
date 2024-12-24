@@ -5412,7 +5412,7 @@ impl ChannelActorState {
             next_per_commitment_point,
         } = revoke_and_ack;
 
-        let sign_ctx = self.get_sign_context(true);
+        let sign_ctx = self.get_sign_context_for_revoke_and_ack_message();
         let x_only_aggregated_pubkey = sign_ctx.common_ctx.x_only_aggregated_pubkey();
 
         let revocation_data = {
@@ -5960,6 +5960,31 @@ impl ChannelActorState {
     // 9: B: Verify the RevokeAndAck message from A using the last nonce (b_nonce_0).
     fn get_sign_context(&self, for_remote: bool) -> Musig2SignContext {
         let common_ctx = self.get_musig2_common_ctx(for_remote);
+
+        Musig2SignContext {
+            common_ctx,
+            seckey: self.signer.funding_key.clone(),
+            secnonce: self.get_local_musig2_secnonce(),
+        }
+    }
+
+    fn get_sign_context_for_revoke_and_ack_message(&self) -> Musig2SignContext {
+        let common_ctx = {
+            let local_pubkey = self.get_local_channel_public_keys().funding_pubkey;
+            let remote_pubkey = self.get_remote_channel_public_keys().funding_pubkey;
+            let pubkeys = [local_pubkey, remote_pubkey];
+            let key_agg_ctx = KeyAggContext::new(pubkeys).expect("Valid pubkeys");
+            let remote_nonce = self
+                .get_last_used_remote_nonce()
+                .expect("TODO: handle receive revoke and ack without sending commitment signed");
+            let local_nonce = self.get_local_musig2_pubnonce();
+            let agg_nonce = AggNonce::sum([local_nonce, remote_nonce]);
+            Musig2CommonContext {
+                local_first: true,
+                key_agg_ctx,
+                agg_nonce,
+            }
+        };
 
         Musig2SignContext {
             common_ctx,
