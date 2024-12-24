@@ -50,7 +50,7 @@ use ckb_types::{
 use molecule::prelude::{Builder, Entity};
 use musig2::{
     aggregate_partial_signatures,
-    errors::{SigningError, VerifyError},
+    errors::{RoundFinalizeError, SigningError, VerifyError},
     secp::Point,
     sign_partial, verify_partial, AggNonce, CompactSignature, KeyAggContext, PartialSignature,
     PubNonce, SecNonce,
@@ -622,6 +622,7 @@ where
             },
             ProcessingChannelError::RepeatedProcessing(_) => TlcErrorCode::TemporaryChannelFailure,
             ProcessingChannelError::SpawnErr(_)
+            | ProcessingChannelError::Musig2RoundFinalizeError(_)
             | ProcessingChannelError::Musig2SigningError(_)
             | ProcessingChannelError::Musig2VerifyError(_)
             | ProcessingChannelError::CapacityError(_) => TlcErrorCode::TemporaryNodeFailure,
@@ -2921,6 +2922,8 @@ pub enum ProcessingChannelError {
     CapacityError(#[from] CapacityError),
     #[error("Failed to spawn actor: {0}")]
     SpawnErr(#[from] SpawnErr),
+    #[error("Musig2 RoundFinalizeError: {0}")]
+    Musig2RoundFinalizeError(#[from] RoundFinalizeError),
     #[error("Musig2 VerifyError: {0}")]
     Musig2VerifyError(#[from] VerifyError),
     #[error("Musig2 SigningError: {0}")]
@@ -4807,12 +4810,8 @@ impl ChannelActorState {
                 ]
                 .concat(),
             );
-            let our_commitment_tx_partial_signature = sign_ctx.sign(message.as_slice())?;
-            let aggregated_signature = sign_ctx.common_ctx.aggregate_partial_signatures_for_msg(
-                our_commitment_tx_partial_signature,
-                psct.commitment_tx_partial_signature,
-                message.as_slice(),
-            )?;
+            let aggregated_signature = sign_ctx
+                .sign_and_aggregate(message.as_slice(), psct.commitment_tx_partial_signature)?;
 
             SettlementData {
                 x_only_aggregated_pubkey,
@@ -4856,7 +4855,7 @@ impl ChannelActorState {
 
         if self.local_shutdown_info.is_some() && self.remote_shutdown_info.is_some() {
             let shutdown_tx = self.build_shutdown_tx()?;
-            let sign_ctx = self.get_sign_context(true);
+            let sign_ctx = self.get_deterministic_sign_context();
 
             let local_shutdown_info = self
                 .local_shutdown_info
@@ -5401,7 +5400,7 @@ impl ChannelActorState {
             next_per_commitment_point,
         } = revoke_and_ack;
 
-        let sign_ctx = self.get_sign_context(true);
+        let sign_ctx = self.get_sign_context(false);
         let x_only_aggregated_pubkey = sign_ctx.common_ctx.x_only_aggregated_pubkey();
 
         let revocation_data = {
@@ -5448,12 +5447,8 @@ impl ChannelActorState {
                 ]
                 .concat(),
             );
-            let our_signature = sign_ctx.sign(message.as_slice())?;
-            let aggregated_signature = sign_ctx.common_ctx.aggregate_partial_signatures_for_msg(
-                our_signature,
-                revocation_partial_signature,
-                message.as_slice(),
-            )?;
+            let aggregated_signature =
+                sign_ctx.sign_and_aggregate(message.as_slice(), revocation_partial_signature)?;
             RevocationData {
                 commitment_number,
                 x_only_aggregated_pubkey,
@@ -5484,12 +5479,8 @@ impl ChannelActorState {
                 ]
                 .concat(),
             );
-            let our_signature = sign_ctx.sign(message.as_slice())?;
-            let aggregated_signature = sign_ctx.common_ctx.aggregate_partial_signatures_for_msg(
-                our_signature,
-                commitment_tx_partial_signature,
-                message.as_slice(),
-            )?;
+            let aggregated_signature =
+                sign_ctx.sign_and_aggregate(message.as_slice(), commitment_tx_partial_signature)?;
 
             SettlementData {
                 x_only_aggregated_pubkey,
@@ -5739,7 +5730,7 @@ impl ChannelActorState {
     }
 
     fn build_init_commitment_tx_signature(&self) -> Result<PartialSignature, SigningError> {
-        let sign_ctx = self.get_sign_context(true);
+        let sign_ctx = self.get_deterministic_sign_context();
         let x_only_aggregated_pubkey = sign_ctx.common_ctx.x_only_aggregated_pubkey();
         let ([to_local_output, to_remote_output], [to_local_output_data, to_remote_output_data]) =
             self.build_settlement_transaction_outputs(false);
@@ -5780,7 +5771,7 @@ impl ChannelActorState {
         &self,
         signature: PartialSignature,
     ) -> Result<SettlementData, ProcessingChannelError> {
-        let verify_ctx = self.get_verify_context(false);
+        let verify_ctx = self.get_deterministic_verify_context();
         let x_only_aggregated_pubkey = verify_ctx.common_ctx.x_only_aggregated_pubkey();
         let ([to_local_output, to_remote_output], [to_local_output_data, to_remote_output_data]) =
             self.build_settlement_transaction_outputs(true);
@@ -5817,14 +5808,10 @@ impl ChannelActorState {
         verify_ctx.verify(signature, message.as_slice())?;
 
         let settlement_data = {
-            let sign_ctx = self.get_sign_context(false);
+            let sign_ctx = self.get_deterministic_sign_context();
 
-            let our_signature = sign_ctx.sign(message.as_slice())?;
-            let aggregated_signature = verify_ctx.common_ctx.aggregate_partial_signatures_for_msg(
-                our_signature,
-                signature,
-                message.as_slice(),
-            )?;
+            let aggregated_signature =
+                sign_ctx.sign_and_aggregate(message.as_slice(), signature)?;
 
             SettlementData {
                 x_only_aggregated_pubkey,
@@ -5888,13 +5875,48 @@ impl ChannelActorState {
         }
     }
 
+    fn get_deterministic_common_context(&self) -> Musig2CommonContext {
+        let local_first = self.should_local_go_first_in_musig2();
+        let key_agg_ctx = self.get_musig2_agg_context();
+        let remote_nonce = self.get_last_committed_remote_nonce();
+        let local_nonce = self.get_local_musig2_pubnonce();
+        let agg_nonce = AggNonce::sum(if local_first {
+            [local_nonce, remote_nonce]
+        } else {
+            [remote_nonce, local_nonce]
+        });
+        Musig2CommonContext {
+            local_first,
+            key_agg_ctx,
+            agg_nonce,
+        }
+    }
+
+    fn get_deterministic_verify_context(&self) -> Musig2VerifyContext {
+        let common_ctx = self.get_deterministic_common_context();
+        Musig2VerifyContext {
+            common_ctx,
+            pubkey: self.get_remote_funding_pubkey().clone(),
+            pubnonce: self.get_last_committed_remote_nonce(),
+        }
+    }
+
     fn get_verify_context(&self, for_remote: bool) -> Musig2VerifyContext {
-        let common_ctx = self.get_commitment_lock_script_common_ctx(for_remote);
+        let common_ctx = self.get_musig2_common_ctx(for_remote);
 
         Musig2VerifyContext {
             common_ctx,
             pubkey: self.get_remote_funding_pubkey().clone(),
             pubnonce: self.get_last_committed_remote_nonce(),
+        }
+    }
+
+    fn get_deterministic_sign_context(&self) -> Musig2SignContext {
+        let common_ctx = self.get_deterministic_common_context();
+        Musig2SignContext {
+            common_ctx,
+            seckey: self.signer.funding_key.clone(),
+            secnonce: self.get_local_musig2_secnonce(),
         }
     }
 
@@ -5911,7 +5933,7 @@ impl ChannelActorState {
     // 8: A: Using b_nonce_0, verify the CommitmentSigned message from B and send back a RevokeAndAck message, promoting a_nonce_0 to a_nonce_1.
     // 9: B: Verify the RevokeAndAck message from A using the last nonce (b_nonce_0).
     fn get_sign_context(&self, for_remote: bool) -> Musig2SignContext {
-        let common_ctx = self.get_commitment_lock_script_common_ctx(for_remote);
+        let common_ctx = self.get_musig2_common_ctx(for_remote);
 
         Musig2SignContext {
             common_ctx,
@@ -6141,10 +6163,10 @@ impl ChannelActorState {
         }
     }
 
-    fn get_commitment_lock_script_common_ctx(&self, for_remote: bool) -> Musig2CommonContext {
+    fn get_musig2_common_ctx(&self, local_first: bool) -> Musig2CommonContext {
         let local_pubkey = self.get_local_channel_public_keys().funding_pubkey;
         let remote_pubkey = self.get_remote_channel_public_keys().funding_pubkey;
-        let pubkeys = if for_remote {
+        let pubkeys = if local_first {
             [local_pubkey, remote_pubkey]
         } else {
             [remote_pubkey, local_pubkey]
@@ -6153,20 +6175,20 @@ impl ChannelActorState {
         let remote_nonce = self.get_last_committed_remote_nonce();
         let local_nonce = self.get_local_musig2_pubnonce();
 
-        let agg_nonce = AggNonce::sum(if for_remote {
+        let agg_nonce = AggNonce::sum(if local_first {
             [local_nonce, remote_nonce]
         } else {
             [remote_nonce, local_nonce]
         });
         Musig2CommonContext {
-            local_first: for_remote,
+            local_first,
             key_agg_ctx,
             agg_nonce,
         }
     }
 
     fn get_commitment_lock_script_xonly(&self, for_remote: bool) -> [u8; 32] {
-        self.get_commitment_lock_script_common_ctx(for_remote)
+        self.get_musig2_common_ctx(for_remote)
             .key_agg_ctx
             .aggregated_pubkey::<Point>()
             .serialize_xonly()
@@ -6468,7 +6490,7 @@ impl PartialEq for Musig2CommonContext {
 }
 
 impl Musig2CommonContext {
-    pub fn aggregate_partial_signatures_for_msg(
+    fn aggregate_partial_signatures_for_msg(
         &self,
         local_signature: PartialSignature,
         remote_signature: PartialSignature,
@@ -6528,6 +6550,19 @@ impl Musig2SignContext {
             &self.common_ctx.agg_nonce,
             message,
         )
+    }
+
+    pub fn sign_and_aggregate(
+        &self,
+        message: &[u8],
+        remote_signature: PartialSignature,
+    ) -> Result<CompactSignature, RoundFinalizeError> {
+        let local_signature = self.sign(message)?;
+        Ok(self.common_ctx.aggregate_partial_signatures_for_msg(
+            local_signature,
+            remote_signature,
+            message,
+        )?)
     }
 }
 
