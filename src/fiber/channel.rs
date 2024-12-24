@@ -3956,7 +3956,17 @@ impl ChannelActorState {
                 ]
                 .concat(),
             );
-            sign_ctx.sign(message.as_slice()).expect("valid signature")
+            let our_signature = sign_ctx.sign(message.as_slice()).expect("valid signature");
+            dbg!(
+                &message.as_slice(),
+                &sign_ctx.common_ctx,
+                &our_signature,
+                &sign_ctx.seckey,
+                &sign_ctx.seckey.pubkey(),
+                &sign_ctx.secnonce,
+                &sign_ctx.secnonce.public_nonce()
+            );
+            our_signature
         };
 
         let commitment_tx_partial_signature = {
@@ -4759,15 +4769,14 @@ impl ChannelActorState {
         &self,
         psct: &PartiallySignedCommitmentTransaction,
     ) -> Result<(TransactionView, SettlementData), ProcessingChannelError> {
-        let sign_ctx = self.get_sign_context(false);
-        let x_only_aggregated_pubkey = sign_ctx.common_ctx.x_only_aggregated_pubkey();
-
         let completed_commitment_tx = {
+            let deterministic_sign_ctx = self.get_deterministic_sign_context();
+
             let our_funding_tx_partial_signature =
-                sign_ctx.sign(psct.commitment_tx.hash().as_slice())?;
+                deterministic_sign_ctx.sign(psct.commitment_tx.hash().as_slice())?;
 
             self.aggregate_partial_signatures_to_consume_funding_cell(
-                &sign_ctx.common_ctx,
+                &deterministic_sign_ctx.common_ctx,
                 our_funding_tx_partial_signature,
                 psct.funding_tx_partial_signature,
                 &psct.commitment_tx,
@@ -4775,6 +4784,9 @@ impl ChannelActorState {
         };
 
         let settlement_data = {
+            let sign_ctx = self.get_sign_context(false);
+            let x_only_aggregated_pubkey = sign_ctx.common_ctx.x_only_aggregated_pubkey();
+
             let settlement_tx = &psct.settlement_tx;
             let commitment_tx = &psct.commitment_tx;
             let to_local_output = settlement_tx
@@ -5449,6 +5461,30 @@ impl ChannelActorState {
             );
             let aggregated_signature =
                 sign_ctx.sign_and_aggregate(message.as_slice(), revocation_partial_signature)?;
+            dbg!(
+                &hex::encode(message.as_slice()),
+                &hex::encode(
+                    [
+                        output.as_slice(),
+                        output_data.as_slice(),
+                        commitment_lock_script_args.as_slice(),
+                    ]
+                    .concat(),
+                ),
+                &hex::encode(output.as_slice()),
+                &hex::encode(output_data.as_slice()),
+                &hex::encode(commitment_lock_script_args.as_slice()),
+                &hex::encode(x_only_aggregated_pubkey.as_slice()),
+                &hex::encode(&blake2b_256(x_only_aggregated_pubkey)[0..20]),
+                &hex::encode(aggregated_signature.serialize()),
+                &hex::encode(sign_ctx.common_ctx.x_only_aggregated_pubkey()),
+                &sign_ctx.common_ctx,
+                &hex::encode(aggregated_signature.serialize()),
+                &sign_ctx.seckey,
+                &sign_ctx.seckey.pubkey(),
+                &sign_ctx.secnonce,
+                &sign_ctx.secnonce.public_nonce()
+            );
             RevocationData {
                 commitment_number,
                 x_only_aggregated_pubkey,
@@ -5730,7 +5766,7 @@ impl ChannelActorState {
     }
 
     fn build_init_commitment_tx_signature(&self) -> Result<PartialSignature, SigningError> {
-        let sign_ctx = self.get_deterministic_sign_context();
+        let sign_ctx = self.get_sign_context(true);
         let x_only_aggregated_pubkey = sign_ctx.common_ctx.x_only_aggregated_pubkey();
         let ([to_local_output, to_remote_output], [to_local_output_data, to_remote_output_data]) =
             self.build_settlement_transaction_outputs(false);
@@ -5771,7 +5807,7 @@ impl ChannelActorState {
         &self,
         signature: PartialSignature,
     ) -> Result<SettlementData, ProcessingChannelError> {
-        let verify_ctx = self.get_deterministic_verify_context();
+        let verify_ctx = self.get_verify_context(false);
         let x_only_aggregated_pubkey = verify_ctx.common_ctx.x_only_aggregated_pubkey();
         let ([to_local_output, to_remote_output], [to_local_output_data, to_remote_output_data]) =
             self.build_settlement_transaction_outputs(true);
@@ -6274,8 +6310,8 @@ impl ChannelActorState {
     ) -> Result<PartiallySignedCommitmentTransaction, ProcessingChannelError> {
         let (commitment_tx, settlement_tx) = self.build_commitment_and_settlement_tx(false);
 
-        let verify_ctx = self.get_verify_context(false);
-        verify_ctx.verify(
+        let deterministic_verify_ctx = self.get_deterministic_verify_context();
+        deterministic_verify_ctx.verify(
             funding_tx_partial_signature,
             commitment_tx.hash().as_slice(),
         )?;
@@ -6313,6 +6349,7 @@ impl ChannelActorState {
             ]
             .concat(),
         );
+        let verify_ctx = self.get_verify_context(false);
         verify_ctx.verify(commitment_tx_partial_signature, message.as_slice())?;
 
         Ok(PartiallySignedCommitmentTransaction {
@@ -6329,8 +6366,9 @@ impl ChannelActorState {
     ) -> Result<(PartialSignature, PartialSignature), ProcessingChannelError> {
         let (commitment_tx, settlement_tx) = self.build_commitment_and_settlement_tx(true);
 
-        let sign_ctx = self.get_sign_context(true);
-        let funding_tx_partial_signature = sign_ctx.sign(commitment_tx.hash().as_slice())?;
+        let deterministic_sign_ctx = self.get_sign_context(true);
+        let funding_tx_partial_signature =
+            deterministic_sign_ctx.sign(commitment_tx.hash().as_slice())?;
 
         let to_local_output = settlement_tx
             .outputs()
@@ -6366,6 +6404,7 @@ impl ChannelActorState {
             .concat(),
         );
 
+        let sign_ctx = self.get_sign_context(true);
         let commitment_tx_partial_signature = sign_ctx.sign(message.as_slice())?;
 
         Ok((

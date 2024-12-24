@@ -3449,6 +3449,7 @@ async fn test_channel_with_simple_update_operation() {
 
 #[tokio::test]
 async fn test_create_channel() {
+    init_tracing();
     let [mut node_a, mut node_b] = NetworkNode::new_n_interconnected_nodes().await;
 
     let message = |rpc_reply| {
