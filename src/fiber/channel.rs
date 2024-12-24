@@ -3203,66 +3203,6 @@ impl From<&ChannelActorState> for Musig2VerifyContext {
     }
 }
 
-impl From<(&ChannelActorState, bool)> for Musig2SignContext {
-    fn from(value: (&ChannelActorState, bool)) -> Self {
-        let (channel, local) = value;
-        let local_pubkey = channel.get_local_channel_public_keys().funding_pubkey;
-        let remote_pubkey = channel.get_remote_channel_public_keys().funding_pubkey;
-        let pubkeys = if local {
-            [local_pubkey, remote_pubkey]
-        } else {
-            [remote_pubkey, local_pubkey]
-        };
-        let key_agg_ctx = KeyAggContext::new(pubkeys).expect("Valid pubkeys");
-
-        let local_nonce = channel.get_local_nonce();
-        let remote_nonce = channel.get_remote_nonce();
-        let nonces = if local {
-            [local_nonce, remote_nonce]
-        } else {
-            [remote_nonce, local_nonce]
-        };
-        let agg_nonce = AggNonce::sum(nonces);
-
-        Musig2SignContext {
-            key_agg_ctx,
-            agg_nonce,
-            seckey: channel.signer.funding_key.clone(),
-            secnonce: channel.get_local_musig2_secnonce(),
-        }
-    }
-}
-
-impl From<(&ChannelActorState, bool)> for Musig2VerifyContext {
-    fn from(value: (&ChannelActorState, bool)) -> Self {
-        let (channel, local) = value;
-        let local_pubkey = channel.get_local_channel_public_keys().funding_pubkey;
-        let remote_pubkey = channel.get_remote_channel_public_keys().funding_pubkey;
-        let pubkeys = if local {
-            [local_pubkey, remote_pubkey]
-        } else {
-            [remote_pubkey, local_pubkey]
-        };
-        let key_agg_ctx = KeyAggContext::new(pubkeys).expect("Valid pubkeys");
-
-        let local_nonce = channel.get_local_nonce();
-        let remote_nonce = channel.get_remote_nonce();
-        let nonces = if local {
-            [local_nonce, remote_nonce]
-        } else {
-            [remote_nonce, local_nonce]
-        };
-        let agg_nonce = AggNonce::sum(nonces);
-
-        Musig2VerifyContext {
-            key_agg_ctx,
-            agg_nonce,
-            pubkey: *channel.get_remote_funding_pubkey(),
-            pubnonce: channel.get_remote_nonce(),
-        }
-    }
-}
-
 // Constructors for the channel actor state.
 #[allow(clippy::too_many_arguments)]
 impl ChannelActorState {
@@ -4865,8 +4805,8 @@ impl ChannelActorState {
         &self,
         psct: &PartiallySignedCommitmentTransaction,
     ) -> Result<(TransactionView, SettlementData), ProcessingChannelError> {
+        let sign_ctx = Musig2SignContext::from(self);
         let completed_commitment_tx = {
-            let sign_ctx = Musig2SignContext::from(self);
             let our_funding_tx_partial_signature =
                 sign_ctx.sign(psct.commitment_tx.hash().as_slice())?;
             self.aggregate_partial_signatures_to_consume_funding_cell(
@@ -4914,10 +4854,9 @@ impl ChannelActorState {
                 ]
                 .concat(),
             );
-            let sign_ctx = Musig2SignContext::from((self, false));
             let our_commitment_tx_partial_signature = sign_ctx.sign(message.as_slice())?;
 
-            let verify_ctx = Musig2VerifyContext::from((self, false));
+            let verify_ctx = Musig2VerifyContext::from(self);
             let aggregated_signature = verify_ctx.aggregate_partial_signatures_for_msg(
                 [
                     our_commitment_tx_partial_signature,
@@ -6355,7 +6294,6 @@ impl ChannelActorState {
             commitment_tx.hash().as_slice(),
         )?;
 
-        let verify_ctx = Musig2VerifyContext::from((self, false));
         let to_local_output = settlement_tx
             .outputs()
             .get(0)
@@ -6408,7 +6346,6 @@ impl ChannelActorState {
         let sign_ctx = Musig2SignContext::from(self);
         let funding_tx_partial_signature = sign_ctx.sign(commitment_tx.hash().as_slice())?;
 
-        let sign_ctx = Musig2SignContext::from((self, true));
         let to_local_output = settlement_tx
             .outputs()
             .get(0)
@@ -6593,10 +6530,10 @@ pub struct Musig2SignContext {
 }
 
 impl Musig2SignContext {
-    pub fn sign(self, message: &[u8]) -> Result<PartialSignature, SigningError> {
+    pub fn sign(&self, message: &[u8]) -> Result<PartialSignature, SigningError> {
         sign_partial(
             &self.key_agg_ctx,
-            self.seckey,
+            self.seckey.clone(),
             self.secnonce.clone(),
             &self.agg_nonce,
             message,
