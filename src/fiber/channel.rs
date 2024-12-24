@@ -5811,8 +5811,9 @@ impl ChannelActorState {
         &self,
         signature: PartialSignature,
     ) -> Result<SettlementData, ProcessingChannelError> {
-        let verify_ctx = self.get_verify_context(false);
-        let x_only_aggregated_pubkey = verify_ctx.common_ctx.x_only_aggregated_pubkey();
+        let sign_ctx = self.get_sign_context(false);
+        let x_only_aggregated_pubkey = sign_ctx.common_ctx.x_only_aggregated_pubkey();
+
         let ([to_local_output, to_remote_output], [to_local_output_data, to_remote_output_data]) =
             self.build_settlement_transaction_outputs(true);
         let version = 0u64;
@@ -5845,11 +5846,7 @@ impl ChannelActorState {
             &signature
         );
 
-        verify_ctx.verify(signature, message.as_slice())?;
-
         let settlement_data = {
-            let sign_ctx = self.get_deterministic_sign_context();
-
             let aggregated_signature =
                 sign_ctx.sign_and_aggregate(message.as_slice(), signature)?;
 
