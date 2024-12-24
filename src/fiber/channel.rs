@@ -3910,7 +3910,7 @@ impl ChannelActorState {
         &mut self,
         network: &ActorRef<NetworkActorMessage>,
     ) -> ProcessingChannelResult {
-        let sign_ctx = self.get_sign_context(true);
+        let sign_ctx = self.get_sign_context(false);
         let x_only_aggregated_pubkey = sign_ctx.common_ctx.x_only_aggregated_pubkey();
 
         let revocation_partial_signature = {
@@ -5412,7 +5412,7 @@ impl ChannelActorState {
             next_per_commitment_point,
         } = revoke_and_ack;
 
-        let sign_ctx = self.get_sign_context(false);
+        let sign_ctx = self.get_sign_context(true);
         let x_only_aggregated_pubkey = sign_ctx.common_ctx.x_only_aggregated_pubkey();
 
         let revocation_data = {
