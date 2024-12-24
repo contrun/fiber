@@ -6367,7 +6367,7 @@ impl ChannelActorState {
     ) -> Result<(PartialSignature, PartialSignature), ProcessingChannelError> {
         let (commitment_tx, settlement_tx) = self.build_commitment_and_settlement_tx(true);
 
-        let deterministic_sign_ctx = self.get_sign_context(true);
+        let deterministic_sign_ctx = self.get_deterministic_sign_context();
         let funding_tx_partial_signature =
             deterministic_sign_ctx.sign(commitment_tx.hash().as_slice())?;
 
