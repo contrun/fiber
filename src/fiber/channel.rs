@@ -5927,8 +5927,8 @@ impl ChannelActorState {
         }
     }
 
-    fn get_verify_context(&self, for_remote: bool) -> Musig2VerifyContext {
-        let common_ctx = self.get_musig2_common_ctx(for_remote);
+    fn get_verify_context(&self) -> Musig2VerifyContext {
+        let common_ctx = self.get_musig2_common_ctx(false);
 
         Musig2VerifyContext {
             common_ctx,
@@ -6364,7 +6364,7 @@ impl ChannelActorState {
             ]
             .concat(),
         );
-        let verify_ctx = self.get_verify_context(false);
+        let verify_ctx = self.get_verify_context();
         verify_ctx.verify(commitment_tx_partial_signature, message.as_slice())?;
 
         Ok(PartiallySignedCommitmentTransaction {
