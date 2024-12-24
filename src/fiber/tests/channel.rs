@@ -3426,7 +3426,7 @@ async fn test_revoke_old_commitment_transaction() {
     let witness = [
         empty_witness_args.to_vec(),
         vec![0xFF],
-        0u64.to_be_bytes().to_vec(),
+        revocation_data.commitment_number.to_be_bytes().to_vec(),
         revocation_data.x_only_aggregated_pubkey.to_vec(),
         revocation_data.aggregated_signature.serialize().to_vec(),
     ]

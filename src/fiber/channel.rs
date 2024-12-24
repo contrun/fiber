@@ -5845,12 +5845,12 @@ impl ChannelActorState {
         local_pubkey <= remote_pubkey
     }
 
-    // Order some items (like pubkey and nonce) from holders and counterparty in musig2.
-    fn order_things_for_musig2<T>(&self, holder: T, counterparty: T) -> [T; 2] {
+    // Order some items (like pubkey and nonce) from local and remote in musig2.
+    fn order_things_for_musig2<T>(&self, local: T, remote: T) -> [T; 2] {
         if self.should_local_go_first_in_musig2() {
-            [holder, counterparty]
+            [local, remote]
         } else {
-            [counterparty, holder]
+            [remote, local]
         }
     }
 
