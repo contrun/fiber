@@ -896,11 +896,12 @@ where
             }
             #[cfg(test)]
             NetworkActorEvent::GossipMessage(peer_id, message) => {
-                let _ = state
+                state
                     .gossip_actor
                     .send_message(GossipActorMessage::GossipMessageReceived(
                         GossipMessageWithPeerId { peer_id, message },
-                    ));
+                    ))
+                    .expect("gossip actor alive");
             }
             NetworkActorEvent::GossipMessageUpdates(gossip_message_updates) => {
                 let mut graph = self.network_graph.write().await;
@@ -1244,19 +1245,22 @@ where
                     .expect("network actor alive");
             }
             NetworkActorCommand::ProcessBroadcastMessage(message) => {
-                let _ = state
+                state
                     .gossip_actor
-                    .send_message(GossipActorMessage::ProcessBroadcastMessage(message));
+                    .send_message(GossipActorMessage::ProcessBroadcastMessage(message))
+                    .expect("gossip actor alive");
             }
             NetworkActorCommand::QueryBroadcastMessages(peer, queries) => {
-                let _ = state
+                state
                     .gossip_actor
-                    .send_message(GossipActorMessage::QueryBroadcastMessages(peer, queries));
+                    .send_message(GossipActorMessage::QueryBroadcastMessages(peer, queries))
+                    .expect("gossip actor alive");
             }
             NetworkActorCommand::BroadcastMessages(message) => {
-                let _ = state
+                state
                     .gossip_actor
-                    .send_message(GossipActorMessage::TryBroadcastMessages(message));
+                    .send_message(GossipActorMessage::TryBroadcastMessages(message))
+                    .expect("gossip actor alive");
             }
             NetworkActorCommand::SignMessage(message, reply) => {
                 debug!(
@@ -1301,7 +1305,10 @@ where
                 }
             },
             NetworkActorCommand::GossipActorMessage(message) => {
-                let _ = state.gossip_actor.send_message(message);
+                state
+                    .gossip_actor
+                    .send_message(message)
+                    .expect("gossip actor alive");
             }
             NetworkActorCommand::NodeInfo(_, rpc) => {
                 let response = NodeInfoResponse {

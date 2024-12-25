@@ -2119,7 +2119,7 @@ where
                     .handle_peer_message(&myself, state, message.clone())
                     .await
                 {
-                    eprintln!(
+                    error!(
                         "Error while processing channel message: {:?} with message: {:?}",
                         error, message
                     );
@@ -5641,6 +5641,14 @@ impl ChannelActorState {
                 [revocation_partial_signature, our_signature],
                 message.as_slice(),
             )?;
+            dbg!(
+                hex::encode(x_only_aggregated_pubkey),
+                hex::encode(aggregated_signature.serialize()),
+                hex::encode(hex::encode(message.as_slice())),
+                hex::encode(output.as_slice()),
+                hex::encode(output_data.as_slice()),
+                hex::encode(commitment_lock_script_args.as_slice()),
+            );
             RevocationData {
                 commitment_number,
                 x_only_aggregated_pubkey,
@@ -5679,6 +5687,16 @@ impl ChannelActorState {
                 [commitment_tx_partial_signature, our_signature],
                 message.as_slice(),
             )?;
+            dbg!(
+                hex::encode(x_only_aggregated_pubkey),
+                hex::encode(commitment_tx_partial_signature.serialize()),
+                hex::encode(message.as_slice()),
+                hex::encode(to_local_output.as_slice()),
+                hex::encode(to_local_output_data.as_slice()),
+                hex::encode(to_remote_output.as_slice()),
+                hex::encode(to_remote_output_data.as_slice()),
+                hex::encode(commitment_lock_script_args.as_slice()),
+            );
 
             SettlementData {
                 x_only_aggregated_pubkey,
@@ -6498,6 +6516,17 @@ impl ChannelActorState {
         );
 
         let commitment_tx_partial_signature = sign_ctx.sign(message.as_slice())?;
+        dbg!(
+            // hex::encode(x_only_aggregated_pubkey),
+            hex::encode(funding_tx_partial_signature.serialize()),
+            hex::encode(commitment_tx_partial_signature.serialize()),
+            hex::encode(message.as_slice()),
+            hex::encode(to_local_output.as_slice()),
+            hex::encode(to_local_output_data.as_slice()),
+            hex::encode(to_remote_output.as_slice()),
+            hex::encode(to_remote_output_data.as_slice()),
+            hex::encode(&args[0..36]),
+        );
 
         Ok((
             funding_tx_partial_signature,
