@@ -3259,7 +3259,7 @@ impl ChannelActorState {
         let agg_nonce =
             AggNonce::sum(self.order_things_for_musig2(local_nonce, remote_nonce.clone()));
 
-        let key_agg_ctx = self.get_musig2_agg_context();
+        let key_agg_ctx = self.get_deterministic_musig2_agg_context();
 
         let message = channel_announcement.message_to_sign();
 
@@ -3743,7 +3743,7 @@ impl ChannelActorState {
         let local_secnonce = self.get_channel_announcement_musig2_secnonce();
         let local_nonce = local_secnonce.public_nonce();
         let agg_nonce = AggNonce::sum(self.order_things_for_musig2(local_nonce, remote_nonce));
-        let key_agg_ctx = self.get_musig2_agg_context();
+        let key_agg_ctx = self.get_deterministic_musig2_agg_context();
         let channel_id = self.get_id();
         let peer_id = self.get_remote_peer_id();
         let channel_outpoint = self.must_get_funding_transaction_outpoint();
@@ -3962,15 +3962,6 @@ impl ChannelActorState {
                 .concat(),
             );
             let our_signature = sign_ctx.sign(message.as_slice()).expect("valid signature");
-            dbg!(
-                &message.as_slice(),
-                &sign_ctx.common_ctx,
-                &our_signature,
-                &sign_ctx.seckey,
-                &sign_ctx.seckey.pubkey(),
-                &sign_ctx.secnonce,
-                &sign_ctx.secnonce.public_nonce()
-            );
             our_signature
         };
 
@@ -4292,12 +4283,14 @@ impl ChannelActorState {
     }
 
     pub fn get_funding_lock_script_xonly_key(&self) -> XOnlyPublicKey {
-        let pubkey: secp256k1::PublicKey = self.get_musig2_agg_context().aggregated_pubkey();
+        let pubkey: secp256k1::PublicKey = self
+            .get_deterministic_musig2_agg_context()
+            .aggregated_pubkey();
         pubkey.into()
     }
 
     pub fn get_funding_lock_script_xonly(&self) -> [u8; 32] {
-        self.get_musig2_agg_context()
+        self.get_deterministic_musig2_agg_context()
             .aggregated_pubkey::<Point>()
             .serialize_xonly()
     }
@@ -4320,11 +4313,7 @@ impl ChannelActorState {
         }
     }
 
-    pub fn get_musig2_agg_pubkey(&self) -> Pubkey {
-        self.get_musig2_agg_context().aggregated_pubkey()
-    }
-
-    pub fn get_musig2_agg_context(&self) -> KeyAggContext {
+    pub fn get_deterministic_musig2_agg_context(&self) -> KeyAggContext {
         let local_pubkey = self.get_local_channel_public_keys().funding_pubkey;
         let remote_pubkey = self.get_remote_channel_public_keys().funding_pubkey;
         let keys = self.order_things_for_musig2(local_pubkey, remote_pubkey);
@@ -4353,7 +4342,7 @@ impl ChannelActorState {
         self.get_local_musig2_secnonce().public_nonce()
     }
 
-    pub fn get_musig2_agg_pubnonce(
+    pub fn get_deterministic_musig2_agg_pubnonce(
         &self,
         local_nonce: PubNonce,
         remote_nonce: PubNonce,
@@ -5457,23 +5446,6 @@ impl ChannelActorState {
             );
             let aggregated_signature =
                 sign_ctx.sign_and_aggregate(message.as_slice(), revocation_partial_signature)?;
-            dbg!(
-                &hex::encode(message.as_slice()),
-                &hex::encode(
-                    [
-                        output.as_slice(),
-                        output_data.as_slice(),
-                        commitment_lock_script_args.as_slice(),
-                    ]
-                    .concat(),
-                ),
-                &hex::encode(output.as_slice()),
-                &hex::encode(output_data.as_slice()),
-                &hex::encode(commitment_lock_script_args.as_slice()),
-                &hex::encode(x_only_aggregated_pubkey.as_slice()),
-                &hex::encode(&blake2b_256(x_only_aggregated_pubkey)[0..20]),
-                &hex::encode(aggregated_signature.serialize()),
-            );
             RevocationData {
                 commitment_number,
                 x_only_aggregated_pubkey,
@@ -5778,17 +5750,6 @@ impl ChannelActorState {
         );
 
         let signature = sign_ctx.sign(message.as_slice());
-        dbg!(
-            "build_init_commitment_tx_signature",
-            self.local_pubkey,
-            hex::encode(message.as_slice()),
-            hex::encode(to_local_output.as_slice()),
-            hex::encode(to_local_output_data.as_slice()),
-            hex::encode(to_remote_output.as_slice()),
-            hex::encode(to_remote_output_data.as_slice()),
-            hex::encode(commitment_lock_script_args.as_slice()),
-            &signature,
-        );
         signature
     }
 
@@ -5817,18 +5778,6 @@ impl ChannelActorState {
                 commitment_lock_script_args.as_slice(),
             ]
             .concat(),
-        );
-
-        dbg!(
-            "check_init_commitment_tx_signature",
-            self.local_pubkey,
-            hex::encode(message.as_slice()),
-            hex::encode(to_local_output.as_slice()),
-            hex::encode(to_local_output_data.as_slice()),
-            hex::encode(to_remote_output.as_slice()),
-            hex::encode(to_remote_output_data.as_slice()),
-            hex::encode(commitment_lock_script_args.as_slice()),
-            &signature
         );
 
         let settlement_data = {
@@ -5899,7 +5848,7 @@ impl ChannelActorState {
 
     fn get_deterministic_common_context(&self) -> Musig2CommonContext {
         let local_first = self.should_local_go_first_in_musig2();
-        let key_agg_ctx = self.get_musig2_agg_context();
+        let key_agg_ctx = self.get_deterministic_musig2_agg_context();
         let remote_nonce = self.get_last_committed_remote_nonce();
         let local_nonce = self.get_local_musig2_pubnonce();
         let agg_nonce = AggNonce::sum(if local_first {
@@ -5927,6 +5876,8 @@ impl ChannelActorState {
     }
 
     fn get_verify_context(&self) -> Musig2VerifyContext {
+        // We are always verifying a commitment transaction that is broadcast by us,
+        // so we can always pass false to get_musig2_common_ctx.
         let common_ctx = self.get_musig2_common_ctx(false);
 
         Musig2VerifyContext {
@@ -6547,14 +6498,6 @@ struct Musig2CommonContext {
     local_first: bool,
     key_agg_ctx: KeyAggContext,
     agg_nonce: AggNonce,
-}
-
-impl PartialEq for Musig2CommonContext {
-    fn eq(&self, other: &Self) -> bool {
-        self.local_first == other.local_first
-            && self.x_only_aggregated_pubkey() == other.x_only_aggregated_pubkey()
-            && self.agg_nonce == other.agg_nonce
-    }
 }
 
 impl Musig2CommonContext {
