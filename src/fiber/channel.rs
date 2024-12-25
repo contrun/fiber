@@ -5488,6 +5488,14 @@ impl ChannelActorState {
             );
             let aggregated_signature =
                 sign_ctx.sign_and_aggregate(message.as_slice(), revocation_partial_signature)?;
+            dbg!(
+                hex::encode(sign_ctx.common_ctx.x_only_aggregated_pubkey()),
+                hex::encode(aggregated_signature.serialize()),
+                hex::encode(hex::encode(message.as_slice())),
+                hex::encode(output.as_slice()),
+                hex::encode(output_data.as_slice()),
+                hex::encode(commitment_lock_script_args.as_slice()),
+            );
             RevocationData {
                 commitment_number,
                 x_only_aggregated_pubkey,
@@ -5517,6 +5525,16 @@ impl ChannelActorState {
                     commitment_lock_script_args.as_slice(),
                 ]
                 .concat(),
+            );
+            dbg!(
+                hex::encode(sign_ctx.common_ctx.x_only_aggregated_pubkey()),
+                hex::encode(commitment_tx_partial_signature.serialize()),
+                hex::encode(message.as_slice()),
+                hex::encode(to_local_output.as_slice()),
+                hex::encode(to_local_output_data.as_slice()),
+                hex::encode(to_remote_output.as_slice()),
+                hex::encode(to_remote_output_data.as_slice()),
+                hex::encode(commitment_lock_script_args.as_slice()),
             );
             let aggregated_signature =
                 sign_ctx.sign_and_aggregate(message.as_slice(), commitment_tx_partial_signature)?;
@@ -6434,6 +6452,16 @@ impl ChannelActorState {
 
         let sign_ctx = self.get_sign_context(true);
         let commitment_tx_partial_signature = sign_ctx.sign(message.as_slice())?;
+        dbg!(
+            hex::encode(sign_ctx.common_ctx.x_only_aggregated_pubkey()),
+            hex::encode(commitment_tx_partial_signature.serialize()),
+            hex::encode(message.as_slice()),
+            hex::encode(to_local_output.as_slice()),
+            hex::encode(to_local_output_data.as_slice()),
+            hex::encode(to_remote_output.as_slice()),
+            hex::encode(to_remote_output_data.as_slice()),
+            hex::encode(&args[0..36]),
+        );
 
         Ok((
             funding_tx_partial_signature,
