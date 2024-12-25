@@ -2805,14 +2805,19 @@ pub struct ChannelActorState {
     #[serde_as(as = "EntityHex")]
     pub local_shutdown_script: Script,
 
-    // The latest remote nonce that both parties.
+    // Basically the latest remote nonce sent by the peer with the CommitmentSigned message,
+    // but we will only update this field after we have sent a RevokeAndAck to the peer.
+    // With above guarantee, we can be sure the results of the sender obtaining its latest local nonce
+    // and the receiver obtaining its latest remote nonce are the same.
     #[serde_as(as = "Option<PubNonceAsBytes>")]
     pub last_committed_remote_nonce: Option<PubNonce>,
 
-    // While building a CommitmentSigned message, we use a nonce sent by the counterparty
-    // to partially sign the commitment transaction. This nonce is also used while handling the revoke_and_ack
-    // message from the peer. We need to save this nonce because the counterparty may send other nonces during
+    // While building a CommitmentSigned message, we use the latest remote nonce (the `last_committed_remote_nonce` above)
+    // to partially sign the commitment transaction. This nonce is also needed for the RevokeAndAck message
+    // returned from the peer. We need to save this nonce because the counterparty may send other nonces during
     // the period when our CommitmentSigned is sent and the counterparty's RevokeAndAck is received.
+    // This field is used to keep the nonce used by the unconfirmed CommitmentSigned. When we receive a
+    // RevokeAndAck from the peer, we will use this nonce to validate the RevokeAndAck message.
     #[serde_as(as = "Option<PubNonceAsBytes>")]
     pub last_used_remote_nonce: Option<PubNonce>,
 
@@ -4025,15 +4030,6 @@ impl ChannelActorState {
 
     pub fn get_remote_peer_id(&self) -> PeerId {
         self.remote_pubkey.tentacle_peer_id()
-    }
-
-    pub fn get_local_secnonce(&self) -> SecNonce {
-        self.signer
-            .derive_musig2_nonce(self.get_local_commitment_number())
-    }
-
-    pub fn get_local_nonce(&self) -> PubNonce {
-        self.get_local_secnonce().public_nonce()
     }
 
     pub fn get_next_local_secnonce(&self) -> SecNonce {
@@ -5918,6 +5914,9 @@ impl ChannelActorState {
         }
     }
 
+    // A deterministic `Musig2VerifyContext` is a verifying context that has the same basic configuration
+    // for both parties. This is mostly used by us to verify transactions to consume the funding cell,
+    // which uses a deterministic aggregated pubkey for both parties.
     fn get_deterministic_verify_context(&self) -> Musig2VerifyContext {
         let common_ctx = self.get_deterministic_common_context();
         Musig2VerifyContext {
@@ -5937,6 +5936,9 @@ impl ChannelActorState {
         }
     }
 
+    // A deterministic `Musig2SignContext` is a signing context that has the same basic configuration
+    // for both parties. This is mostly used by us to sign transactions to consume the funding cell,
+    // which uses a deterministic aggregated pubkey for both parties.
     fn get_deterministic_sign_context(&self) -> Musig2SignContext {
         let common_ctx = self.get_deterministic_common_context();
         Musig2SignContext {
@@ -5946,18 +5948,18 @@ impl ChannelActorState {
         }
     }
 
-    // This function is used to build the context for signing the commitment_signed message.
-    // We will use the aggregated pubkey and nonce to sign the message.
-    // There is an additional operation of saving the current.
-    // 1: A -> B: CommitmentSigned, with a new local nonce, call it a_nonce_0
-    // 2: B -> A: CommitmentSigned, with a new local nonce, call it b_nonce_0
-    // 3: ChannelReady.
-    // 4: A -> B CommitmentSigned, with a new local nonce, call it a_nonce_1
-    // 5: B -> A CommitmentSigned, with a new local nonce, call it b_nonce_1
-    // 6: B: Using a_nonce_0, verify the CommitmentSigned message from A and send back a RevokeAndAck message, promoting b_nonce_0 to b_nonce_1.
-    // 7: A: Verify the RevokeAndAck message from B using the last nonce (a_nonce_0).
-    // 8: A: Using b_nonce_0, verify the CommitmentSigned message from B and send back a RevokeAndAck message, promoting a_nonce_0 to a_nonce_1.
-    // 9: B: Verify the RevokeAndAck message from A using the last nonce (b_nonce_0).
+    // This function is used to construct a `Musig2SignContext` with which we can easily sign
+    // and aggregate partial signatures. The parameter for_remote is used to indicate the direction
+    // of commitment transation (just like the same parameter used in building commitment transactions).
+    // This is also due to the fact commitment transactions are asymmetrical (A's broadcastable commitment
+    // transactions are different from B's broadcastable commitment transactions), sometimes we need to
+    // construct different `Musig2SignContext` depending on the direction of commitment transaction.
+    // For example, the `Musig2SignContext`s used by A to construct `CommitmentSigned` and `RevokeAndAck`
+    // messages to B are different. A needs to build a commitment transaction that is broadcast by B
+    // to construct a `CommitmentSigned` message, but when constructing `RevokeAndAck` A needs to
+    // build an old commitment transaction that is broadcast by himself. This is the reason why
+    // we need a `for_remote` parameter. It serves the same function as `for_remote` in functions
+    // like `build_commitment_and_settlement_tx`.
     fn get_sign_context(&self, for_remote: bool) -> Musig2SignContext {
         let common_ctx = self.get_musig2_common_ctx(for_remote);
 
@@ -5968,6 +5970,9 @@ impl ChannelActorState {
         }
     }
 
+    // As explained in the documentation of `last_used_remote_nonce` field, we need to
+    // use a saved remote nonce because the latest remote nonce may be different from the
+    // one we used while sending CommitmentSigned message.
     fn get_sign_context_for_revoke_and_ack_message(&self) -> Musig2SignContext {
         let common_ctx = {
             let local_pubkey = self.get_local_channel_public_keys().funding_pubkey;
@@ -6214,6 +6219,12 @@ impl ChannelActorState {
         }
     }
 
+    // For different directions of commitment transactions, we put pubkeys and nonces
+    // in different order. It is a coincidency that in the current code when we are building
+    // a commitment transaction for the remote, we will put our pubkey/nonce first.
+    // That is to say, `for_remote` is equivalent to this function's parameter `local_first`.
+    // But, the name local_first is more descriptive in the context of ordering musig2-related
+    // stuff.
     fn get_musig2_common_ctx(&self, local_first: bool) -> Musig2CommonContext {
         let local_pubkey = self.get_local_channel_public_keys().funding_pubkey;
         let remote_pubkey = self.get_remote_channel_public_keys().funding_pubkey;
@@ -6528,11 +6539,14 @@ pub fn create_witness_for_commitment_cell(
         .expect("Witness length should be correct")
 }
 
+// The common musig2 configuration that is used both by signing and verifying.
 #[derive(Debug)]
-pub struct Musig2CommonContext {
-    pub local_first: bool,
-    pub key_agg_ctx: KeyAggContext,
-    pub agg_nonce: AggNonce,
+struct Musig2CommonContext {
+    // This parameter is also saved to the context because it is useful for
+    // aggregating partial signatures.
+    local_first: bool,
+    key_agg_ctx: KeyAggContext,
+    agg_nonce: AggNonce,
 }
 
 impl PartialEq for Musig2CommonContext {
@@ -6570,14 +6584,14 @@ impl Musig2CommonContext {
     }
 }
 
-pub struct Musig2VerifyContext {
-    pub common_ctx: Musig2CommonContext,
-    pub pubkey: Pubkey,
-    pub pubnonce: PubNonce,
+struct Musig2VerifyContext {
+    common_ctx: Musig2CommonContext,
+    pubkey: Pubkey,
+    pubnonce: PubNonce,
 }
 
 impl Musig2VerifyContext {
-    pub fn verify(&self, signature: PartialSignature, message: &[u8]) -> Result<(), VerifyError> {
+    fn verify(&self, signature: PartialSignature, message: &[u8]) -> Result<(), VerifyError> {
         verify_partial(
             &self.common_ctx.key_agg_ctx,
             signature,
@@ -6589,14 +6603,14 @@ impl Musig2VerifyContext {
     }
 }
 
-pub struct Musig2SignContext {
-    pub common_ctx: Musig2CommonContext,
+struct Musig2SignContext {
+    common_ctx: Musig2CommonContext,
     seckey: Privkey,
     secnonce: SecNonce,
 }
 
 impl Musig2SignContext {
-    pub fn sign(&self, message: &[u8]) -> Result<PartialSignature, SigningError> {
+    fn sign(&self, message: &[u8]) -> Result<PartialSignature, SigningError> {
         sign_partial(
             &self.common_ctx.key_agg_ctx,
             self.seckey.clone(),
@@ -6606,7 +6620,7 @@ impl Musig2SignContext {
         )
     }
 
-    pub fn sign_and_aggregate(
+    fn sign_and_aggregate(
         &self,
         message: &[u8],
         remote_signature: PartialSignature,
