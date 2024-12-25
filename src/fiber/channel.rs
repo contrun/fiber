@@ -2122,8 +2122,9 @@ where
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         trace!(
-            "Channel actor processing message: id: {:?}, state: {:?}, message: {:?}",
+            "Channel actor processing message: id: {:?}, myself: {:?} state: {:?}, message: {:?}",
             &state.get_id(),
+            &state.get_local_peer_id(),
             &state.state,
             message,
         );
