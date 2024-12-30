@@ -406,6 +406,8 @@ async fn test_create_public_channel() {
         true,
     )
     .await;
+
+    ractor::concurrency::sleep(Duration::from_secs(3)).await;
 }
 
 #[tokio::test]

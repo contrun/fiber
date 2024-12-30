@@ -181,7 +181,7 @@ impl Actor for CkbChainActor {
                 reply_port,
             ) => {
                 tracing::info!(
-                    "[{}] trace transaction {} with {} confs",
+                    "[{}] trace transaction {} with {} confirmations",
                     myself.get_name().unwrap_or_default(),
                     tx_hash,
                     confirmations

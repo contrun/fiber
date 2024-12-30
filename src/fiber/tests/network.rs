@@ -14,7 +14,7 @@ use crate::{
     },
     gen_rand_fiber_public_key, gen_rand_secp256k1_keypair_tuple, gen_rand_sha256_hash,
     invoice::InvoiceBuilder,
-    now_timestamp_as_millis_u64, NetworkServiceEvent,
+    now_timestamp_as_millis_u64, ChannelTestContext, NetworkServiceEvent,
 };
 use ckb_hash::blake2b_256;
 use ckb_jsonrpc_types::Status;
@@ -251,6 +251,65 @@ async fn test_sync_channel_announcement_on_startup() {
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     let channels = node2.get_network_graph_channels().await;
     assert!(!channels.is_empty());
+}
+
+#[tokio::test]
+async fn test_query_dependent_channel_announcement() {
+    init_tracing();
+
+    let (channel_outpoint, channel_announcement, channel_update) = {
+        let channel_context = ChannelTestContext::gen();
+        let channel_update = channel_context.create_channel_update_of_node1(None, 0, 42, 42, 42);
+        let channel_outpoint = channel_context.channel_announcement.out_point().clone();
+        (
+            channel_outpoint,
+            channel_context.channel_announcement,
+            channel_update,
+        )
+    };
+
+    let mut node1 = NetworkNode::new_with_node_name("node1").await;
+    let mut node2 = NetworkNode::new_with_node_name("node2").await;
+
+    node1.connect_to(&node2).await;
+
+    // Wait for node1 and node2 to process the broadcast messages.
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    node1
+        .network_actor
+        .send_message(NetworkActorMessage::new_command(
+            NetworkActorCommand::DisconnectPeer(node2.peer_id.clone()),
+        ))
+        .expect("node1 alive");
+
+    // Wait for node1 and node2 to process the broadcast messages.
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    node2
+        .network_actor
+        .send_message(NetworkActorMessage::Command(
+            NetworkActorCommand::ProcessBroadcastMessage(BroadcastMessage::ChannelAnnouncement(
+                channel_announcement,
+            )),
+        ))
+        .expect("send message to network actor");
+
+    // Wait for node1 and node2 to sync the network graph.
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    node1.connect_to(&node2).await;
+
+    dbg!(
+        node1.get_network_graph_channels().await,
+        node2.get_network_graph_channels().await,
+    );
+
+    let channel_info = node1.get_network_graph_channel(&channel_outpoint).await;
+    assert!(channel_info.is_some());
+
+    let channel_info = node2.get_network_graph_channel(&channel_outpoint).await;
+    assert!(channel_info.is_some());
 }
 
 async fn create_a_channel() -> (NetworkNode, ChannelAnnouncement, Privkey, Privkey) {

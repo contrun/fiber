@@ -131,6 +131,7 @@ impl ChannelTestContext {
 
     pub fn create_channel_update_of_node1(
         &self,
+        timestamp: Option<u64>,
         channel_flags: u32,
         tlc_expiry_delta: u64,
         tlc_minimum_value: u128,
@@ -138,7 +139,7 @@ impl ChannelTestContext {
     ) -> ChannelUpdate {
         let mut unsigned_channel_update = ChannelUpdate::new_unsigned(
             self.channel_announcement.channel_outpoint.clone(),
-            now_timestamp_as_millis_u64(),
+            timestamp.unwrap_or(now_timestamp_as_millis_u64()),
             MESSAGE_OF_NODE1_FLAG,
             channel_flags,
             tlc_expiry_delta,
@@ -153,6 +154,7 @@ impl ChannelTestContext {
 
     pub fn create_channel_update_of_node2(
         &self,
+        timestamp: Option<u64>,
         channel_flags: u32,
         tlc_expiry_delta: u64,
         tlc_minimum_value: u128,
@@ -160,7 +162,7 @@ impl ChannelTestContext {
     ) -> ChannelUpdate {
         let mut unsigned_channel_update = ChannelUpdate::new_unsigned(
             self.channel_announcement.channel_outpoint.clone(),
-            now_timestamp_as_millis_u64(),
+            timestamp.unwrap_or(now_timestamp_as_millis_u64()),
             MESSAGE_OF_NODE2_FLAG,
             channel_flags,
             tlc_expiry_delta,

@@ -1189,6 +1189,10 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
         peer_id: &Option<PeerId>,
         message: &BroadcastMessage,
     ) -> Result<BroadcastMessageWithTimestamp, GossipMessageProcessingError> {
+        debug!(
+            "Inserting message to be saved: peer {:?}, message {:?}",
+            peer_id, message
+        );
         if let Some(existing_message) = get_existing_newer_broadcast_message(message, &self.store) {
             if &BroadcastMessage::from(existing_message.clone()) != message {
                 return Err(GossipMessageProcessingError::NewerMessageSaved(
@@ -1849,6 +1853,10 @@ where
         originator: Option<PeerId>,
         messages: Vec<BroadcastMessage>,
     ) {
+        debug!(
+            "Verifying and saving messages from {:?}: {:?}",
+            originator, messages
+        );
         self.store
             .actor
             .send_message(ExtendedGossipMessageStoreMessage::SaveMessages(

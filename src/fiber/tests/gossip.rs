@@ -262,8 +262,8 @@ async fn test_saving_channel_update_after_saving_channel_announcement() {
         .get_latest_channel_announcement(channel_context.channel_outpoint());
     assert_ne!(new_announcement, None);
     for channel_update in [
-        channel_context.create_channel_update_of_node1(0, 42, 42, 42),
-        channel_context.create_channel_update_of_node2(0, 42, 42, 42),
+        channel_context.create_channel_update_of_node1(None, 0, 42, 42, 42),
+        channel_context.create_channel_update_of_node2(None, 0, 42, 42, 42),
     ] {
         context.save_message(BroadcastMessage::ChannelUpdate(channel_update.clone()));
     }
@@ -282,8 +282,8 @@ async fn test_saving_channel_update_before_saving_channel_announcement() {
     let channel_context = ChannelTestContext::gen();
 
     for channel_update in [
-        channel_context.create_channel_update_of_node1(0, 42, 42, 42),
-        channel_context.create_channel_update_of_node2(0, 42, 42, 42),
+        channel_context.create_channel_update_of_node1(None, 0, 42, 42, 42),
+        channel_context.create_channel_update_of_node2(None, 0, 42, 42, 42),
     ] {
         context.save_message(BroadcastMessage::ChannelUpdate(channel_update.clone()));
     }
@@ -329,8 +329,8 @@ async fn test_saving_invalid_channel_update() {
         .get_latest_channel_announcement(channel_context.channel_outpoint());
     assert_ne!(new_announcement, None);
     for mut channel_update in [
-        channel_context.create_channel_update_of_node1(0, 42, 42, 42),
-        channel_context.create_channel_update_of_node2(0, 42, 42, 42),
+        channel_context.create_channel_update_of_node1(None, 0, 42, 42, 42),
+        channel_context.create_channel_update_of_node2(None, 0, 42, 42, 42),
     ] {
         channel_update.signature = Some(create_invalid_ecdsa_signature());
         context.save_message(BroadcastMessage::ChannelUpdate(channel_update.clone()));
@@ -360,8 +360,8 @@ async fn test_saving_channel_update_independency() {
             .get_latest_channel_announcement(channel_context.channel_outpoint());
         assert_ne!(new_announcement, None);
         for mut channel_update in [
-            channel_context.create_channel_update_of_node1(0, 42, 42, 42),
-            channel_context.create_channel_update_of_node2(0, 42, 42, 42),
+            channel_context.create_channel_update_of_node1(None, 0, 42, 42, 42),
+            channel_context.create_channel_update_of_node2(None, 0, 42, 42, 42),
         ] {
             if channel_update.is_update_of_node_1() && node1_has_invalid_signature {
                 channel_update.signature = Some(create_invalid_ecdsa_signature());
@@ -439,8 +439,8 @@ async fn test_saving_channel_update_with_invalid_channel_announcement() {
         .get_latest_channel_announcement(channel_context.channel_outpoint());
     assert_eq!(new_announcement, None);
     for channel_update in [
-        channel_context.create_channel_update_of_node1(0, 42, 42, 42),
-        channel_context.create_channel_update_of_node2(0, 42, 42, 42),
+        channel_context.create_channel_update_of_node1(None, 0, 42, 42, 42),
+        channel_context.create_channel_update_of_node2(None, 0, 42, 42, 42),
     ] {
         context.save_message(BroadcastMessage::ChannelUpdate(channel_update.clone()));
     }
