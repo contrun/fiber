@@ -1032,8 +1032,7 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
 
         let mut verified_sorted_messages = Vec::with_capacity(sorted_messages.len());
         for message in sorted_messages {
-            match verify_and_save_broadcast_message(&message, &self.store, &self.chain_actor).await
-            {
+            match verify_and_save_broadcast_message(&message, &self.store).await {
                 Ok(_) => {
                     verified_sorted_messages.push(message.into());
                 }
@@ -1059,6 +1058,10 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
         &self,
         outpoint: &OutPoint,
     ) -> Option<(u64, ChannelAnnouncement)> {
+        debug!(
+            "Looking for channel announcement in memory: outpoint {:?}, messages {:?}",
+            outpoint, self.messages_to_be_saved
+        );
         self.messages_to_be_saved.iter().find_map(|m| match m {
             BroadcastMessageWithOnChainInfo::ChannelAnnouncement(
                 on_chain_info,
@@ -1116,6 +1119,10 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
     }
 
     fn has_dependencies_available(&self, message: &BroadcastMessageWithOnChainInfo) -> bool {
+        trace!(
+            "Checking if the dependencies of message {:?} are available",
+            message
+        );
         match message {
             BroadcastMessageWithOnChainInfo::ChannelUpdate(channel_update) => self
                 .get_channel_annnouncement(&channel_update.channel_outpoint)
@@ -1323,6 +1330,10 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                 if complete_messages.is_empty() {
                     return Ok(());
                 }
+                trace!(
+                    "Complete messages in memory: messages {:?}",
+                    complete_messages
+                );
                 for (id, subscription) in state.output_ports.iter() {
                     let messages_to_send = complete_messages
                         .iter()
@@ -1805,6 +1816,10 @@ async fn get_broadcast_message_with_on_chain_info(
 ) -> Result<BroadcastMessageWithOnChainInfo, Error> {
     match message {
         BroadcastMessage::ChannelAnnouncement(channel_announcement) => {
+            debug!(
+                "Getting channel announcement message on chain info: {:?}",
+                &channel_announcement
+            );
             let on_chain_info =
                 get_channel_on_chain_info(&channel_announcement.channel_outpoint, chain).await?;
             Ok(BroadcastMessageWithOnChainInfo::ChannelAnnouncement(
@@ -1832,16 +1847,13 @@ async fn get_broadcast_message_with_on_chain_info(
 async fn verify_and_save_broadcast_message<S: GossipMessageStore>(
     message: &BroadcastMessageWithOnChainInfo,
     store: &S,
-    chain: &ActorRef<CkbChainMessage>,
 ) -> Result<(), Error> {
     match message {
         BroadcastMessageWithOnChainInfo::ChannelAnnouncement(
             on_chain_info,
             channel_announcement,
         ) => {
-            if !verify_channel_announcement(channel_announcement, on_chain_info, store, chain)
-                .await?
-            {
+            if !verify_channel_announcement(channel_announcement, on_chain_info, store).await? {
                 store.save_channel_announcement(
                     on_chain_info.timestamp,
                     channel_announcement.clone(),
@@ -1962,7 +1974,6 @@ async fn verify_channel_announcement<S: GossipMessageStore>(
     channel_announcement: &ChannelAnnouncement,
     on_chain_info: &ChannelOnchainInfo,
     store: &S,
-    chain: &ActorRef<CkbChainMessage>,
 ) -> Result<bool, Error> {
     debug!(
         "Verifying channel announcement message: {:?}",
@@ -2027,10 +2038,6 @@ async fn verify_channel_announcement<S: GossipMessageStore>(
         "Node signatures in channel announcement message verified: {:?}",
         &channel_announcement
     );
-
-    let (tx, _) = get_channel_tx(&channel_announcement.channel_outpoint, chain).await?;
-
-    debug!("Channel announcement transaction found: {:?}", &tx);
 
     let pubkey = channel_announcement.ckb_key.serialize();
     let pubkey_hash = &blake2b_256(pubkey.as_slice())[0..20];
@@ -2328,6 +2335,7 @@ where
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        debug!("Gossip actor handling message {:?}", message);
         match message {
             GossipActorMessage::PeerConnected(peer_id, pubkey, session) => {
                 if state.is_peer_connected(&peer_id) {
