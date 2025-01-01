@@ -69,6 +69,9 @@ const MIN_NUM_OF_PASSIVE_SYNCING_PEERS: usize = 3;
 const NUM_SIMULTANEOUS_GET_REQUESTS: usize = 1;
 const GET_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
+const TX_CACHE_SIZE: usize = 50;
+const BLOCK_TIMESTAMP_CACHE_SIZE: usize = 200;
+
 fn max_acceptable_gossip_message_timestamp() -> u64 {
     now_timestamp_as_millis_u64() + MAX_BROADCAST_MESSAGE_TIMESTAMP_DRIFT_MILLIS
 }
@@ -1071,6 +1074,10 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
         &self,
         outpoint: &OutPoint,
     ) -> Option<(u64, ChannelAnnouncement)> {
+        debug!(
+            "Looking for channel announcement in memory: outpoint {:?}, messages {:?}",
+            outpoint, self.messages_to_be_saved
+        );
         self.messages_to_be_saved.iter().find_map(|m| match m {
             BroadcastMessageWithTimestamp::ChannelAnnouncement(timestamp, channel_announcement)
                 if &channel_announcement.channel_outpoint == outpoint =>
@@ -1130,6 +1137,10 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
     }
 
     fn has_dependencies_available(&self, message: &BroadcastMessageWithTimestamp) -> bool {
+        trace!(
+            "Checking if the dependencies of message {:?} are available",
+            message
+        );
         match message {
             BroadcastMessageWithTimestamp::ChannelUpdate(channel_update) => self
                 .get_channel_annnouncement(&channel_update.channel_outpoint)
@@ -1337,6 +1348,10 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                 if complete_messages.is_empty() {
                     return Ok(());
                 }
+                trace!(
+                    "Complete messages in memory: messages {:?}",
+                    complete_messages
+                );
                 for (id, subscription) in state.output_ports.iter() {
                     let messages_to_send = complete_messages
                         .iter()
@@ -1753,6 +1768,10 @@ async fn get_message_cursor<S: GossipMessageStore>(
     store: &S,
     chain: &ActorRef<CkbChainMessage>,
 ) -> Result<Cursor, Error> {
+    debug!(
+        "Getting channel announcement message timestamp, getting message cursor {:?}",
+        message
+    );
     let m = get_broadcast_message_with_timestamp(message, store, chain).await?;
     Ok(m.cursor())
 }
@@ -1802,6 +1821,10 @@ async fn get_broadcast_message_with_timestamp<S: GossipMessageStore>(
 ) -> Result<BroadcastMessageWithTimestamp, Error> {
     match message {
         BroadcastMessage::ChannelAnnouncement(channel_announcement) => {
+            debug!(
+                "Getting channel announcement message timestamp: {:?}",
+                &channel_announcement
+            );
             let timestamp =
                 get_channel_timestamp(&channel_announcement.channel_outpoint, store, chain).await?;
             Ok(BroadcastMessageWithTimestamp::ChannelAnnouncement(
@@ -2341,6 +2364,7 @@ where
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        debug!("Gossip actor handling message {:?}", message);
         match message {
             GossipActorMessage::PeerConnected(peer_id, pubkey, session) => {
                 if state.is_peer_connected(&peer_id) {

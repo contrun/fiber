@@ -1,5 +1,8 @@
+use std::num::NonZero;
+
 use ckb_sdk::{rpc::ResponseFormatGetter, CkbRpcClient, RpcError};
 use ckb_types::{core::TransactionView, packed, prelude::*, H256};
+use lru::LruCache;
 use ractor::{
     concurrency::{sleep, Duration},
     Actor, ActorProcessingErr, ActorRef, RpcReplyPort,
@@ -9,6 +12,9 @@ use crate::ckb::contracts::{get_script_by_contract, Contract};
 
 use super::{funding::FundingContext, CkbConfig, FundingError, FundingRequest, FundingTx};
 
+const TRANSACTIONS_CACHE_SIZE: usize = 50;
+const BLOCK_TIMESTAMP_CACHE_SIZE: usize = 200;
+
 pub struct CkbChainActor {}
 
 #[derive(Clone, Debug)]
@@ -16,6 +22,8 @@ pub struct CkbChainState {
     config: CkbConfig,
     secret_key: secp256k1::SecretKey,
     funding_source_lock_script: packed::Script,
+    transactions_cache: LruCache<packed::Byte32, (u64, TraceTxResponse)>,
+    block_timestamps_cache: LruCache<H256, Option<u64>>,
 }
 
 #[derive(Debug, Clone)]
@@ -25,7 +33,7 @@ pub struct TraceTxRequest {
     pub confirmations: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TraceTxResponse {
     pub tx: Option<ckb_jsonrpc_types::TransactionView>,
     pub status: ckb_jsonrpc_types::TxStatus,
@@ -100,6 +108,10 @@ impl Actor for CkbChainActor {
             config,
             secret_key,
             funding_source_lock_script,
+            transactions_cache: LruCache::new(NonZero::new(TRANSACTIONS_CACHE_SIZE).unwrap()),
+            block_timestamps_cache: LruCache::new(
+                NonZero::new(BLOCK_TIMESTAMP_CACHE_SIZE).unwrap(),
+            ),
         })
     }
 
@@ -181,7 +193,7 @@ impl Actor for CkbChainActor {
                 reply_port,
             ) => {
                 tracing::info!(
-                    "[{}] trace transaction {} with {} confs",
+                    "[{}] trace transaction {} with {} confirmations",
                     myself.get_name().unwrap_or_default(),
                     tx_hash,
                     confirmations
@@ -266,15 +278,18 @@ impl Actor for CkbChainActor {
                 GetBlockTimestampRequest { block_hash },
                 reply_port,
             ) => {
-                let rpc_url = state.config.rpc_url.clone();
-                tokio::task::block_in_place(move || {
-                    let ckb_client = CkbRpcClient::new(&rpc_url);
-                    let _ = reply_port.send(
+                let timestamp = state
+                    .block_timestamps_cache
+                    .try_get_or_insert(block_hash.clone(), || {
+                        // TODO: This is a blocking operation, need to be optimized.
+                        let rpc_url = state.config.rpc_url.clone();
+                        let ckb_client = CkbRpcClient::new(&rpc_url);
                         ckb_client
                             .get_header(block_hash)
-                            .map(|x| x.map(|x| x.inner.timestamp.into())),
-                    );
-                });
+                            .map(|x| x.map(|x| x.inner.timestamp.into()))
+                    })
+                    .cloned();
+                let _ = reply_port.send(timestamp);
             }
         }
         Ok(())
