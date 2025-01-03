@@ -2418,7 +2418,7 @@ impl TryFrom<molecule_gossip::GossipMessage> for GossipMessage {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum BroadcastMessage {
     NodeAnnouncement(NodeAnnouncement),
     ChannelAnnouncement(ChannelAnnouncement),
@@ -2443,14 +2443,14 @@ impl BroadcastMessage {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChannelOnchainInfo {
     pub timestamp: u64,
     pub first_output: CellOutput,
 }
 
 // Augment the broadcast message with on-chain information so that we can verify the validity of the message.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BroadcastMessageWithOnChainInfo {
     NodeAnnouncement(NodeAnnouncement),
     ChannelAnnouncement(ChannelOnchainInfo, ChannelAnnouncement),
@@ -2523,7 +2523,7 @@ impl PartialEq<BroadcastMessageWithOnChainInfo> for BroadcastMessage {
 }
 
 // Augment the broadcast message with timestamp so that we can easily obtain the cursor of the message.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BroadcastMessageWithTimestamp {
     NodeAnnouncement(NodeAnnouncement),
     ChannelAnnouncement(u64, ChannelAnnouncement),

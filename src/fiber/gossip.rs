@@ -1058,6 +1058,10 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
         &self,
         outpoint: &OutPoint,
     ) -> Option<(u64, ChannelAnnouncement)> {
+        debug!(
+            "Looking for channel announcement in memory: outpoint {:?}, messages {:?}",
+            outpoint, self.messages_to_be_saved
+        );
         self.messages_to_be_saved.iter().find_map(|m| match m {
             BroadcastMessageWithOnChainInfo::ChannelAnnouncement(
                 on_chain_info,
@@ -1089,6 +1093,11 @@ impl<S: GossipMessageStore> ExtendedGossipMessageStoreState<S> {
             }
             None => {}
         }
+
+        debug!(
+            "Inserting new gossip message to be saved: {:?}, existing messages {:?}",
+            message, self.messages_to_be_saved
+        );
 
         let message = get_broadcast_message_with_on_chain_info(message.clone(), &self.chain_actor)
             .await
@@ -1329,6 +1338,10 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
                 if complete_messages.is_empty() {
                     return Ok(());
                 }
+                trace!(
+                    "Complete messages in memory: messages {:?}",
+                    complete_messages
+                );
                 for (id, subscription) in state.output_ports.iter() {
                     let messages_to_send = complete_messages
                         .iter()
@@ -1811,6 +1824,10 @@ async fn get_broadcast_message_with_on_chain_info(
 ) -> Result<BroadcastMessageWithOnChainInfo, Error> {
     match message {
         BroadcastMessage::ChannelAnnouncement(channel_announcement) => {
+            debug!(
+                "Getting channel announcement message on chain info: {:?}",
+                &channel_announcement
+            );
             let on_chain_info =
                 get_channel_on_chain_info(&channel_announcement.channel_outpoint, chain).await?;
             Ok(BroadcastMessageWithOnChainInfo::ChannelAnnouncement(
@@ -2326,6 +2343,7 @@ where
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        debug!("Gossip actor handling message {:?}", message);
         match message {
             GossipActorMessage::PeerConnected(peer_id, pubkey, session) => {
                 if state.is_peer_connected(&peer_id) {
