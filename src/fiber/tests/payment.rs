@@ -375,6 +375,39 @@ async fn test_network_send_payment_randomly_send_each_other() {
 }
 
 #[tokio::test]
+async fn test_send_payment_bench_2_nodes() {
+    init_tracing();
+    let _span = tracing::info_span!("node", node = "test").entered();
+    let (mut node_0, mut node_1, _) = create_nodes_with_established_channel(
+        MIN_RESERVED_CKB + 10000000000,
+        MIN_RESERVED_CKB + 10000000000,
+        true,
+    )
+    .await;
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+    let mut all_sent = vec![];
+
+    for i in 1..=80 {
+        let payment = node_0.send_payment_keysend(&node_1, 1000).await.unwrap();
+        all_sent.push(payment.payment_hash);
+        eprintln!("send: {} payment_hash: {:?} sent", i, payment.payment_hash);
+    }
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
+
+    for payment_hash in all_sent {
+        let status = node_0.get_payment_status(payment_hash).await;
+        assert_eq!(status, PaymentSessionStatus::Success);
+        eprintln!("payment_hash: {:?} success", payment_hash);
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    }
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+}
+
+#[tokio::test]
 async fn test_send_payment_bench_test() {
     init_tracing();
     let _span = tracing::info_span!("node", node = "test").entered();
