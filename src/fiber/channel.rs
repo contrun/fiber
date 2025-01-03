@@ -1462,16 +1462,16 @@ where
                             state.tlc_state.remove_pending_remove_tlc(&retryable_remove);
                         }
                         Err(ProcessingChannelError::WaitingTlcAck) => {
-                            error!(
-                                "Failed to remove tlc: {:?} because of WaitingTlcAck, retry it later",
-                                &retryable_remove
-                            );
+                            // error!(
+                            //     "Failed to remove tlc: {:?} because of WaitingTlcAck, retry it later",
+                            //     &retryable_remove
+                            // );
                         }
-                        Err(err) => {
-                            error!(
-                                "Failed to remove tlc: {:?} with reason: {:?}, will not retry",
-                                &retryable_remove, err
-                            );
+                        Err(_err) => {
+                            // error!(
+                            //     "Failed to remove tlc: {:?} with reason: {:?}, will not retry",
+                            //     &retryable_remove, err
+                            // );
                             state.tlc_state.remove_pending_remove_tlc(&retryable_remove);
                         }
                     }
@@ -1499,10 +1499,10 @@ where
                                 state.tlc_state.remove_pending_remove_tlc(&retryable_remove);
                             }
                             Err(err) if err.contains("WaitingTlcAck") => {
-                                error!(
-                                "Failed to relay remove tlc: {:?} because of WaitingTlcAck, retry it later",
-                                &retryable_remove
-                            );
+                                //     error!(
+                                //     "Failed to relay remove tlc: {:?} because of WaitingTlcAck, retry it later",
+                                //     &retryable_remove
+                                // );
                             }
                             Err(err) => {
                                 error!(
@@ -2129,7 +2129,7 @@ where
             }
             ChannelActorMessage::Command(command) => {
                 if let Err(err) = self.handle_command(state, command).await {
-                    error!("Error while processing channel command: {:?}", err);
+                    //error!("Error while processing channel command: {:?}", err);
                 }
             }
             ChannelActorMessage::Event(e) => {

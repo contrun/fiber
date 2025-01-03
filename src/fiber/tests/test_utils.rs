@@ -546,7 +546,31 @@ impl NetworkNode {
         };
 
         let res = call!(self.network_actor, message).expect("source_node alive");
+        eprintln!("result: {:?}", res);
         res
+    }
+
+    pub async fn send_payment_keysend(
+        &mut self,
+        recipient: &NetworkNode,
+        amount: u128,
+    ) -> std::result::Result<SendPaymentResponse, String> {
+        self.send_payment(SendPaymentCommand {
+            target_pubkey: Some(recipient.pubkey.clone()),
+            amount: Some(amount),
+            payment_hash: None,
+            final_tlc_expiry_delta: None,
+            tlc_expiry_limit: None,
+            invoice: None,
+            timeout: None,
+            max_fee_amount: None,
+            max_parts: None,
+            keysend: Some(true),
+            udt_type_script: None,
+            allow_self_payment: false,
+            dry_run: false,
+        })
+        .await
     }
 
     pub async fn assert_payment_status(

@@ -373,3 +373,65 @@ async fn test_network_send_payment_randomly_send_each_other() {
         node_b_old_balance - node_b_sent + node_a_sent
     );
 }
+
+#[tokio::test]
+async fn test_send_payment_bench_test() {
+    init_tracing();
+    let _span = tracing::info_span!("node", node = "test").entered();
+    let (nodes, channels) = create_n_nodes_with_index_and_amounts_with_established_channel(
+        &[
+            (
+                (0, 1),
+                (
+                    MIN_RESERVED_CKB + 10000000000,
+                    MIN_RESERVED_CKB + 10000000000,
+                ),
+            ),
+            (
+                (1, 2),
+                (
+                    MIN_RESERVED_CKB + 10000000000,
+                    MIN_RESERVED_CKB + 10000000000,
+                ),
+            ),
+            (
+                (2, 0),
+                (
+                    MIN_RESERVED_CKB + 10000000000,
+                    MIN_RESERVED_CKB + 10000000000,
+                ),
+            ),
+        ],
+        3,
+        true,
+    )
+    .await;
+    let [mut node_0, node_1, node_2] = nodes.try_into().expect("3 nodes");
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+    // let node_1_channel0_balance = node_1.get_local_balance_from_channel(channels[0]);
+    // let node_1_channel1_balance = node_1.get_local_balance_from_channel(channels[1]);
+    // let node_2_channel1_balance = node_2.get_local_balance_from_channel(channels[1]);
+    // let node_2_channel2_balance = node_2.get_local_balance_from_channel(channels[2]);
+
+    let mut all_sent = vec![];
+
+    for i in 1..=80 {
+        let payment = node_0.send_payment_keysend(&node_2, 1000).await.unwrap();
+        all_sent.push(payment.payment_hash);
+        eprintln!("send: {} payment_hash: {:?} sent", i, payment.payment_hash);
+        tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+    }
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
+
+    for payment_hash in all_sent {
+        let status = node_0.get_payment_status(payment_hash).await;
+        assert_eq!(status, PaymentSessionStatus::Success);
+        eprintln!("payment_hash: {:?} success", payment_hash);
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    }
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+}
