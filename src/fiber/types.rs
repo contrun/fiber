@@ -15,6 +15,7 @@ use ckb_jsonrpc_types::CellOutput;
 use num_enum::IntoPrimitive;
 use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
+use std::hash::Hasher;
 
 use anyhow::anyhow;
 use ckb_types::{
@@ -2450,7 +2451,7 @@ pub struct ChannelOnchainInfo {
 }
 
 // Augment the broadcast message with on-chain information so that we can verify the validity of the message.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub enum BroadcastMessageWithOnChainInfo {
     NodeAnnouncement(NodeAnnouncement),
     ChannelAnnouncement(ChannelOnchainInfo, ChannelAnnouncement),
@@ -2501,6 +2502,43 @@ impl BroadcastMessageWithOnChainInfo {
         }
     }
 }
+
+impl std::hash::Hash for BroadcastMessageWithOnChainInfo {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Self::NodeAnnouncement(node_announcement) => {
+                node_announcement.hash(state);
+            }
+            Self::ChannelAnnouncement(_on_chain_info, channel_announcement) => {
+                channel_announcement.hash(state);
+            }
+            Self::ChannelUpdate(channel_update) => {
+                channel_update.hash(state);
+            }
+        }
+    }
+}
+
+impl PartialEq for BroadcastMessageWithOnChainInfo {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::NodeAnnouncement(node_announcement),
+                Self::NodeAnnouncement(other_node_announcement),
+            ) => node_announcement == other_node_announcement,
+            (
+                Self::ChannelAnnouncement(_, channel_announcement),
+                Self::ChannelAnnouncement(_, other_channel_announcement),
+            ) => channel_announcement == other_channel_announcement,
+            (Self::ChannelUpdate(channel_update), Self::ChannelUpdate(other_channel_update)) => {
+                channel_update == other_channel_update
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for BroadcastMessageWithOnChainInfo {}
 
 impl PartialEq<BroadcastMessageWithOnChainInfo> for BroadcastMessage {
     fn eq(&self, other: &BroadcastMessageWithOnChainInfo) -> bool {
