@@ -98,7 +98,7 @@ impl Migrations {
     pub fn init_db_version(&self, db: Arc<DB>) -> Result<(), Error> {
         if self.need_init(&db) {
             if let Some(m) = self.migrations.values().last() {
-                eprintln!("Init database version {}", m.version());
+                tracing::info!("Init database version {}", m.version());
                 db.put(MIGRATION_VERSION_KEY, m.version()).map_err(|err| {
                     internal_error(format!("failed to migrate the database: {err}"))
                 })?;

@@ -790,7 +790,7 @@ fn test_graph_build_route_select_edge_with_latest_timestamp() {
         dry_run: false,
     });
     assert!(route.is_ok());
-    eprintln!("got route {:?}", route);
+    tracing::info!("got route {:?}", route);
     let route = route.unwrap();
     assert_eq!(route.len(), 2);
     // assert we use the second added edge

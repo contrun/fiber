@@ -179,9 +179,9 @@ impl Store {
                             error!("Migration was declined since the user didn't confirm.");
                             return Err("need to run database migration".to_string());
                         }
-                        eprintln!("begin to migrate db ...");
+                        tracing::info!("begin to migrate db ...");
                         let db = migrate.migrate().expect("failed to migrate db");
-                        eprintln!(
+                        tracing::info!(
                             "db migrated successfully, now your can restart the fiber node ..."
                         );
                         Ok(db)

@@ -25,7 +25,7 @@ fn sign_tlcs<'a>(tlcs: impl Iterator<Item = &'a TlcInfo>) -> Hash256 {
         a.cmp(&b)
     });
 
-    eprintln!("keyparts: {:?}", keyparts);
+    tracing::info!("keyparts: {:?}", keyparts);
     let serialized = serde_json::to_string(&keyparts).expect("Failed to serialize tls");
 
     // Hash the serialized data using SHA-256
@@ -70,7 +70,7 @@ impl NetworkActorState {
         .expect("Failed to start tlc actor")
         .0;
         self.peers.insert(peer_id.clone(), actor);
-        eprintln!("add_peer: {:?} added successfully ...", peer_id);
+        tracing::info!("add_peer: {:?} added successfully ...", peer_id);
     }
 }
 
@@ -135,7 +135,7 @@ impl Actor for NetworkActor {
                 state.add_peer(peer_id).await;
             }
             NetworkActorMessage::AddTlc(peer_id, add_tlc) => {
-                eprintln!("NetworkActorMessage::AddTlc");
+                tracing::info!("NetworkActorMessage::AddTlc");
                 if let Some(actor) = state.peers.get(&peer_id) {
                     actor
                         .send_message(TlcActorMessage::CommandAddTlc(add_tlc))
@@ -151,7 +151,7 @@ impl Actor for NetworkActor {
             }
             NetworkActorMessage::PeerMsg(peer_id, peer_msg) => {
                 if let Some(actor) = state.peers.get(&peer_id) {
-                    eprintln!("NetworkActorMessage::PeerMsg: {:?}", peer_msg);
+                    tracing::info!("NetworkActorMessage::PeerMsg: {:?}", peer_msg);
                     actor.send_message(peer_msg).expect("send ok");
                 }
             }
@@ -164,7 +164,7 @@ impl Actor for NetworkActor {
         myself: ActorRef<Self::Msg>,
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        eprintln!("NetworkActor pre_start");
+        tracing::info!("NetworkActor pre_start");
         Ok(NetworkActorState {
             peers: Default::default(),
             network: myself.clone(),
@@ -186,18 +186,19 @@ impl Actor for TlcActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             TlcActorMessage::Debug => {
-                eprintln!("Peer {} Debug", state.peer_id);
+                tracing::info!("Peer {} Debug", state.peer_id);
                 for tlc in state.tlc_state.offered_tlcs.tlcs.iter() {
-                    eprintln!("offered_tlc: {:?}", tlc.log());
+                    tracing::info!("offered_tlc: {:?}", tlc.log());
                 }
                 for tlc in state.tlc_state.received_tlcs.tlcs.iter() {
-                    eprintln!("received_tlc: {:?}", tlc.log());
+                    tracing::info!("received_tlc: {:?}", tlc.log());
                 }
             }
             TlcActorMessage::CommandAddTlc(command) => {
-                eprintln!(
+                tracing::info!(
                     "Peer {} TlcActorMessage::Command_AddTlc: {:?}",
-                    state.peer_id, command
+                    state.peer_id,
+                    command
                 );
                 let next_offer_id = state.tlc_state.get_next_offering();
                 let add_tlc = TlcInfo {
@@ -227,7 +228,7 @@ impl Actor for TlcActor {
                 // send commitment signed
                 let tlcs = state.tlc_state.commitment_signed_tlcs(false);
                 let hash = sign_tlcs(tlcs);
-                eprintln!("got hash: {:?}", hash);
+                tracing::info!("got hash: {:?}", hash);
                 self.network
                     .send_message(NetworkActorMessage::PeerMsg(
                         peer,
@@ -236,7 +237,7 @@ impl Actor for TlcActor {
                     .expect("send ok");
             }
             TlcActorMessage::CommandRemoveTlc(tlc_id) => {
-                eprintln!("Peer {} process remove tlc ....", state.peer_id);
+                tracing::info!("Peer {} process remove tlc ....", state.peer_id);
                 state.tlc_state.set_received_tlc_removed(
                     tlc_id,
                     RemoveTlcReason::RemoveTlcFulfill(RemoveTlcFulfill {
@@ -254,7 +255,7 @@ impl Actor for TlcActor {
                 // send commitment signed
                 let tlcs = state.tlc_state.commitment_signed_tlcs(false);
                 let hash = sign_tlcs(tlcs);
-                eprintln!("got hash: {:?}", hash);
+                tracing::info!("got hash: {:?}", hash);
                 self.network
                     .send_message(NetworkActorMessage::PeerMsg(
                         peer,
@@ -263,20 +264,22 @@ impl Actor for TlcActor {
                     .expect("send ok");
             }
             TlcActorMessage::PeerAddTlc(add_tlc) => {
-                eprintln!(
+                tracing::info!(
                     "Peer {} process peer add_tlc .... with tlc_id: {:?}",
-                    state.peer_id, add_tlc.tlc_id
+                    state.peer_id,
+                    add_tlc.tlc_id
                 );
                 let mut tlc = add_tlc.clone();
                 tlc.flip_mut();
                 tlc.status = TlcStatus::Inbound(InboundTlcStatus::RemoteAnnounced);
                 state.tlc_state.add_received_tlc(tlc);
-                eprintln!("add peer tlc successfully: {:?}", add_tlc);
+                tracing::info!("add peer tlc successfully: {:?}", add_tlc);
             }
             TlcActorMessage::PeerRemoveTlc(tlc_id) => {
-                eprintln!(
+                tracing::info!(
                     "Peer {} process peer remove tlc .... with tlc_id: {}",
-                    state.peer_id, tlc_id
+                    state.peer_id,
+                    tlc_id
                 );
                 state.tlc_state.set_offered_tlc_removed(
                     tlc_id,
@@ -286,7 +289,7 @@ impl Actor for TlcActor {
                 );
             }
             TlcActorMessage::PeerCommitmentSigned(peer_hash) => {
-                eprintln!(
+                tracing::info!(
                     "\nPeer {} processed peer commitment_signed ....",
                     state.peer_id
                 );
@@ -298,7 +301,7 @@ impl Actor for TlcActor {
 
                 state.tlc_state.update_for_commitment_signed();
 
-                eprintln!("sending peer revoke and ack ....");
+                tracing::info!("sending peer revoke and ack ....");
                 let tlcs = state.tlc_state.commitment_signed_tlcs(false);
                 let hash = sign_tlcs(tlcs);
                 self.network
@@ -310,7 +313,7 @@ impl Actor for TlcActor {
 
                 // send commitment signed from our side if necessary
                 if state.tlc_state.need_another_commitment_signed() {
-                    eprintln!("sending another commitment signed ....");
+                    tracing::info!("sending another commitment signed ....");
                     let tlcs = state.tlc_state.commitment_signed_tlcs(false);
                     let hash = sign_tlcs(tlcs);
                     self.network
@@ -322,7 +325,7 @@ impl Actor for TlcActor {
                 }
             }
             TlcActorMessage::PeerRevokeAndAck(peer_hash) => {
-                eprintln!("Peer {} processed peer revoke and ack ....", state.peer_id);
+                tracing::info!("Peer {} processed peer revoke and ack ....", state.peer_id);
                 let tlcs = state.tlc_state.commitment_signed_tlcs(true);
                 let hash = sign_tlcs(tlcs);
                 assert_eq!(hash, peer_hash);
@@ -338,10 +341,10 @@ impl Actor for TlcActor {
         _myself: ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        eprintln!("TlcActor pre_start");
+        tracing::info!("TlcActor pre_start");
         match args {
             peer_id => {
-                eprintln!("peer_id: {:?}", peer_id);
+                tracing::info!("peer_id: {:?}", peer_id);
                 Ok(TlcActorState {
                     tlc_state: Default::default(),
                     peer_id,
@@ -494,9 +497,9 @@ fn test_tlc_state_v2() {
     tlc_state_2.add_received_tlc(add_tlc2);
 
     let hash1 = sign_tlcs(tlc_state.commitment_signed_tlcs(true));
-    eprintln!("hash1: {:?}", hash1);
+    tracing::info!("hash1: {:?}", hash1);
 
     let hash2 = sign_tlcs(tlc_state_2.commitment_signed_tlcs(false));
-    eprintln!("hash2: {:?}", hash2);
+    tracing::info!("hash2: {:?}", hash2);
     assert_eq!(hash1, hash2);
 }

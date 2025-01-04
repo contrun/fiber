@@ -23,7 +23,7 @@ impl Migration for SampleMigration {
         db: Arc<DB>,
         _pb: Arc<dyn Fn(u64) -> ProgressBar + Send + Sync>,
     ) -> Result<Arc<DB>, Error> {
-        eprintln!("SampleMigration::migrate ...........");
+        tracing::info!("SampleMigration::migrate ...........");
         Ok(db)
     }
 

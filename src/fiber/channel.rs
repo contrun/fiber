@@ -734,7 +734,7 @@ where
         let tlc_err = match error.source {
             // If we already have TlcErr, we can directly use it to send back to the peer.
             ProcessingChannelError::TlcForwardingError(tlc_err) => {
-                eprintln!("Tlc forwarding error: {:?}", tlc_err);
+                tracing::info!("Tlc forwarding error: {:?}", tlc_err);
                 tlc_err
             }
             _ => {
@@ -1534,7 +1534,7 @@ where
     ) {
         let pending_tlc_ops = state.tlc_state.get_pending_operations();
         for op in pending_tlc_ops.iter() {
-            eprintln!("Begin to applying retryable tlc operation: {:?}", &op);
+            tracing::info!("Begin to applying retryable tlc operation: {:?}", &op);
         }
         for retryable_operation in pending_tlc_ops.into_iter() {
             let need_retry = match retryable_operation {
@@ -1665,10 +1665,10 @@ where
         }
 
         if state.tlc_state.get_pending_operations().is_empty() {
-            eprintln!("All retryable tlc operations are applied successfully !!!");
+            tracing::info!("All retryable tlc operations are applied successfully !!!");
         }
         for op in state.tlc_state.get_pending_operations().iter() {
-            eprintln!("After apply there is retryable tlc operation: {:?}", &op);
+            tracing::info!("After apply there is retryable tlc operation: {:?}", &op);
         }
 
         // If there are more pending removes, we will retry it later
@@ -4904,11 +4904,12 @@ impl ChannelActorState {
             let now = now_timestamp_as_millis_u64();
             let instance = now - self.tlc_state.begin_waiting_time;
             debug!(
-                "Already waiting for TLC ack for {:?} ",
-                Duration::from_millis(instance)
+                "Already waiting for TLC ack for {:?} (since {})",
+                Duration::from_millis(instance),
+                self.tlc_state.begin_waiting_time
             );
 
-            if instance > 4 * 1000 {
+            if instance > 4 * 1000 * 1000 {
                 self.tlc_state.debug();
                 panic!("Waiting for TLC ack for too long");
             }

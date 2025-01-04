@@ -2290,7 +2290,7 @@ async fn test_network_add_two_tlcs_remove_one() {
     })
     .expect("node_a alive")
     .expect("successfully added tlc");
-    eprintln!("add_tlc_result: {:?}", add_tlc_result_a);
+    tracing::info!("add_tlc_result: {:?}", add_tlc_result_a);
 
     // if we don't wait for a while, the next add_tlc will fail with temporary failure
     let preimage_b = [2; 32];
@@ -2342,7 +2342,7 @@ async fn test_network_add_two_tlcs_remove_one() {
     .expect("node_b alive");
     assert!(add_tlc_result_b.is_ok());
 
-    eprintln!("add_tlc_result: {:?}", add_tlc_result_b);
+    tracing::info!("add_tlc_result: {:?}", add_tlc_result_b);
 
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     // remove tlc from node_b
@@ -2364,12 +2364,12 @@ async fn test_network_add_two_tlcs_remove_one() {
     })
     .expect("node_b alive")
     .expect("successfully removed tlc");
-    eprintln!("remove tlc result: {:?}", res);
+    tracing::info!("remove tlc result: {:?}", res);
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     let new_a_balance = node_a.get_local_balance_from_channel(channel_id);
     let new_b_balance = node_b.get_local_balance_from_channel(channel_id);
-    eprintln!(
+    tracing::info!(
         "old_a_balance: {}, new_a_balance: {}, old_b_balance: {}, new_b_balance: {}",
         old_a_balance, new_a_balance, old_b_balance, new_b_balance
     );
@@ -2396,12 +2396,12 @@ async fn test_network_add_two_tlcs_remove_one() {
     })
     .expect("node_b alive")
     .expect("successfully removed tlc");
-    eprintln!("remove tlc result: {:?}", res);
+    tracing::info!("remove tlc result: {:?}", res);
     tokio::time::sleep(tokio::time::Duration::from_millis(400)).await;
 
     let new_a_balance = node_a.get_local_balance_from_channel(channel_id);
     let new_b_balance = node_b.get_local_balance_from_channel(channel_id);
-    eprintln!(
+    tracing::info!(
         "old_a_balance: {}, new_a_balance: {}, old_b_balance: {}, new_b_balance: {}",
         old_a_balance, new_a_balance, old_b_balance, new_b_balance
     );
@@ -2579,7 +2579,7 @@ async fn do_test_add_tlc_waiting_ack() {
             let code = add_tlc_result.unwrap_err();
             assert_eq!(code.error_code, TlcErrorCode::WaitingTlcAck);
         } else {
-            eprintln!("add_tlc_result: {:?}", add_tlc_result);
+            tracing::info!("add_tlc_result: {:?}", add_tlc_result);
             assert!(add_tlc_result.is_ok());
         }
     }
@@ -2938,7 +2938,7 @@ async fn do_test_add_tlc_min_tlc_value_limit() {
         ))
     })
     .expect("node_b alive");
-    eprintln!("add_local_tlc_result: {:?}", add_tlc_result);
+    tracing::info!("add_local_tlc_result: {:?}", add_tlc_result);
     assert!(add_tlc_result.is_ok());
 }
 
@@ -4141,11 +4141,11 @@ async fn test_node_reestablish_resend_remove_tlc() {
     let new_node_b_balance = node_b.get_local_balance_from_channel(new_channel_id);
     assert_eq!(node_a_balance - 1000, new_node_a_balance);
     assert_eq!(node_b_balance + 1000, new_node_b_balance);
-    eprintln!(
+    tracing::info!(
         "node_a_balance: {}, new_node_a_balance: {}",
         node_a_balance, new_node_a_balance
     );
-    eprintln!(
+    tracing::info!(
         "node_b_balance: {}, new_node_b_balance: {}",
         node_b_balance, new_node_b_balance
     );
@@ -4671,7 +4671,7 @@ async fn test_send_payment_with_multiple_edges_in_middle_hops() {
         .unwrap();
 
     assert_eq!(res.status, PaymentSessionStatus::Success);
-    eprintln!("failed_error: {:?}", res);
+    tracing::info!("failed_error: {:?}", res);
     // because there is only one path for the payment, the payment will fail in the second try
     // this assertion make sure we didn't do meaningless retry
     let payment_session = source_node.get_payment_session(payment_hash).unwrap();
@@ -4737,7 +4737,7 @@ async fn test_send_payment_with_all_failed_middle_hops() {
         .unwrap();
 
     assert_eq!(res.status, PaymentSessionStatus::Failed);
-    eprintln!("failed_error: {:?}", res);
+    tracing::info!("failed_error: {:?}", res);
     // because there is only one path for the payment, the payment will fail in the second try
     // this assertion make sure we didn't do meaningless retry
     let payment_session = source_node.get_payment_session(payment_hash).unwrap();
@@ -4805,7 +4805,7 @@ async fn test_send_payment_with_multiple_edges_can_succeed_in_retry() {
         .unwrap();
 
     assert_eq!(res.status, PaymentSessionStatus::Success);
-    eprintln!("failed_error: {:?}", res);
+    tracing::info!("failed_error: {:?}", res);
     // because there is only one path for the payment, the payment will fail in the second try
     // this assertion make sure we didn't do meaningless retry
     let payment_session = source_node.get_payment_session(payment_hash).unwrap();
@@ -4872,7 +4872,7 @@ async fn test_send_payment_with_final_hop_multiple_edges_in_middle_hops() {
         .unwrap();
 
     assert_eq!(res.status, PaymentSessionStatus::Success);
-    eprintln!("failed_error: {:?}", res);
+    tracing::info!("failed_error: {:?}", res);
     // because there is only one path for the payment, the payment will fail in the second try
     // this assertion make sure we didn't do meaningless retry
     let payment_session = source_node.get_payment_session(payment_hash).unwrap();
@@ -5283,7 +5283,7 @@ async fn test_send_payment_will_succeed_with_retry_in_middle_hops() {
     tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
     let fee = res.fee;
-    eprintln!("fee: {:?}", fee);
+    tracing::info!("fee: {:?}", fee);
     source_node
         .assert_payment_status(payment_hash, PaymentSessionStatus::Success, Some(2))
         .await;

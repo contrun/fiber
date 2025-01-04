@@ -547,7 +547,7 @@ impl NetworkNode {
         };
 
         let res = call!(self.network_actor, message).expect("source_node alive");
-        eprintln!("result: {:?}", res);
+        tracing::info!("result: {:?}", res);
         res
     }
 
@@ -604,7 +604,7 @@ impl NetworkNode {
         loop {
             let status = self.get_payment_status(payment_hash).await;
             if status == PaymentSessionStatus::Success {
-                eprintln!("Payment success: {:?}\n\n", payment_hash);
+                tracing::info!("Payment success: {:?}\n\n", payment_hash);
                 break;
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -614,7 +614,7 @@ impl NetworkNode {
     pub async fn node_info(&self) -> NodeInfoResponse {
         let message =
             |rpc_reply| NetworkActorMessage::Command(NetworkActorCommand::NodeInfo((), rpc_reply));
-        eprintln!("query node_info ...");
+        tracing::info!("query node_info ...");
         let res = call!(self.network_actor, message)
             .expect("node_a alive")
             .unwrap();

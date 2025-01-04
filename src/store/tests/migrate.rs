@@ -62,7 +62,7 @@ fn test_run_migration() {
             db: Arc<DB>,
             _pb: Arc<dyn Fn(u64) -> ProgressBar + Send + Sync>,
         ) -> Result<Arc<DB>, Error> {
-            eprintln!("DummyMigration::migrate {} ... ", self.version);
+            tracing::info!("DummyMigration::migrate {} ... ", self.version);
             let mut count = self.run_count.write().unwrap();
             *count += 1;
             Ok(db)
