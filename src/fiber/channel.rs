@@ -4908,6 +4908,13 @@ impl ChannelActorState {
                 Duration::from_millis(instance),
                 self.tlc_state.begin_waiting_time
             );
+            if instance > 2 * 1000 {
+                self.tlc_state.debug();
+                debug!("Waiting for TLC ack for too long, faking TLC ack");
+                return Err(ProcessingChannelError::PeelingOnionPacketError(
+                    "===========================".to_string(),
+                ));
+            }
 
             if instance > 4 * 1000 * 1000 {
                 self.tlc_state.debug();

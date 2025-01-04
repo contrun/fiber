@@ -184,6 +184,8 @@ pub struct NetworkNode {
     pub pubkey: Pubkey,
 }
 
+unsafe impl Send for NetworkNode {}
+
 pub struct NetworkNodeConfig {
     base_dir: Arc<TempDir>,
     node_name: Option<String>,
@@ -687,7 +689,7 @@ impl NetworkNode {
             fiber_config,
         } = config;
 
-        let _span = tracing::info_span!("NetworkNode", node_name = &node_name).entered();
+        // let _span = tracing::info_span!("NetworkNode", node_name = &node_name).entered();
 
         let root = get_test_root_actor().await;
         let (event_sender, mut event_receiver) = mpsc::channel(10000);
@@ -788,7 +790,16 @@ impl NetworkNode {
 
     pub async fn start(&mut self) {
         let config = self.get_node_config();
-        let new = Self::new_with_config(config).await;
+        // build runtime
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .thread_name(config.base_dir.to_str())
+            .build()
+            .unwrap();
+        let new = runtime
+            .spawn(async move { Self::new_with_config(config).await })
+            .await
+            .unwrap();
         *self = new;
     }
 
