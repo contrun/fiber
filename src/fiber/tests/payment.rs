@@ -663,6 +663,7 @@ async fn test_network_three_nodes_send_each_other() {
 #[tokio::test]
 async fn test_send_payment_bench_test() {
     init_tracing();
+    console_subscriber::init();
     let _span = tracing::info_span!("node", node = "test").entered();
     let (nodes, _channels) = create_n_nodes_with_index_and_amounts_with_established_channel(
         &[
