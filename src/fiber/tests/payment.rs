@@ -351,7 +351,8 @@ async fn test_network_send_payment_randomly_send_each_other() {
 
     tracing::info!(
         "node_a_old_balance: {}, node_b_old_balance: {}",
-        node_a_old_balance, node_b_old_balance
+        node_a_old_balance,
+        node_b_old_balance
     );
     tracing::info!("node_a_sent: {}, node_b_sent: {}", node_a_sent, node_b_sent);
     let new_node_a_balance = node_a.get_local_balance_from_channel(new_channel_id);
@@ -359,7 +360,8 @@ async fn test_network_send_payment_randomly_send_each_other() {
 
     tracing::info!(
         "new_node_a_balance: {}, new_node_b_balance: {}",
-        new_node_a_balance, new_node_b_balance
+        new_node_a_balance,
+        new_node_b_balance
     );
 
     assert_eq!(
@@ -553,11 +555,13 @@ async fn test_network_three_nodes_send_each_other() {
 
     tracing::info!(
         "node_b_old_balance_channel_0: {}, node_b_old_balance_channel_1: {}",
-        node_b_old_balance_channel_0, node_b_old_balance_channel_1
+        node_b_old_balance_channel_0,
+        node_b_old_balance_channel_1
     );
     tracing::info!(
         "node_b_old_balance_channel_2: {}, node_b_old_balance_channel_3: {}",
-        node_b_old_balance_channel_2, node_b_old_balance_channel_3
+        node_b_old_balance_channel_2,
+        node_b_old_balance_channel_3
     );
 
     let node_a_pubkey = node_a.pubkey.clone();
@@ -662,7 +666,7 @@ async fn test_network_three_nodes_send_each_other() {
 
 #[tokio::test]
 async fn test_send_payment_bench_test() {
-    init_tracing();
+    console_subscriber::init();
     let _span = tracing::info_span!("node", node = "test").entered();
     let (nodes, _channels) = create_n_nodes_with_index_and_amounts_with_established_channel(
         &[
@@ -761,7 +765,8 @@ async fn test_send_payment_three_nodes_wait_succ_bench_test() {
         all_sent.push(payment.payment_hash);
         tracing::info!(
             "send: {} payment_hash: {:?} sentxx",
-            i, payment.payment_hash
+            i,
+            payment.payment_hash
         );
         tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
 
