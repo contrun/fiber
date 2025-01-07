@@ -2104,6 +2104,12 @@ where
             }
         }
 
+        tracing::debug!(
+            "Insert channel actor state: id {:?}, state {:?}",
+            state.get_id(),
+            state
+        );
+
         self.store.insert_channel_actor_state(state.clone());
         Ok(())
     }
@@ -2744,7 +2750,7 @@ pub struct SettlementData {
 }
 
 #[serde_as]
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelActorState {
     pub state: ChannelState,
     // The data below are only relevant if the channel is public.
@@ -6744,7 +6750,7 @@ pub fn derive_tlc_pubkey(base_key: &Pubkey, commitment_point: &Pubkey) -> Pubkey
 ///
 /// This implementation performs no policy checks and is insufficient by itself as
 /// a secure external signer.
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct InMemorySigner {
     /// Holder secret key in the 2-of-2 multisig script of a channel. This key also backs the
     /// holder's anchor output in a commitment transaction, if one is present.

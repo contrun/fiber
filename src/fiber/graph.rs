@@ -620,6 +620,8 @@ where
             }
         }
 
+        debug!("get_node_inbounds: {:?}", channels);
+
         // Iterating over HashMap's values is not guaranteed to be in order,
         // which may introduce randomness in the path finding.
         // the weight algorithm in find_path does not considering capacity,
@@ -632,6 +634,8 @@ where
                     .then(b.channel_outpoint.cmp(&a.channel_outpoint)),
             )
         });
+
+        debug!("get_node_inbounds after sort: {:?}", channels);
         channels.into_iter()
     }
 
