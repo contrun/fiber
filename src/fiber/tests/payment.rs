@@ -121,6 +121,11 @@ async fn test_send_payment_for_direct_channel_and_dry_run() {
 }
 
 #[tokio::test]
+async fn test_send_payment_prefer_explicit_balance() {
+    let [node_a, mut node_b] = NetworkNode::new_n_interconnected_nodes().await;
+}
+
+#[tokio::test]
 async fn test_send_payment_over_private_channel() {
     async fn test(amount_to_send: u128, is_payment_ok: bool) {
         let (nodes, _channels) = create_n_nodes_with_index_and_amounts_with_established_channel(
