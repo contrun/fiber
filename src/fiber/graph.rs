@@ -295,6 +295,9 @@ pub struct NetworkGraph<S> {
     source: Pubkey,
     // All the channels in the network.
     channels: HashMap<OutPoint, ChannelInfo>,
+    // All our owned channels. All the channel info in this field is consider ephemeral
+    // and should be refreshed with newest active channels.
+    owned_channels: HashMap<OutPoint, ChannelInfo>,
     // All the nodes in the network.
     nodes: HashMap<Pubkey, NodeInfo>,
     // The latest cursor we read from the GossipMessageStore. When we need to refresh our view of the
@@ -341,6 +344,7 @@ where
         let mut network_graph = Self {
             source,
             channels: HashMap::new(),
+            owned_channels: HashMap::new(),
             nodes: HashMap::new(),
             latest_cursor: Cursor::default(),
             store: store.clone(),
@@ -606,11 +610,13 @@ where
     }
 
     pub fn channels(&self) -> impl Iterator<Item = &ChannelInfo> {
-        self.channels.values()
+        self.owned_channels.values().chain(self.channels.values())
     }
 
     pub fn get_channel(&self, outpoint: &OutPoint) -> Option<&ChannelInfo> {
-        self.channels.get(outpoint)
+        self.owned_channels
+            .get(outpoint)
+            .or(self.channels.get(outpoint))
     }
 
     pub fn get_channels_with_params(
@@ -642,8 +648,7 @@ where
     }
 
     pub fn get_channels_by_peer(&self, node_id: Pubkey) -> impl Iterator<Item = &ChannelInfo> {
-        self.channels
-            .values()
+        self.channels()
             .filter(move |channel| channel.node1() == node_id || channel.node2() == node_id)
     }
 
@@ -661,8 +666,7 @@ where
         node_id: Pubkey,
     ) -> impl Iterator<Item = (Pubkey, Pubkey, &ChannelInfo, &ChannelUpdateInfo)> {
         let mut channels: Vec<_> = self
-            .channels
-            .values()
+            .channels()
             .filter_map(move |channel| {
                 if let Some(info) = channel.update_of_node2.as_ref() {
                     if info.enabled && channel.node2() == node_id {
@@ -759,6 +763,7 @@ where
     #[cfg(test)]
     pub fn reset(&mut self) {
         self.latest_cursor = Cursor::default();
+        self.owned_channels.clear();
         self.channels.clear();
         self.nodes.clear();
         self.history.reset();
@@ -769,21 +774,23 @@ where
         self.source = source;
     }
 
-    pub fn load_owned_channel_info(&mut self) {
-        for (_peer_id, channel_id, _state) in self.store.get_active_channel_states(None) {
-            match self.store.get_channel_actor_state(&channel_id) {
-                Some(channel_actor_state) => {
-                    assert_eq!(channel_actor_state.local_pubkey, self.source);
-                    match ChannelInfo::try_from(&channel_actor_state) {
-                        Ok(channel_info) => {
-                            self.channels
-                                .insert(channel_info.channel_outpoint.clone(), channel_info);
-                        }
-                        Err(_) => {}
-                    };
+    pub(crate) fn refresh_owned_channel_info(&mut self, channels: Vec<Hash256>) {
+        self.owned_channels.clear();
+        for channel_id in channels {
+            if let Some(channel_info) =
+                self.store
+                    .get_channel_actor_state(&channel_id)
+                    .and_then(|channel_actor_state| {
+                        assert_eq!(channel_actor_state.local_pubkey, self.source);
+                        ChannelInfo::try_from(&channel_actor_state).ok()
+                    })
+            {
+                if let Some(_pub_channel) = self.channels.get_mut(channel_info.out_point()) {
+                    // TODO: may be we should update the balance of the channel.
+                } else {
+                    self.owned_channels
+                        .insert(channel_info.channel_outpoint.clone(), channel_info);
                 }
-                // It is possible that after we obtained the list of channels, the channel is deleted.
-                None => {}
             }
         }
     }

@@ -1571,11 +1571,12 @@ where
         &self,
         payment_session: &mut PaymentSession,
         payment_data: &SendPaymentData,
+        owned_channels: Vec<Hash256>,
     ) -> Result<Vec<PaymentHopData>, Error> {
         // Load owned channel info before building route, so that we use private channels and also the
         // exact balance of the channels.
         let mut rwgraph = self.network_graph.write().await;
-        rwgraph.load_owned_channel_info();
+        rwgraph.refresh_owned_channel_info(owned_channels);
         let graph = tokio::sync::RwLockWriteGuard::downgrade(rwgraph);
         match graph.build_route(payment_data.clone()) {
             Err(e) => {
@@ -1746,7 +1747,11 @@ where
             }
 
             let hops_info = self
-                .build_payment_route(&mut payment_session, &payment_data)
+                .build_payment_route(
+                    &mut payment_session,
+                    &payment_data,
+                    state.get_active_channels(),
+                )
                 .await?;
             match self
                 .send_payment_onion_packet(state, &mut payment_session, &payment_data, hops_info)
@@ -1797,7 +1802,11 @@ where
         if payment_data.dry_run {
             let mut payment_session = PaymentSession::new(payment_data.clone(), 0);
             let hops = self
-                .build_payment_route(&mut payment_session, &payment_data)
+                .build_payment_route(
+                    &mut payment_session,
+                    &payment_data,
+                    state.get_active_channels(),
+                )
                 .await?;
             payment_session.route =
                 SessionRoute::new(state.get_public_key(), payment_data.target_pubkey, &hops);
@@ -2275,6 +2284,10 @@ where
 
     fn is_connected(&self, peer_id: &PeerId) -> bool {
         self.peer_session_map.contains_key(peer_id)
+    }
+
+    fn get_active_channels(&self) -> Vec<Hash256> {
+        self.channels.keys().cloned().collect()
     }
 
     pub fn get_n_peer_peer_ids(&self, n: usize, excluding: HashSet<PeerId>) -> Vec<PeerId> {
