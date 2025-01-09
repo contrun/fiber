@@ -911,11 +911,11 @@ where
 
         let mut target = target;
         let mut accumulated_expiry = final_tlc_expiry_delta;
-        let mut accumulated_amount = amount;
+        let accumulated_amount = amount;
         let mut last_edge = None;
 
         if route_to_self {
-            let (edge, fee, expiry) = self.adjust_target_for_route_self(
+            let (edge, expiry) = self.adjust_target_for_route_self(
                 &hop_hint_map,
                 amount,
                 final_tlc_expiry_delta,
@@ -923,7 +923,6 @@ where
                 target,
             )?;
             target = edge.source;
-            accumulated_amount = accumulated_amount + fee;
             accumulated_expiry = accumulated_expiry + expiry;
             last_edge = Some(edge);
         }
@@ -982,7 +981,7 @@ where
                     continue;
                 }
 
-                let fee = if is_initial {
+                let fee = if is_final {
                     0
                 } else {
                     calculate_tlc_forward_fee(
@@ -1078,7 +1077,7 @@ where
                         source: from,
                         target: to,
                         channel_outpoint: channel_info.out_point().clone(),
-                        accumulated_out: next_hop_received_amount,
+                        accumulated_out: amount_to_send,
                         accumulated_expiry: cur_hop.incoming_tlc_expiry,
                         is_final,
                     }),
@@ -1122,7 +1121,7 @@ where
         expiry: u64,
         source: Pubkey,
         target: Pubkey,
-    ) -> Result<(PathEdge, u128, u64), PathFindError> {
+    ) -> Result<(PathEdge, u64), PathFindError> {
         let direct_channels: Vec<(Pubkey, Pubkey, &ChannelInfo, &ChannelUpdateInfo)> = self
             .get_node_inbounds(source)
             .filter(|(_, _, channel_info, _)| {
@@ -1160,12 +1159,6 @@ where
         if let Some(&(from, to, channel_info, channel_update)) =
             direct_channels.choose(&mut thread_rng())
         {
-            let fee = calculate_tlc_forward_fee(amount, channel_update.fee_rate as u128).map_err(
-                |err| {
-                    PathFindError::PathFind(format!("calculate_tlc_forward_fee error: {:?}", err))
-                },
-            )?;
-
             assert_ne!(target, from);
             let last_edge = PathEdge {
                 source: from,
@@ -1175,7 +1168,7 @@ where
                 accumulated_expiry: expiry,
                 is_final: true,
             };
-            Ok((last_edge, fee as u128, channel_update.tlc_expiry_delta))
+            Ok((last_edge, channel_update.tlc_expiry_delta))
         } else {
             return Err(PathFindError::PathFind(
                 "no direct channel found for source node".to_string(),
