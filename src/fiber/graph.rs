@@ -829,7 +829,7 @@ where
         assert!(!route.is_empty());
 
         let route_len = route.len();
-        let expiry_base = now_timestamp_as_millis_u64();
+        let now = now_timestamp_as_millis_u64();
         let mut hops_data = Vec::with_capacity(route.len() + 1);
 
         for r in route {
@@ -837,7 +837,7 @@ where
                 amount: r.accumulated_out,
                 next_hop: Some(r.target),
                 hash_algorithm: hash_algorithm,
-                expiry: expiry_base + r.accumulated_expiry,
+                expiry: now + r.accumulated_expiry,
                 funding_tx_hash: r.channel_outpoint.tx_hash().into(),
                 payment_preimage: None,
             });
@@ -846,7 +846,7 @@ where
             amount: amount,
             next_hop: None,
             hash_algorithm: hash_algorithm,
-            expiry: expiry_base,
+            expiry: now + final_tlc_expiry_delta,
             funding_tx_hash: Default::default(),
             payment_preimage: preimage,
         });
