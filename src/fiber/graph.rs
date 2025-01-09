@@ -138,16 +138,6 @@ impl ChannelInfo {
         }
     }
 
-    fn get_update_info_with(&self, node: Pubkey) -> Option<&ChannelUpdateInfo> {
-        if self.node2() == node {
-            self.update_of_node2.as_ref()
-        } else if self.node1() == node {
-            self.update_of_node1.as_ref()
-        } else {
-            None
-        }
-    }
-
     pub fn channel_last_update_time(&self) -> Option<u64> {
         self.update_of_node2
             .as_ref()
@@ -321,10 +311,14 @@ pub enum PathFindError {
     Other(String),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PathEdge {
+    pub source: Pubkey,
     pub target: Pubkey,
     pub channel_outpoint: OutPoint,
+    pub accumulated_out: u128,
+    pub accumulated_expiry: u64,
+    pub is_final: bool,
 }
 
 impl<S> NetworkGraph<S>
@@ -834,68 +828,29 @@ where
         )?;
         assert!(!route.is_empty());
 
-        let mut current_amount = amount;
-        let current_time = now_timestamp_as_millis_u64();
-        let mut current_expiry = current_time + final_tlc_expiry_delta;
-        let mut hops_data = vec![];
+        let route_len = route.len();
+        let expiry_base = now_timestamp_as_millis_u64();
+        let mut hops_data = Vec::with_capacity(route.len() + 1);
 
-        for i in (0..route.len()).rev() {
-            let is_last = i == route.len() - 1;
-            let (next_hop, next_channel_outpoint) = if is_last {
-                (None, None)
-            } else {
-                (
-                    Some(route[i + 1].target),
-                    Some(route[i + 1].channel_outpoint.clone()),
-                )
-            };
-            let (fee, expiry_delta) = if is_last {
-                (0, 0)
-            } else {
-                let channel_info = self
-                    .get_channel(&route[i].channel_outpoint)
-                    .expect("channel not found");
-                let channel_update = channel_info
-                    .get_update_info_with(route[i].target)
-                    .expect("channel_update not found");
-                let fee_rate = channel_update.fee_rate;
-                let fee =
-                    calculate_tlc_forward_fee(current_amount, fee_rate as u128).expect("fee is ok");
-                let expiry = channel_update.tlc_expiry_delta;
-                (fee, expiry)
-            };
-
-            let funding_tx_hash = if let Some(next_channel_outpoint) = next_channel_outpoint {
-                next_channel_outpoint.tx_hash().into()
-            } else {
-                Hash256::default()
-            };
-            // make sure the final hop's amount is the same as the payment amount
-            // the last hop will check the amount from TLC and the amount from the onion packet
-
+        for r in route {
             hops_data.push(PaymentHopData {
-                amount: current_amount,
-                next_hop,
+                amount: r.accumulated_out,
+                next_hop: Some(r.target),
                 hash_algorithm: hash_algorithm,
-                expiry: current_expiry,
-                funding_tx_hash,
-                payment_preimage: if is_last { preimage } else { None },
+                expiry: expiry_base + r.accumulated_expiry,
+                funding_tx_hash: r.channel_outpoint.tx_hash().into(),
+                payment_preimage: None,
             });
-            current_expiry += expiry_delta;
-            current_amount += fee;
         }
-        // Add the first hop as the instruction for the current node, so the logic for send HTLC can be reused.
         hops_data.push(PaymentHopData {
-            amount: current_amount,
-            next_hop: Some(route[0].target),
+            amount: amount,
+            next_hop: None,
             hash_algorithm: hash_algorithm,
-            expiry: current_expiry,
-            funding_tx_hash: route[0].channel_outpoint.tx_hash().into(),
-            payment_preimage: None,
+            expiry: expiry_base,
+            funding_tx_hash: Default::default(),
+            payment_preimage: preimage,
         });
-        hops_data.reverse();
-        assert_eq!(hops_data.len(), route.len() + 1);
-        assert_eq!(hops_data[route.len()].amount, amount);
+
         // assert there is no duplicate node in the route
         assert_eq!(
             hops_data
@@ -903,7 +858,7 @@ where
                 .filter_map(|x| x.next_hop)
                 .collect::<HashSet<_>>()
                 .len(),
-            route.len()
+            route_len
         );
 
         Ok(hops_data)
@@ -955,15 +910,22 @@ where
             .collect::<HashMap<_, _>>();
 
         let mut target = target;
-        let mut current_expiry = final_tlc_expiry_delta;
+        let mut accumulated_expiry = final_tlc_expiry_delta;
+        let mut accumulated_amount = amount;
         let mut last_edge = None;
 
         if route_to_self {
-            let (new_target, expiry, edge) =
-                self.adjust_target_for_route_self(&hop_hint_map, amount, source, target)?;
-            target = new_target;
-            last_edge = edge;
-            current_expiry += expiry;
+            let (edge, fee, expiry) = self.adjust_target_for_route_self(
+                &hop_hint_map,
+                amount,
+                final_tlc_expiry_delta,
+                source,
+                target,
+            )?;
+            target = edge.source;
+            accumulated_amount = accumulated_amount + fee;
+            accumulated_expiry = accumulated_expiry + expiry;
+            last_edge = Some(edge);
         }
         assert_ne!(source, target);
         // initialize the target node
@@ -971,11 +933,11 @@ where
             node_id: target,
             weight: 0,
             distance: 0,
-            amount_received: amount,
+            amount_received: accumulated_amount,
             fee_charged: 0,
             probability: 1.0,
             next_hop: None,
-            incoming_tlc_expiry: current_expiry,
+            incoming_tlc_expiry: accumulated_expiry,
         });
 
         while let Some(cur_hop) = nodes_heap.pop() {
@@ -983,6 +945,9 @@ where
 
             for (from, to, channel_info, channel_update) in self.get_node_inbounds(cur_hop.node_id)
             {
+                let is_initial = from == source;
+                let is_final = (to == target) && !route_to_self;
+
                 assert_eq!(to, cur_hop.node_id);
                 if &udt_type_script != channel_info.udt_type_script() {
                     continue;
@@ -999,8 +964,8 @@ where
                     }
                 }
 
-                if let Some((_node, channel)) = &last_edge {
-                    if channel == channel_info.out_point() {
+                if let Some(last_edge) = &last_edge {
+                    if &last_edge.channel_outpoint == channel_info.out_point() {
                         continue;
                     }
                 }
@@ -1017,7 +982,7 @@ where
                     continue;
                 }
 
-                let fee = if from == source {
+                let fee = if is_initial {
                     0
                 } else {
                     calculate_tlc_forward_fee(
@@ -1060,7 +1025,7 @@ where
                     }
                 }
 
-                let expiry_delta = if from == source {
+                let expiry_delta = if is_initial {
                     0
                 } else {
                     channel_update.tlc_expiry_delta
@@ -1109,7 +1074,14 @@ where
                     incoming_tlc_expiry: incoming_htlc_expiry,
                     fee_charged: fee,
                     probability,
-                    next_hop: Some((cur_hop.node_id, channel_info.out_point().clone())),
+                    next_hop: Some(PathEdge {
+                        source: from,
+                        target: to,
+                        channel_outpoint: channel_info.out_point().clone(),
+                        accumulated_out: next_hop_received_amount,
+                        accumulated_expiry: cur_hop.incoming_tlc_expiry,
+                        is_final,
+                    }),
                 };
                 distances.insert(node.node_id, node.clone());
                 nodes_heap.push_or_fix(node);
@@ -1118,15 +1090,19 @@ where
 
         let mut current = source;
         while let Some(elem) = distances.remove(&current) {
-            let (next_pubkey, next_out_point) = elem.next_hop.expect("next_hop is none");
-            result.push(PathEdge {
-                target: next_pubkey,
-                channel_outpoint: next_out_point,
-            });
-            current = next_pubkey;
+            let edge = elem.next_hop.expect("next_hop is none");
+            current = edge.target;
+            result.push(edge);
             if current == target {
                 break;
             }
+        }
+
+        if result.is_empty() || current != target {
+            return Err(PathFindError::PathFind("no path found".to_string()));
+        }
+        if let Some(edge) = last_edge {
+            result.push(edge)
         }
 
         info!(
@@ -1136,16 +1112,6 @@ where
             started_time.elapsed(),
             result
         );
-        if result.is_empty() || current != target {
-            return Err(PathFindError::PathFind("no path found".to_string()));
-        }
-        if let Some((node, channel)) = last_edge {
-            result.push(PathEdge {
-                target: node,
-                channel_outpoint: channel.clone(),
-            })
-        }
-
         Ok(result)
     }
 
@@ -1153,9 +1119,10 @@ where
         &self,
         hop_hint_map: &HashMap<(Pubkey, bool), OutPoint>,
         amount: u128,
+        expiry: u64,
         source: Pubkey,
         target: Pubkey,
-    ) -> Result<(Pubkey, u64, Option<(Pubkey, OutPoint)>), PathFindError> {
+    ) -> Result<(PathEdge, u128, u64), PathFindError> {
         let direct_channels: Vec<(Pubkey, Pubkey, &ChannelInfo, &ChannelUpdateInfo)> = self
             .get_node_inbounds(source)
             .filter(|(_, _, channel_info, _)| {
@@ -1190,14 +1157,25 @@ where
         // a proper hop hint for route self will limit the direct_channels to only one
         // if there are multiple channels, we will randomly select a channel from the source node for route to self
         // so that the following part of algorithm will always trying to find a path without cycle
-        if let Some(&(from, _, channel_info, channel_update)) =
+        if let Some(&(from, to, channel_info, channel_update)) =
             direct_channels.choose(&mut thread_rng())
         {
-            let last_edge = Some((source, channel_info.out_point().clone()));
-            let current_expiry = channel_update.tlc_expiry_delta;
+            let fee = calculate_tlc_forward_fee(amount, channel_update.fee_rate as u128).map_err(
+                |err| {
+                    PathFindError::PathFind(format!("calculate_tlc_forward_fee error: {:?}", err))
+                },
+            )?;
+
             assert_ne!(target, from);
-            let target = from;
-            Ok((target, current_expiry, last_edge))
+            let last_edge = PathEdge {
+                source: from,
+                target: to,
+                channel_outpoint: channel_info.out_point().clone(),
+                accumulated_out: amount,
+                accumulated_expiry: expiry,
+                is_final: true,
+            };
+            Ok((last_edge, fee as u128, channel_update.tlc_expiry_delta))
         } else {
             return Err(PathFindError::PathFind(
                 "no direct channel found for source node".to_string(),
