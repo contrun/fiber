@@ -76,6 +76,9 @@ impl From<NodeAnnouncement> for NodeInfo {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChannelInfo {
+    // Whether this channel is owned by the local node.
+    // A local owned channel will ignore updates from the network.
+    pub local_owned: bool,
     pub channel_outpoint: OutPoint,
     // The timestamp in the block header of the block that includes the funding transaction of the channel.
     pub timestamp: u64,
@@ -196,6 +199,7 @@ impl TryFrom<&ChannelActorState> for ChannelInfo {
             )
         };
         Ok(Self {
+            local_owned: true,
             channel_outpoint,
             timestamp,
             features: 0,
@@ -212,6 +216,7 @@ impl TryFrom<&ChannelActorState> for ChannelInfo {
 impl From<(u64, ChannelAnnouncement)> for ChannelInfo {
     fn from((timestamp, channel_announcement): (u64, ChannelAnnouncement)) -> Self {
         Self {
+            local_owned: false,
             channel_outpoint: channel_announcement.channel_outpoint,
             timestamp,
             features: channel_announcement.features,
@@ -532,6 +537,11 @@ where
         // So it is possible that the channel announcement is not loaded into the graph yet,
         // when we receive the channel update message.
         let channel = self.load_channel_info_mut(channel_outpoint)?;
+        if channel.local_owned {
+            // We will not update our own channel from gossip messages.
+            // These messages are only updated when we receive an OwnedChannelUpdateEvent.
+            return None;
+        }
         let update_info = if channel_update.is_update_of_node_1() {
             &mut channel.update_of_node1
         } else {
