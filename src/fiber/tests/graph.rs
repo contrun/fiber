@@ -719,8 +719,8 @@ fn test_graph_build_route_with_expiry_limit() {
 #[test]
 fn test_graph_build_route_three_nodes() {
     let mut network = MockNetworkGraph::new(3);
-    network.add_edge(0, 2, Some(500), Some(200000));
-    network.add_edge(2, 3, Some(500), Some(2));
+    network.add_edge(0, 2, Some(500), Some(2));
+    network.add_edge(2, 3, Some(500), Some(200000));
     let node2 = network.keys[2];
     let node3 = network.keys[3];
     // Test build route from node1 to node3
