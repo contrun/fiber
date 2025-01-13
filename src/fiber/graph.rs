@@ -975,11 +975,17 @@ where
                         source: from,
                         target: to,
                         channel_outpoint: channel_info.out_point().clone(),
+                        // a -> b -> c -> d;
+                        // b -> c tlc amount: amount + c_fee (c, d channel update fee);
+                        // a -> b tlc amount: amount + c_fee + b_fee;
                         // Here we need to use the amount accumulated so far (i.e. with the fees in current hop)
                         // because the fee here is for the receiving node to forward the amount to the next node.
                         // So the total amount in AddTlc packet should include the fee.
                         accumulated_transfer_amount: amount_to_send,
-                        accumulated_tlc_expiry: cur_hop.incoming_tlc_expiry,
+                        // a -> b -> c -> d;
+                        // b -> c tlc expiry: amount + c_expiry (c, d channel update expiry);
+                        // a -> b tlc expiry: amount + c_expiry + b_expiry;
+                        accumulated_tlc_expiry: incoming_tlc_expiry,
                         is_final,
                     }),
                 };
