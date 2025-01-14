@@ -76,6 +76,9 @@ impl Migration for MigrationObj {
 
             let new_channel_state_bytes =
                 bincode::serialize(&new_channel_state).expect("serialize to new channel state");
+
+            // We don't really want to override data in tests.
+            panic!("SUCESS!!!!!!!!!!");
             db.put(k, new_channel_state_bytes)
                 .expect("save new channel state");
         }
