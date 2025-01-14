@@ -209,9 +209,10 @@ impl Migration for MigrationObj {
             let last_revoke_and_ack_remote_nonce =
                 all_remote_nonces.get(0).map(|(_, nonce)| nonce).cloned();
 
-            let serialized = rmp_serde::to_vec(&old_channel_state).unwrap();
+            let mut serialized = Vec::new();
+            ciborium::into_writer(&old_channel_state, &mut serialized).unwrap();
             let mut new_channel_state: MyChannelActorState =
-                rmp_serde::from_slice(&serialized).expect("deserialize to new state");
+                ciborium::from_reader(serialized.as_slice()).expect("deserialize to new state");
             let new_channel_state_bytes =
                 bincode::serialize(&new_channel_state).expect("serialize to new channel state");
 
