@@ -65,9 +65,9 @@ impl Migration for MigrationObj {
             let last_revoke_and_ack_remote_nonce =
                 all_remote_nonces.get(0).map(|(_, nonce)| nonce).cloned();
 
-            let serialized = serde_json::to_string(&old_channel_state).unwrap();
+            let serialized = rmp_serde::to_vec(&old_channel_state).unwrap();
             let mut new_channel_state: ChannelActorStateV021 =
-                serde_json::from_str(&serialized).expect("deserialize to new state");
+                rmp_serde::from_slice(&serialized).expect("deserialize to new state");
             new_channel_state.last_revoke_and_ack_remote_nonce = last_revoke_and_ack_remote_nonce;
             new_channel_state.last_committed_remote_nonce = last_committed_remote_nonce;
 
