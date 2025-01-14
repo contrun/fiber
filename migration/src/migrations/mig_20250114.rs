@@ -212,12 +212,6 @@ impl Migration for MigrationObj {
             let serialized = rmp_serde::to_vec(&old_channel_state).unwrap();
             let mut new_channel_state: MyChannelActorState =
                 rmp_serde::from_slice(&serialized).expect("deserialize to new state");
-            new_channel_state.last_revoke_and_ack_remote_nonce = last_revoke_and_ack_remote_nonce;
-            new_channel_state.last_committed_remote_nonce = last_committed_remote_nonce;
-
-            new_channel_state.last_commitment_signed_remote_nonce =
-                old_channel_state.last_used_nonce_in_commitment_signed;
-
             let new_channel_state_bytes =
                 bincode::serialize(&new_channel_state).expect("serialize to new channel state");
 
