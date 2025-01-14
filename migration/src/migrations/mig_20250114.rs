@@ -33,138 +33,8 @@ impl MigrationObj {
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct MyChannelActorState {
-    pub state: ChannelState,
-    // The data below are only relevant if the channel is public.
-    pub public_channel_info: Option<PublicChannelInfo>,
-
-    // pub local_tlc_info: ChannelTlcInfo,
-    // pub remote_tlc_info: Option<ChannelTlcInfo>,
-
-    // The local public key used to establish p2p network connection.
-    pub local_pubkey: Pubkey,
-    // The remote public key used to establish p2p network connection.
-    pub remote_pubkey: Pubkey,
-
-    pub id: Hash256,
-    #[serde_as(as = "Option<EntityHex>")]
-    pub funding_tx: Option<Transaction>,
-
-    pub funding_tx_confirmed_at: Option<(H256, u32, u64)>,
-
-    #[serde_as(as = "Option<EntityHex>")]
-    pub funding_udt_type_script: Option<Script>,
-
-    // Is this channel initially inbound?
-    // An inbound channel is one where the counterparty is the funder of the channel.
-    pub is_acceptor: bool,
-
-    // TODO: consider transaction fee while building the commitment transaction.
-    // The invariant here is that the sum of `to_local_amount` and `to_remote_amount`
-    // should be equal to the total amount of the channel.
-    // The changes of both `to_local_amount` and `to_remote_amount`
-    // will always happen after a revoke_and_ack message is sent/received.
-    // This means that while calculating the amounts for commitment transactions,
-    // processing add_tlc command and messages, we need to take into account that
-    // the amounts are not decremented/incremented yet.
-
-    // The amount of CKB/UDT that we own in the channel.
-    // This value will only change after we have resolved a tlc.
-    pub to_local_amount: u128,
-    // The amount of CKB/UDT that the remote owns in the channel.
-    // This value will only change after we have resolved a tlc.
-    pub to_remote_amount: u128,
-
-    // these two amounts used to keep the minimal ckb amount for the two parties
-    // TLC operations will not affect these two amounts, only used to keep the commitment transactions
-    // to be valid, so that any party can close the channel at any time.
-    // Note: the values are different for the UDT scenario
-    pub local_reserved_ckb_amount: u64,
-    pub remote_reserved_ckb_amount: u64,
-
-    // The commitment fee rate is used to calculate the fee for the commitment transactions.
-    // The side who want to submit the commitment transaction will pay fee
-    pub commitment_fee_rate: u64,
-
-    // The delay time for the commitment transaction, this value is set by the initiator of the channel.
-    // It must be a relative EpochNumberWithFraction in u64 format.
-    pub commitment_delay_epoch: u64,
-
-    // The fee rate used for funding transaction, the initiator may set it as `funding_fee_rate` option,
-    // if it's not set, DEFAULT_FEE_RATE will be used as default value, two sides will use the same fee rate
-    pub funding_fee_rate: u64,
-
-    // Signer is used to sign the commitment transactions.
-    pub signer: InMemorySigner,
-
-    // Cached channel public keys for easier of access.
-    pub local_channel_public_keys: ChannelBasePublicKeys,
-
-    // Commitment numbers that are used to derive keys.
-    // This value is guaranteed to be 0 when channel is just created.
-    pub commitment_numbers: CommitmentNumbers,
-
-    pub local_constraints: ChannelConstraints,
-    pub remote_constraints: ChannelConstraints,
-
-    // Below are fields that are only usable after the channel is funded,
-    // (or at some point of the state).
-
-    // all the TLC related information
-    pub tlc_state: TlcState,
-
-    // The remote and local lock script for close channel, they are setup during the channel establishment.
-    #[serde_as(as = "Option<EntityHex>")]
-    pub remote_shutdown_script: Option<Script>,
-    #[serde_as(as = "EntityHex")]
-    pub local_shutdown_script: Script,
-
-    // Basically the latest remote nonce sent by the peer with the CommitmentSigned message,
-    // but we will only update this field after we have sent a RevokeAndAck to the peer.
-    // With above guarantee, we can be sure the results of the sender obtaining its latest local nonce
-    // and the receiver obtaining its latest remote nonce are the same.
-    #[serde_as(as = "Option<PubNonceAsBytes>")]
-    pub last_committed_remote_nonce: Option<PubNonce>,
-
-    // While handling peer's CommitmentSigned message, we will build a RevokeAndAck message,
-    // and reply this message to the peer. The nonce used to build the RevokeAndAck message is
-    // an older one sent by the peer. We will read this nonce from the field `last_committed_remote_nonce`
-    // The new nonce contained in the CommitmentSigned message
-    // will be saved to `last_committed_remote_nonce` field when this process finishes successfully.
-    // The problem is in some abnormal cases, the may not be able to successfully send the RevokeAndAck.
-    // But we have overwritten the `last_committed_remote_nonce` field with the new nonce.
-    // While reestablishing the channel, we need to use the old nonce to build the RevokeAndAck message.
-    // This is why we need to save the old nonce in this field.
-    #[serde_as(as = "Option<PubNonceAsBytes>")]
-    pub last_commitment_signed_remote_nonce: Option<PubNonce>,
-
-    // While building a CommitmentSigned message, we use the latest remote nonce (the `last_committed_remote_nonce` above)
-    // to partially sign the commitment transaction. This nonce is also needed for the RevokeAndAck message
-    // returned from the peer. We need to save this nonce because the counterparty may send other nonces during
-    // the period when our CommitmentSigned is sent and the counterparty's RevokeAndAck is received.
-    // This field is used to keep the nonce used by the unconfirmed CommitmentSigned. When we receive a
-    // RevokeAndAck from the peer, we will use this nonce to validate the RevokeAndAck message.
-    #[serde_as(as = "Option<PubNonceAsBytes>")]
-    pub last_revoke_and_ack_remote_nonce: Option<PubNonce>,
-
-    // The latest commitment transaction we're holding,
-    // it can be broadcasted to blockchain by us to force close the channel.
-    #[serde_as(as = "Option<EntityHex>")]
-    pub latest_commitment_transaction: Option<Transaction>,
-
-    // All the commitment point that are sent from the counterparty.
-    // We need to save all these points to derive the keys for the commitment transactions.
-    // The length of this vector is at most the maximum number of flighting tlcs.
-    pub remote_commitment_points: Vec<(u64, Pubkey)>,
-    pub remote_channel_public_keys: Option<ChannelBasePublicKeys>,
-
-    // The shutdown info for both local and remote, they are setup by the shutdown command or message.
-    pub local_shutdown_info: Option<ShutdownInfo>,
-    pub remote_shutdown_info: Option<ShutdownInfo>,
-
     // A flag to indicate whether the channel is reestablishing, we won't process any messages until the channel is reestablished.
     pub reestablishing: bool,
-
-    pub created_at: SystemTime,
 }
 
 impl Migration for MigrationObj {
@@ -209,10 +79,17 @@ impl Migration for MigrationObj {
             let last_revoke_and_ack_remote_nonce =
                 all_remote_nonces.get(0).map(|(_, nonce)| nonce).cloned();
 
-            let mut serialized = Vec::new();
-            ciborium::into_writer(&old_channel_state, &mut serialized).unwrap();
+            let serialized = rmp_serde::to_vec(&old_channel_state).unwrap();
+            debug!(
+                result = serde_json::to_string(&old_channel_state).unwrap(),
+                "Dumping old channel state"
+            );
+            debug!(
+                encoded = hex::encode(&serialized),
+                "Encoded old channel state with msgpack"
+            );
             let mut new_channel_state: MyChannelActorState =
-                ciborium::from_reader(serialized.as_slice()).expect("deserialize to new state");
+                rmp_serde::from_slice(&serialized).expect("deserialize to new state");
             let new_channel_state_bytes =
                 bincode::serialize(&new_channel_state).expect("serialize to new channel state");
 
