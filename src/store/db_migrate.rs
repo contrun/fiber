@@ -83,17 +83,6 @@ impl DbMigrate {
                         return Err(format!("Fiber need to run some database migrations, please run `fnn-migrate -p {}` to start migrations.", path.as_ref().display()));
                     } else {
                         let path_buf = path.as_ref().to_path_buf();
-                        let input = Self::prompt(format!("\
-                            Once the migration started, the data will be no longer compatible with all older version,\n\
-                            so we strongly recommended you to backup the old data {} before migrating.\n\
-                            \n\
-                            \nIf you want to migrate the data, please input YES, otherwise, the current process will exit.\n\
-                            > ", path_buf.display()).as_str());
-
-                        if input.trim().to_lowercase() != "yes" {
-                            error!("Migration was declined since the user didn't confirm.");
-                            return Err("need to run database migration".to_string());
-                        }
                         eprintln!("begin to migrate db ...");
                         let db = self.migrate().expect("failed to migrate db");
                         eprintln!(

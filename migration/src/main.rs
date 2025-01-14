@@ -45,3 +45,18 @@ fn main() {
         eprintln!("{}", err);
     }
 }
+
+#[test]
+fn test() {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .with_target(false)
+        .init();
+
+    let path = Path::new("/home/e/Workspace/fiber-migration-data/v0.2.0/1/fiber/store");
+    let db = open_db(path).expect("failed to open db");
+    let migrate = init_db_migrate(db);
+    if let Err(err) = migrate.check_or_run_migrate(path, true) {
+        eprintln!("{}", err);
+    }
+}
