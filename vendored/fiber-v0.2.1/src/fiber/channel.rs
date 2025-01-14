@@ -3013,6 +3013,7 @@ pub struct ChannelActorState {
     // but we will only update this field after we have sent a RevokeAndAck to the peer.
     // With above guarantee, we can be sure the results of the sender obtaining its latest local nonce
     // and the receiver obtaining its latest remote nonce are the same.
+    #[serde(default)]
     #[serde_as(as = "Option<PubNonceAsBytes>")]
     pub last_committed_remote_nonce: Option<PubNonce>,
 
@@ -3025,6 +3026,7 @@ pub struct ChannelActorState {
     // But we have overwritten the `last_committed_remote_nonce` field with the new nonce.
     // While reestablishing the channel, we need to use the old nonce to build the RevokeAndAck message.
     // This is why we need to save the old nonce in this field.
+    #[serde(default)]
     #[serde_as(as = "Option<PubNonceAsBytes>")]
     pub last_commitment_signed_remote_nonce: Option<PubNonce>,
 
@@ -3034,6 +3036,7 @@ pub struct ChannelActorState {
     // the period when our CommitmentSigned is sent and the counterparty's RevokeAndAck is received.
     // This field is used to keep the nonce used by the unconfirmed CommitmentSigned. When we receive a
     // RevokeAndAck from the peer, we will use this nonce to validate the RevokeAndAck message.
+    #[serde(default)]
     #[serde_as(as = "Option<PubNonceAsBytes>")]
     pub last_revoke_and_ack_remote_nonce: Option<PubNonce>,
 

@@ -1,0 +1,33 @@
+# Github actions file to build a container image for the rust project.
+# We will push the image to the Github Container Registry every time when
+# the main branch is updated.
+
+name: Build and push container image
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: Swatinem/rust-cache@v2
+      - uses: dsherret/rust-toolchain-file@v1
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Login to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Build and push
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          tags: ghcr.io/${{ github.repository }}:latest
+          build-args: |
+            RUST_VERSION=1.54.0
+            CKB_VERSION=0.116.1
+            BITCOIN_VERSION=27.0
+            LND_VERSION=0.18.0-beta
+          file: Dockerfile

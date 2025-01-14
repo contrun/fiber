@@ -1721,6 +1721,7 @@ dependencies = [
  "rmp-serde",
  "serde",
  "serde_json",
+ "serde_with",
  "thiserror 1.0.69",
  "tracing",
  "tracing-subscriber",

@@ -23,7 +23,6 @@ use crate::{
         network::{
             get_chain_hash, sign_network_message, FiberMessageWithPeerId, SendOnionPacketCommand,
         },
-        serde_utils::{CompactSignatureAsBytes, EntityHex, PubNonceAsBytes},
         types::{
             AcceptChannel, AddTlc, AnnouncementSignatures, BroadcastMessageQuery,
             BroadcastMessageQueryFlags, ChannelAnnouncement, ChannelReady, ChannelUpdate,
@@ -40,7 +39,8 @@ use crate::{
 };
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_sdk::{Since, SinceType};
-use ckb_types::{
+pub use super::serde_utils::{CompactSignatureAsBytes, EntityHex, PubNonceAsBytes};
+pub use ckb_types::{
     core::{
         Capacity, CapacityError, EpochNumberWithFraction, FeeRate, TransactionBuilder,
         TransactionView,
@@ -50,7 +50,7 @@ use ckb_types::{
     H256,
 };
 use molecule::prelude::{Builder, Entity};
-use musig2::{
+pub use musig2::{
     aggregate_partial_signatures,
     errors::{RoundFinalizeError, SigningError, VerifyError},
     secp::Point,

@@ -18,7 +18,7 @@ use std::convert::TryFrom;
 use std::fmt::Debug;
 
 use anyhow::anyhow;
-use ckb_types::{
+pub use ckb_types::{
     core::FeeRate,
     packed::{Byte32 as MByte32, BytesVec, OutPoint, Script, Transaction},
     prelude::{Pack, Unpack},
