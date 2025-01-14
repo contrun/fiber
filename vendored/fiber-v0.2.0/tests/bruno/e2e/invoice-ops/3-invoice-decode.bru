@@ -1,0 +1,40 @@
+meta {
+  name: invoice decode test
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{NODE3_RPC_URL}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "id": "42",
+    "jsonrpc": "2.0",
+    "method": "parse_invoice",
+    "params": [
+      {
+        "invoice": "{{INVOICE_ADDR}}"
+      }
+    ]
+  }
+}
+
+assert {
+  res.body.error: isUndefined
+  res.body.result: isDefined
+}
+
+script:post-response {
+  // Sleep for sometime to make sure current operation finishes before next request starts.
+  await new Promise(r => setTimeout(r, 100));
+  console.log("generated result: ", res.body.result);
+}
