@@ -317,11 +317,22 @@ pub struct SendPaymentCommand {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HopHint {
     /// The public key of the node
-    pub pubkey: Pubkey,
+    pub(crate) pubkey: Pubkey,
     /// The funding transaction hash of the channel outpoint
-    pub channel_funding_tx: Hash256,
+    pub(crate) channel_funding_tx: Hash256,
     /// inbound or outbound for the channel
-    pub inbound: bool,
+    pub(crate) inbound: bool,
+
+    /// Below fields are the fee rate and the TLC expiry delta to use this
+    /// hop to forward the payment. If they are not set, then this hop should
+    /// be a public hop and we will use the values from the gossip messages.
+    /// If they are set, then we will use these values directly. This allows
+    /// us to forward payments through private channels.
+
+    /// The fee rate to use this hop to forward the payment.
+    pub(crate) fee_rate: Option<u64>,
+    /// The TLC expiry delta to use this hop to forward the payment.
+    pub(crate) tlc_expiry_delta: Option<u64>,
 }
 
 #[serde_as]

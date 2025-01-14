@@ -122,6 +122,11 @@ pub struct HopHint {
     pub channel_funding_tx: Hash256,
     /// inbound or outbound to use this channel
     pub inbound: bool,
+
+    /// The fee rate to use this hop to forward the payment.
+    pub(crate) fee_rate: Option<u64>,
+    /// The TLC expiry delta to use this hop to forward the payment.
+    pub(crate) tlc_expiry_delta: Option<u64>,
 }
 
 impl From<HopHint> for NetworkHopHint {
@@ -130,6 +135,8 @@ impl From<HopHint> for NetworkHopHint {
             pubkey: hop_hint.pubkey,
             channel_funding_tx: hop_hint.channel_funding_tx,
             inbound: hop_hint.inbound,
+            fee_rate: hop_hint.fee_rate,
+            tlc_expiry_delta: hop_hint.tlc_expiry_delta,
         }
     }
 }
