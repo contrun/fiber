@@ -9,7 +9,6 @@ where
     E: TryFrom<Vec<u8>>,
     E::Error: core::fmt::Debug,
 {
-    panic!("PubNonceAsBytes::deserialize_as");
     String::deserialize(deserializer)
         .and_then(|string| {
             if string.len() < 2 || &string[..2].to_lowercase() != "0x" {
@@ -63,7 +62,6 @@ where
     where
         D: Deserializer<'de>,
     {
-        panic!("PubNonceAsBytes::deserialize_as");
         from_hex(deserializer)
     }
 }
@@ -90,7 +88,6 @@ where
     where
         D: Deserializer<'de>,
     {
-        panic!("PubNonceAsBytes::deserialize_as");
         let v: Vec<u8> = from_hex(deserializer)?;
         T::from_slice(&v).map_err(Error::custom)
     }
@@ -138,7 +135,6 @@ impl<'de> DeserializeAs<'de, CompactSignature> for CompactSignatureAsBytes {
     where
         D: Deserializer<'de>,
     {
-        panic!("PubNonceAsBytes::deserialize_as");
         let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
         if bytes.len() != SCHNORR_SIGNATURE_SIZE {
             return Err(serde::de::Error::custom("expected 64 bytes"));
@@ -163,7 +159,6 @@ impl<'de> DeserializeAs<'de, PubNonce> for PubNonceAsBytes {
     where
         D: Deserializer<'de>,
     {
-        panic!("PubNonceAsBytes::deserialize_as");
         let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
         if bytes.len() != 66 {
             return Err(serde::de::Error::custom("expected 66 bytes"));
