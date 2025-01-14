@@ -37,8 +37,8 @@ pub struct MyChannelActorState {
     // The data below are only relevant if the channel is public.
     pub public_channel_info: Option<PublicChannelInfo>,
 
-    pub local_tlc_info: ChannelTlcInfo,
-    pub remote_tlc_info: Option<ChannelTlcInfo>,
+    // pub local_tlc_info: ChannelTlcInfo,
+    // pub remote_tlc_info: Option<ChannelTlcInfo>,
 
     // The local public key used to establish p2p network connection.
     pub local_pubkey: Pubkey,
