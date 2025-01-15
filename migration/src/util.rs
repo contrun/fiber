@@ -1,14 +1,14 @@
 use serde::{Deserialize, Serialize};
 use std::io::{stdin, stdout, Write};
 
-pub(crate) fn convert<Old, New>(old: Old) -> New
+pub(crate) fn convert<Old, New>(old: &Old) -> New
 where
     Old: Serialize,
     New: for<'de> Deserialize<'de>,
 {
-    let buf = bincode::serialize(&old).unwrap();
-    let new_value: New = bincode::deserialize(&buf).expect("deserialize to new state");
-    new_value
+    let mut serialized = Vec::new();
+    ciborium::into_writer(old, &mut serialized).unwrap();
+    ciborium::from_reader(serialized.as_slice()).expect("deserialize to new state")
 }
 
 pub fn prompt(msg: &str) -> String {
