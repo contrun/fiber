@@ -1,0 +1,48 @@
+meta {
+  name: add tlc from NODE3
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{NODE3_RPC_URL}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "id": "42",
+    "jsonrpc": "2.0",
+    "method": "add_tlc",
+    "params": [
+      {
+        "channel_id": "{{CHANNEL_ID}}",
+        "amount": "0x11e1a300",
+        "payment_hash": "0x29449e2cc6f56a691253fe88e3a378171c81573b09247010b4f1cb8c806e1e12",
+        "expiry": "{{expiry}}"
+      }
+    ]
+  }
+}
+
+assert {
+  res.body.error: isUndefined
+  res.body.result.tlc_id: isDefined
+}
+
+script:pre-request {
+  let expiry = "0x" + (Date.now() + 1000 * 60 * 60 * 24).toString(16);
+  bru.setVar("expiry", expiry);
+}
+
+script:post-response {
+  // Sleep for sometime to make sure current operation finishes before next request starts.
+  await new Promise(r => setTimeout(r, 100));
+  bru.setVar("TLC_ID6", res.body.result.tlc_id);
+}
