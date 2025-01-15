@@ -12,7 +12,7 @@ use fiber::fiber::types::Script;
 use fiber::fiber::types::Transaction;
 
 use fiber::fiber::serde_utils::EntityHex;
-use fiber::fiber::serde_utils::PubNonceAsBytes;
+use fiber_v021::fiber::serde_utils::PubNonceAsBytes;
 
 // use fiber_v021::fiber::channel::*;
 use fiber::fiber::channel::ChannelConstraints;
@@ -24,9 +24,6 @@ use fiber::fiber::channel::InMemorySigner;
 use fiber::fiber::channel::ShutdownInfo;
 use fiber::fiber::channel::TlcState;
 
-// To be blamed for the migration error
-use fiber_v021::fiber::channel::PublicChannelInfo;
-
 // use fiber_v021::fiber::types::*;
 use fiber::fiber::types::Hash256;
 use fiber::fiber::types::Pubkey;
@@ -34,6 +31,47 @@ use fiber::fiber::types::Pubkey;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::time::SystemTime;
+
+// To be blamed for the migration error
+// use fiber_v021::fiber::channel::PublicChannelInfo;
+
+use fiber_v021::fiber::types::ChannelAnnouncement;
+use fiber_v021::fiber::types::ChannelUpdate;
+use fiber_v021::fiber::types::EcdsaSignature;
+use fiber_v021::fiber::types::PartialSignature;
+
+// This struct holds the channel information that are only relevant when the channel
+// is public. The information includes signatures to the channel announcement message,
+// our config for the channel that will be published to the network (via ChannelUpdate).
+// For ChannelUpdate config, only information on our side are saved here because we have no
+// control to the config on the counterparty side. And they will publish
+// the config to the network via another ChannelUpdate message.
+#[serde_as]
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+pub struct PublicChannelInfo {
+    pub enabled: bool,
+    // The fee rate for tlc transfers. We only have these values set when
+    // this is a public channel. Both sides may set this value differently.
+    // This is a fee that is paid by the sender of the tlc.
+    // The detailed calculation for the fee of forwarding tlcs is
+    // `fee = round_above(tlc_fee_proportional_millionths * tlc_value / 1,000,000)`.
+    pub tlc_fee_proportional_millionths: u128,
+
+    // The expiry delta timestamp, in milliseconds, for the tlc.
+    pub tlc_expiry_delta: u64,
+
+    /// The minimal tcl value we can receive in relay tlc
+    pub tlc_min_value: u128,
+    // Channel announcement signatures, may be empty for private channel.
+    pub local_channel_announcement_signature: Option<(EcdsaSignature, PartialSignature)>,
+    pub remote_channel_announcement_signature: Option<(EcdsaSignature, PartialSignature)>,
+
+    #[serde_as(as = "Option<PubNonceAsBytes>")]
+    pub remote_channel_announcement_nonce: Option<PubNonce>,
+
+    pub channel_announcement: Option<ChannelAnnouncement>,
+    pub channel_update: Option<ChannelUpdate>,
+}
 
 const MIGRATION_DB_VERSION: &str = "20250112205923";
 

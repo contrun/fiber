@@ -28,7 +28,8 @@ use fiber_sphinx::{OnionErrorPacket, SphinxError};
 use molecule::prelude::{Builder, Byte, Entity};
 use musig2::errors::DecodeError;
 use musig2::secp::{Point, Scalar};
-use musig2::{BinaryEncoding, PartialSignature, PubNonce};
+use musig2::BinaryEncoding;
+pub use musig2::{PartialSignature, PubNonce};
 use once_cell::sync::OnceCell;
 use ractor::concurrency::Duration;
 use secp256k1::{
