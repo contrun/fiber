@@ -14,8 +14,22 @@ use fiber::fiber::types::Transaction;
 use fiber::fiber::serde_utils::EntityHex;
 use fiber::fiber::serde_utils::PubNonceAsBytes;
 
-use fiber_v021::fiber::channel::*;
-use fiber_v021::fiber::types::*;
+// use fiber_v021::fiber::channel::*;
+use fiber::fiber::channel::ChannelConstraints;
+use fiber::fiber::channel::ChannelState;
+use fiber::fiber::channel::CommitmentNumbers;
+use fiber_v021::fiber::channel::ChannelBasePublicKeys;
+
+use fiber::fiber::channel::InMemorySigner;
+use fiber::fiber::channel::ShutdownInfo;
+use fiber::fiber::channel::TlcState;
+
+// To be blamed for the migration error
+use fiber_v021::fiber::channel::PublicChannelInfo;
+
+// use fiber_v021::fiber::types::*;
+use fiber::fiber::types::Hash256;
+use fiber::fiber::types::Pubkey;
 
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
