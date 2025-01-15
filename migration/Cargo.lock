@@ -1576,7 +1576,7 @@ dependencies = [
 [[package]]
 name = "fnn"
 version = "0.2.0"
-source = "git+https://github.com/nervosnetwork/fiber.git?tag=v0.2.0#087b087ecc3a4611c58a9b8f74ce871a9150b5e1"
+source = "git+https://github.com/contrun/fiber.git?rev=2ac80280bac1f76c19615150d32ee847b82f8777#2ac80280bac1f76c19615150d32ee847b82f8777"
 dependencies = [
  "anyhow",
  "arcode",
@@ -1683,7 +1683,7 @@ dependencies = [
 [[package]]
 name = "fnn"
 version = "0.2.1"
-source = "git+https://github.com/nervosnetwork/fiber.git?tag=v0.2.1#82d282e134ce29ea589ada85226deb982fa6aa97"
+source = "git+https://github.com/contrun/fiber.git?rev=28cc8c6d3f11bcfe7994d96dc161c36ca42102f0#28cc8c6d3f11bcfe7994d96dc161c36ca42102f0"
 dependencies = [
  "anyhow",
  "arcode",
@@ -1736,8 +1736,8 @@ dependencies = [
 
 [[package]]
 name = "fnn"
-version = "0.2.1"
-source = "git+https://github.com/nervosnetwork/fiber.git#e38b0b3cac8cfaf9b324b6e25612ff7f09deb193"
+version = "0.2.2"
+source = "git+https://github.com/contrun/fiber.git?rev=b906be716f8848bd3113624cc74c54e95825d63e#b906be716f8848bd3113624cc74c54e95825d63e"
 dependencies = [
  "anyhow",
  "arcode",
@@ -1799,8 +1799,8 @@ dependencies = [
  "console",
  "fnn 0.2.0",
  "fnn 0.2.1",
- "fnn 0.2.1 (git+https://github.com/nervosnetwork/fiber.git?tag=v0.2.1)",
- "fnn 0.2.1 (git+https://github.com/nervosnetwork/fiber.git)",
+ "fnn 0.2.1 (git+https://github.com/contrun/fiber.git?rev=28cc8c6d3f11bcfe7994d96dc161c36ca42102f0)",
+ "fnn 0.2.2",
  "hex",
  "indicatif",
  "serde",

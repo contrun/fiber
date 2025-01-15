@@ -21,9 +21,9 @@ clap = { version = "4.0", features = ["derive"] }
 fiber = { package = "fnn", path = "../" }
 serde_json = "1.0.135"
 
-fiber_v020 = { package = "fnn", git = "https://github.com/nervosnetwork/fiber.git", tag = "v0.2.0" }
-fiber_v021 = { package = "fnn", git = "https://github.com/nervosnetwork/fiber.git", tag = "v0.2.1" }
-fiber_v022 = { package = "fnn", git = "https://github.com/nervosnetwork/fiber.git", revision = "e38b0b3cac8cfaf9b324b6e25612ff7f09deb193" }
+fiber_v020 = { package = "fnn", git = "https://github.com/contrun/fiber.git", rev = "2ac80280bac1f76c19615150d32ee847b82f8777" }
+fiber_v021 = { package = "fnn", git = "https://github.com/contrun/fiber.git", rev = "28cc8c6d3f11bcfe7994d96dc161c36ca42102f0" }
+fiber_v022 = { package = "fnn", git = "https://github.com/contrun/fiber.git", rev = "b906be716f8848bd3113624cc74c54e95825d63e" }
 ciborium = "0.2.2"
 
 [features]
