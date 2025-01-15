@@ -6,8 +6,16 @@ use rocksdb::DB;
 use std::sync::Arc;
 use tracing::debug;
 
-use fiber::fiber::channel::*;
-use fiber::fiber::types::*;
+use fiber::fiber::channel::PubNonce;
+use fiber::fiber::channel::H256;
+use fiber::fiber::types::Script;
+use fiber::fiber::types::Transaction;
+
+use fiber::fiber::serde_utils::EntityHex;
+use fiber::fiber::serde_utils::PubNonceAsBytes;
+
+use fiber_v021::fiber::channel::*;
+use fiber_v021::fiber::types::*;
 
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -213,6 +221,8 @@ impl Migration for MigrationObj {
             ciborium::into_writer(&old_channel_state, &mut serialized).unwrap();
             let mut new_channel_state: MyChannelActorState =
                 ciborium::from_reader(serialized.as_slice()).expect("deserialize to new state");
+            // let mut new_channel_state: ChannelActorStateV021 =
+            //     ciborium::from_reader(serialized.as_slice()).expect("deserialize to new state");
             let new_channel_state_bytes =
                 bincode::serialize(&new_channel_state).expect("serialize to new channel state");
 
