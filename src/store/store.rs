@@ -170,8 +170,14 @@ fn deserialize_from<'a, T>(slice: &'a [u8], field_name: &str) -> T
 where
     T: serde::Deserialize<'a>,
 {
-    bincode::deserialize(slice)
-        .unwrap_or_else(|e| panic!("deserialization of {} failed: {}", field_name, e))
+    bincode::deserialize(slice).unwrap_or_else(|e| {
+        panic!(
+            "deserialization of {} failed: {} {}",
+            field_name,
+            e,
+            hex::encode(slice)
+        )
+    })
 }
 
 impl StoreKeyValue for KeyValue {
