@@ -952,16 +952,6 @@ where
             ));
         }
 
-        let hop_hint_map: HashMap<(Pubkey, bool), OutPoint> = hop_hints
-            .into_iter()
-            .map(|hint| {
-                (
-                    (hint.pubkey, hint.inbound),
-                    OutPoint::new(hint.channel_funding_tx.into(), 0),
-                )
-            })
-            .collect::<HashMap<_, _>>();
-
         let mut target = target;
         let mut expiry = final_tlc_expiry_delta;
         let mut last_edge = None;
@@ -1003,17 +993,6 @@ where
                 assert_eq!(to, cur_hop.node_id);
                 if &udt_type_script != channel_info.udt_type_script() {
                     continue;
-                }
-
-                if let Some(channel) = hop_hint_map.get(&(from, false)) {
-                    if channel != channel_info.out_point() {
-                        continue;
-                    }
-                }
-                if let Some(channel) = hop_hint_map.get(&(to, true)) {
-                    if channel != channel_info.out_point() {
-                        continue;
-                    }
                 }
 
                 if let Some(last_edge) = &last_edge {
