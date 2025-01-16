@@ -956,9 +956,19 @@ where
         let mut expiry = final_tlc_expiry_delta;
         let mut last_edge = None;
 
+        let last_hop_hint_map: HashMap<(Pubkey, bool), OutPoint> = hop_hints
+            .into_iter()
+            .map(|hint| {
+                (
+                    (hint.pubkey, hint.inbound),
+                    OutPoint::new(hint.channel_funding_tx.into(), 0),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
         if route_to_self {
             let (t, edge, e) = self.adjust_target_for_route_self(
-                &hop_hint_map,
+                &last_hop_hint_map,
                 amount,
                 final_tlc_expiry_delta,
                 source,

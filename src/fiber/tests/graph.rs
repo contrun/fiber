@@ -587,6 +587,44 @@ fn test_graph_build_router_is_ok_with_fee_rate() {
 }
 
 #[test]
+fn test_graph_build_router_with_same_initial_fee_rate() {
+    let mut network = MockNetworkGraph::new(10);
+
+    network.add_edge(1, 2, Some(2000), Some(20000));
+    network.add_edge(2, 3, Some(2000), Some(10000));
+
+    network.add_edge(1, 2, Some(2000), Some(1000));
+    network.add_edge(2, 3, Some(2000), Some(10000));
+
+    // check the fee rate
+    let source = network.keys[1];
+    network.set_source(source);
+    let target = network.keys[3];
+    let route = network.graph.build_route(SendPaymentData {
+        target_pubkey: target.into(),
+        amount: 1000,
+        payment_hash: Hash256::default(),
+        invoice: None,
+        final_tlc_expiry_delta: FINAL_TLC_EXPIRY_DELTA_IN_TESTS,
+        tlc_expiry_limit: MAX_PAYMENT_TLC_EXPIRY_LIMIT,
+        timeout: None,
+        max_fee_amount: Some(1000),
+        max_parts: None,
+        keysend: false,
+        udt_type_script: None,
+        preimage: None,
+        allow_self_payment: false,
+        hop_hints: vec![],
+        dry_run: false,
+    });
+    assert!(route.is_ok());
+    let route = route.unwrap();
+    assert_eq!(route.len(), 3);
+    let amounts = route.iter().map(|x| x.amount).collect::<Vec<_>>();
+    assert_eq!(amounts, vec![1001, 1000, 1000]);
+}
+
+#[test]
 fn test_graph_build_router_fee_rate_optimize() {
     let mut network = MockNetworkGraph::new(10);
 
