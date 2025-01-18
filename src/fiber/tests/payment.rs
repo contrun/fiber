@@ -532,6 +532,73 @@ async fn test_send_payment_with_private_channel_hints() {
 }
 
 #[tokio::test]
+async fn test_send_payment_with_private_channel_outdated_hints() {
+    let (nodes, _channels) = create_n_nodes_with_index_and_amounts_with_established_channel(
+        &[((0, 1), (MIN_RESERVED_CKB + 40000000000, MIN_RESERVED_CKB))],
+        3,
+        true,
+    )
+    .await;
+    let [mut node1, mut node2, mut node3] = nodes.try_into().expect("3 nodes");
+
+    let (_new_channel_id, funding_tx) = establish_channel_between_nodes(
+        &mut node2,
+        &mut node3,
+        false,
+        MIN_RESERVED_CKB + 20000000000,
+        MIN_RESERVED_CKB,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    let outpoint = funding_tx.output_pts_iter().next().unwrap();
+    // sleep for a while
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    let source_node = &mut node1;
+    let target_pubkey = node3.pubkey.clone();
+
+    let res = source_node
+        .send_payment(SendPaymentCommand {
+            target_pubkey: Some(target_pubkey.clone()),
+            amount: Some(10000000000),
+            payment_hash: None,
+            final_tlc_expiry_delta: None,
+            tlc_expiry_limit: None,
+            invoice: None,
+            timeout: None,
+            max_fee_amount: None,
+            max_parts: None,
+            keysend: Some(true),
+            udt_type_script: None,
+            allow_self_payment: false,
+            hop_hints: Some(vec![HopHint {
+                pubkey: node2.pubkey.clone(),
+                channel_outpoint: outpoint,
+                // The fee rate is lower than the default fee rate, so the payment will fail.
+                fee_rate: (DEFAULT_TLC_FEE_PROPORTIONAL_MILLIONTHS - 1) as u64,
+                tlc_expiry_delta: DEFAULT_TLC_EXPIRY_DELTA,
+            }]),
+            dry_run: false,
+        })
+        .await;
+
+    assert!(res.is_ok(), "Send payment failed: {:?}", res);
+    let res = res.unwrap();
+    let payment_hash = res.payment_hash;
+    source_node.wait_until_failed(payment_hash).await;
+}
+
+#[tokio::test]
 async fn test_send_payment_with_private_channel_hints_fallback() {
     let (nodes, _channels) = create_n_nodes_with_index_and_amounts_with_established_channel(
         &[
