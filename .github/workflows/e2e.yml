@@ -17,6 +17,8 @@ jobs:
           - router-pay
           - udt-router-pay
           - watchtower
+          - before-migration
+          - after-migration
         release:
           - "0.116.1"
         test_env:

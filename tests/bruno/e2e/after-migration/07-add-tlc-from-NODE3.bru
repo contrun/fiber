@@ -1,11 +1,11 @@
 meta {
-  name: add tlc from NODE1
+  name: add tlc from NODE3
   type: http
-  seq: 10
+  seq: 7
 }
 
 post {
-  url: {{NODE1_RPC_URL}}
+  url: {{NODE3_RPC_URL}}
   body: json
   auth: none
 }
@@ -23,8 +23,8 @@ body:json {
     "params": [
       {
         "channel_id": "{{CHANNEL_ID}}",
-        "amount": "0xbebc200",
-        "payment_hash": "0xcb7bce98a778f130d34da522623d7e56705bddfe0dc4781bd2331211134a19a6",
+        "amount": "0x5f5e100",
+        "payment_hash": "0x266cec97cbede2cfbce73666f08deed9560bdf7841a7a5a51b3a3f09da249e21",
         "expiry": "{{expiry}}"
       }
     ]
@@ -32,8 +32,8 @@ body:json {
 }
 
 assert {
-  res.body.error: isDefined
-  res.body.result: isUndefined
+  res.body.error: isUndefined
+  res.body.result.tlc_id: isDefined
 }
 
 script:pre-request {
@@ -42,7 +42,5 @@ script:pre-request {
 }
 
 script:post-response {
-  console.log("step 10 response: ", res.body);
-  // Sleep for sometime to make sure current operation finishes before next request starts.
-  await new Promise(r => setTimeout(r, 100));
+  bru.setVar("TLC_ID1", res.body.result.tlc_id);
 }
