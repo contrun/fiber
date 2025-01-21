@@ -286,7 +286,8 @@ where
             .map_err(|e| {
                 ErrorObjectOwned::owned(INVALID_PARAMS_CODE, e.to_string(), Some(params))
             })?;
-        let nodes = network_graph.get_nodes_with_params(limit, cursor);
+        let nodes = network_graph.get_nodes_with_params(limit, cursor.clone());
+        tracing::debug!(nodes = ?nodes, limit = limit,  cursor = ?cursor, "graph_nodes");
         let last_cursor = nodes
             .last()
             .map(|node| JsonBytes::from_vec(node.cursor().to_bytes().into()))

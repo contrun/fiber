@@ -608,6 +608,10 @@ where
             });
 
             if node_announcement.addresses.is_empty() {
+                trace!(
+                    "Ignoring node announcement with no reachable addresses: {:?}",
+                    &node_announcement
+                );
                 return None;
             }
         }
@@ -657,11 +661,14 @@ where
         self.store
             .get_broadcast_messages_iter(&cursor)
             .into_iter()
-            .filter_map(|message| match message {
-                BroadcastMessageWithTimestamp::NodeAnnouncement(node_announcement) => {
-                    Some(NodeInfo::from(node_announcement))
+            .filter_map(|message| {
+                debug!(message = ?message, "get_nodes_with_params");
+                match message {
+                    BroadcastMessageWithTimestamp::NodeAnnouncement(node_announcement) => {
+                        Some(NodeInfo::from(node_announcement))
+                    }
+                    _ => None,
                 }
-                _ => None,
             })
             .take(limit)
             .collect()

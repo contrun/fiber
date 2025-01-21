@@ -3189,7 +3189,8 @@ where
             min_outbound_peers: config.min_outbound_peers(),
         };
 
-        // Save our own NodeInfo to the network graph.
+        // Save our own NodeInfo to the network graph. This does not really broadcast the message.
+        // We just progate our own node info to the network graph.
         let node_announcement = state.get_or_create_new_node_announcement_message();
         myself.send_message(NetworkActorMessage::new_command(
             NetworkActorCommand::ProcessBroadcastMessage(BroadcastMessage::NodeAnnouncement(
@@ -3199,6 +3200,12 @@ where
 
         let announce_node_interval_seconds = config.announce_node_interval_seconds();
         if announce_node_interval_seconds > 0 {
+            // Broadcasting our own node announcement immediately.
+            myself.send_message(NetworkActorMessage::new_command(
+                NetworkActorCommand::BroadcastMessages(vec![
+                    BroadcastMessageWithTimestamp::NodeAnnouncement(node_announcement.clone()),
+                ]),
+            ))?;
             myself.send_interval(Duration::from_secs(announce_node_interval_seconds), || {
                 NetworkActorMessage::new_command(NetworkActorCommand::BroadcastLocalInfo(
                     LocalInfoKind::NodeAnnouncement,

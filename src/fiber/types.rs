@@ -1828,6 +1828,12 @@ impl NodeAnnouncement {
 
     pub fn verify(&self) -> bool {
         let message = self.message_to_sign();
+        tracing::info!(
+            message = hex::encode(message),
+            pubkey = ?self.node_id,
+            signature = ?self.signature,
+            "Verifying signature",
+        );
         match self.signature {
             Some(ref signature) => signature.verify(&self.node_id, &message),
             _ => false,

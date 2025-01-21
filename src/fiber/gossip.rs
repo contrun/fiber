@@ -1460,12 +1460,14 @@ where
     }
 
     fn peers_to_start_passive_syncing(&self) -> Vec<PeerId> {
-        [
+        let result = [
             self.peers_to_start_mutual_passive_syncing().as_slice(),
             self.new_outbound_peers_to_start_passive_syncing()
                 .as_slice(),
         ]
-        .concat()
+        .concat();
+        debug!("peers_to_start_passive_syncing: {:?}", result);
+        result
     }
 
     fn peers_to_start_mutual_passive_syncing(&self) -> Vec<PeerId> {
