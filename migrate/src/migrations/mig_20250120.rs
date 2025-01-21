@@ -45,6 +45,7 @@ impl Migration for MigrationObj {
             .prefix_iterator(prefix.as_slice())
             .take_while(move |(col_key, _)| col_key.starts_with(prefix.as_slice()))
         {
+            dbg!("Old payment session", hex::encode(&k), hex::encode(&v));
             let old_payment_session: OldPaymentSession =
                 bincode::deserialize(&v).expect("deserialize to old channel state");
 
@@ -83,6 +84,12 @@ impl Migration for MigrationObj {
 
             let new_payment_session_bytes =
                 bincode::serialize(&new_payment_session).expect("serialize to new channel state");
+
+            dbg!(
+                "New payment session",
+                hex::encode(&k),
+                hex::encode(&new_payment_session_bytes)
+            );
 
             db.put(k, new_payment_session_bytes)
                 .expect("save new channel state");
