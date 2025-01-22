@@ -1579,10 +1579,11 @@ where
                     .expect("expect channel outpoint");
                 debug!("mark channel failed: {:?}", channel_outpoint);
                 let mut graph = self.network_graph.write().await;
-                graph.mark_channel_failed(&channel_outpoint);
+                // graph.mark_channel_failed(&channel_outpoint);
             }
             TlcErrorCode::PermanentNodeFailure => {
                 let node_id = tcl_error_detail.error_node_id().expect("expect node id");
+                debug!("mark node failed: {:?}", node_id);
                 let mut graph = self.network_graph.write().await;
                 graph.mark_node_failed(node_id);
             }

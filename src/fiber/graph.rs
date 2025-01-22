@@ -1089,30 +1089,30 @@ where
                     continue;
                 }
 
-                let probability = cur_hop.probability
-                    * self.history.eval_probability(
-                        from,
-                        to,
-                        &channel_info.out_point(),
-                        amount_to_send,
-                        channel_info.capacity(),
-                    );
+                let probability = self.history.eval_probability(
+                    from,
+                    to,
+                    &channel_info.out_point(),
+                    amount_to_send,
+                    channel_info.capacity(),
+                );
+                let acc_probability = cur_hop.probability * probability;
 
                 debug!(
-                    "probability: {} for channel_outpoint: {:?} from: {:?} => to: {:?}",
-                    probability,
+                    "acc_probability: {}, probability for channel_outpoint: {:?} from: {:?} => to: {:?}: {}",
+                    acc_probability,
                     channel_info.out_point(),
                     from,
-                    to
+                    to,
+                    probability
                 );
-                if probability < DEFAULT_MIN_PROBABILITY {
-                    debug!("probability is too low: {:?}", probability);
+                if acc_probability < DEFAULT_MIN_PROBABILITY {
                     continue;
                 }
                 let agg_weight =
                     self.edge_weight(amount_to_send, fee, channel_update.tlc_expiry_delta);
                 let weight = cur_hop.weight + agg_weight;
-                let distance = self.calculate_distance_based_probability(probability, weight);
+                let distance = self.calculate_distance_based_probability(acc_probability, weight);
 
                 if let Some(node) = distances.get(&from) {
                     if distance >= node.distance {
@@ -1126,7 +1126,7 @@ where
                     amount_to_send,
                     incoming_tlc_expiry,
                     fee_charged: fee,
-                    probability,
+                    probability: acc_probability,
                     next_hop: Some(PathEdge {
                         target: to,
                         channel_outpoint: channel_info.out_point().clone(),

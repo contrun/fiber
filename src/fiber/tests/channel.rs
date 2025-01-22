@@ -3459,6 +3459,8 @@ async fn test_channel_update_tlc_expiry() {
 
 #[tokio::test]
 async fn test_forward_payment_channel_disabled() {
+    init_tracing();
+
     let (nodes, channels) = create_n_nodes_with_index_and_amounts_with_established_channel(
         &[
             ((0, 1), (HUGE_CKB_AMOUNT, HUGE_CKB_AMOUNT)),
