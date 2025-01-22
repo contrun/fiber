@@ -246,6 +246,37 @@ async fn test_send_payment_fee_rate() {
 }
 
 #[tokio::test]
+async fn test_send_payment_channel_disabled() {
+    init_tracing();
+    let (nodes, _channels) = create_n_nodes_with_index_and_amounts_with_established_channel(
+        &[
+            ((0, 1), (HUGE_CKB_AMOUNT, HUGE_CKB_AMOUNT)),
+            ((1, 2), (HUGE_CKB_AMOUNT, HUGE_CKB_AMOUNT)),
+        ],
+        3,
+        true,
+    )
+    .await;
+    let [mut node_0, mut node_1, mut node_2] = nodes.try_into().expect("3 nodes");
+
+    let res = node_0
+        .send_payment_keysend(&node_2, 10_000_000, false)
+        .await;
+    assert!(res.is_ok(), "Send payment failed: {:?}", res);
+    let res = res.unwrap();
+    let payment_hash = res.payment_hash;
+    node_0.wait_until_success(payment_hash).await;
+
+    let res = node_1
+        .send_payment_keysend(&node_2, 10_000_000, false)
+        .await;
+    assert!(res.is_ok(), "Send payment failed: {:?}", res);
+    let res = res.unwrap();
+    let payment_hash = res.payment_hash;
+    node_0.wait_until_success(payment_hash).await;
+}
+
+#[tokio::test]
 async fn test_send_payment_over_private_channel() {
     async fn test(amount_to_send: u128, is_payment_ok: bool) {
         let (nodes, _channels) = create_n_nodes_with_index_and_amounts_with_established_channel(
