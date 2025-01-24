@@ -61,6 +61,7 @@ use ractor::{
     async_trait as rasync_trait, call, concurrency::Duration, Actor, ActorProcessingErr, ActorRef,
     OutputPort, RpcReplyPort,
 };
+use ractor_cluster::RactorClusterMessage;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use tentacle::secio::PeerId;
@@ -97,7 +98,7 @@ pub const INITIAL_COMMITMENT_NUMBER: u64 = 0;
 
 const RETRYABLE_TLC_OPS_INTERVAL: Duration = Duration::from_millis(1000);
 
-#[derive(Debug)]
+#[derive(Debug, RactorClusterMessage)]
 pub enum ChannelActorMessage {
     /// Command are the messages that are sent to the channel actor to perform some action.
     /// It is normally generated from a user request.
@@ -113,7 +114,7 @@ pub struct AddTlcResponse {
     pub tlc_id: u64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TlcNotifyInfo {
     pub payment_hash: Hash256,
     pub tlc_id: TLCId,
@@ -121,14 +122,16 @@ pub struct TlcNotifyInfo {
     pub payment_preimage: Option<Hash256>,
 }
 
-#[derive(Clone)]
+#[serde_as]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TlcNotification {
     pub channel_id: Hash256,
     pub tlc: TlcNotifyInfo,
+    #[serde_as(as = "EntityHex")]
     pub script: Script,
 }
 
-#[derive(Debug)]
+#[derive(Debug, RactorClusterMessage)]
 pub enum ChannelCommand {
     TxCollaborationCommand(TxCollaborationCommand),
     CommitmentSigned(),
@@ -268,7 +271,7 @@ pub enum ChannelInitializationParameter {
     ReestablishChannel(Hash256),
 }
 
-#[derive(Clone)]
+#[derive(Clone, RactorClusterMessage)]
 pub struct ChannelSubscribers {
     pub pending_received_tlcs_subscribers: Arc<OutputPort<TlcNotification>>,
     pub settled_tlcs_subscribers: Arc<OutputPort<TlcNotification>>,
@@ -3003,7 +3006,7 @@ pub struct SettlementData {
 }
 
 #[serde_as]
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, RactorClusterMessage)]
 pub struct ChannelActorState {
     pub state: ChannelState,
     // The data below are only relevant if the channel is public.
@@ -3222,7 +3225,7 @@ impl PublicChannelInfo {
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct ClosedChannel {}
 
-#[derive(Debug)]
+#[derive(Debug, RactorClusterMessage)]
 pub enum ChannelEvent {
     PeerDisconnected,
     FundingTransactionConfirmed(H256, u32, u64),

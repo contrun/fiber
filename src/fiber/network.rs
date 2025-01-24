@@ -10,6 +10,7 @@ use ractor::{
     async_trait as rasync_trait, call, call_t, Actor, ActorCell, ActorProcessingErr, ActorRef,
     RactorErr, RpcReplyPort, SupervisionEvent,
 };
+use ractor_cluster::RactorClusterMessage;
 use rand::Rng;
 use secp256k1::Secp256k1;
 use serde::{Deserialize, Serialize};
@@ -662,7 +663,7 @@ pub enum NetworkActorEvent {
     OwnedChannelUpdateEvent(OwnedChannelUpdateEvent),
 }
 
-#[derive(Debug)]
+#[derive(Debug, RactorClusterMessage)]
 pub enum NetworkActorMessage {
     Command(NetworkActorCommand),
     Event(NetworkActorEvent),

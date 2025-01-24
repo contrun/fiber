@@ -31,6 +31,7 @@ use musig2::secp::{Point, Scalar};
 use musig2::{BinaryEncoding, PartialSignature, PubNonce};
 use once_cell::sync::OnceCell;
 use ractor::concurrency::Duration;
+use ractor_cluster::RactorClusterMessage;
 use secp256k1::{
     ecdsa::Signature as Secp256k1Signature, schnorr::Signature as SchnorrSignature, All, PublicKey,
     Secp256k1, SecretKey, Signing,
@@ -2364,7 +2365,7 @@ impl FiberMessage {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, RactorClusterMessage)]
 pub enum FiberChannelMessage {
     AcceptChannel(AcceptChannel),
     CommitmentSigned(CommitmentSigned),
@@ -2586,7 +2587,7 @@ pub struct ChannelOnchainInfo {
 }
 
 // Augment the broadcast message with timestamp so that we can easily obtain the cursor of the message.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BroadcastMessageWithTimestamp {
     NodeAnnouncement(NodeAnnouncement),
     ChannelAnnouncement(u64, ChannelAnnouncement),
@@ -2955,7 +2956,7 @@ impl BroadcastMessageID {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct Cursor {
     pub(crate) timestamp: u64,
     pub(crate) message_id: BroadcastMessageID,
@@ -3219,7 +3220,7 @@ impl TryFrom<molecule_gossip::GetBroadcastMessages> for GetBroadcastMessages {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetBroadcastMessagesResult {
     pub id: u64,
     pub messages: Vec<BroadcastMessage>,

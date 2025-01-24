@@ -17,6 +17,7 @@ use ckb_types::{
 use molecule::prelude::Entity;
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
+use serde::{Deserialize, Serialize};
 use tracing::{error, info, trace, warn};
 
 use crate::{
@@ -42,6 +43,7 @@ impl<S: WatchtowerStore> WatchtowerActor<S> {
     }
 }
 
+#[derive(Deserialize, Serialize)]
 pub enum WatchtowerMessage {
     NetworkServiceEvent(NetworkServiceEvent),
     PeriodicCheck,

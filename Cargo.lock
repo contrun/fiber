@@ -3264,6 +3264,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pot"
+version = "3.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf741fa415952eb20f27fbc210dc85f31cc7cdc80aa3ce81d5e27d28a6f45dc2"
+dependencies = [
+ "byteorder",
+ "half",
+ "serde",
+]
+
+[[package]]
 name = "powerfmt"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3535,6 +3546,8 @@ dependencies = [
  "dashmap 6.1.0",
  "futures",
  "once_cell",
+ "pot",
+ "serde",
  "strum",
  "tokio",
  "tracing",

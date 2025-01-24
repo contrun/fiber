@@ -11,10 +11,12 @@ use ckb_types::{packed::OutPoint, H256};
 use ractor::{
     async_trait as rasync_trait, call, call_t,
     concurrency::{timeout, JoinHandle},
-    Actor, ActorCell, ActorProcessingErr, ActorRef, ActorRuntime, MessagingErr, OutputPort,
+    rpc, Actor, ActorCell, ActorProcessingErr, ActorRef, ActorRuntime, MessagingErr, OutputPort,
     RpcReplyPort, SupervisionEvent,
 };
+use ractor_cluster::RactorClusterMessage;
 use secp256k1::Message;
+use serde::{Deserialize, Serialize};
 use tentacle::{
     async_trait as tasync_trait,
     builder::MetaBuilder,
@@ -215,7 +217,7 @@ pub trait GossipMessageStore {
 
 // A batch of gossip messages has been added to the store since the last time
 // we pulled new messages/messages are pushed to us.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GossipMessageUpdates {
     pub messages: Vec<BroadcastMessageWithTimestamp>,
 }
@@ -290,7 +292,7 @@ pub trait SubscribableGossipMessageStore {
     async fn unsubscribe(&self, subscription: &Self::Subscription) -> Result<(), Self::Error>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, RactorClusterMessage)]
 pub enum GossipActorMessage {
     // Network events to be processed by this actor.
     PeerConnected(PeerId, Pubkey, SessionContext),
@@ -407,6 +409,7 @@ impl<S> GossipSyncingActor<S> {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub(crate) enum GossipSyncingActorMessage {
     // A GetBroadcastMessages request to the syncing peer has timed out.
     RequestTimeout(u64),
@@ -629,6 +632,7 @@ struct PeerFilterActor<S> {
     gossip_actor: ActorRef<GossipActorMessage>,
 }
 
+#[derive(Serialize, Deserialize)]
 enum PeerFilterProcessorMessage {
     NewStoreUpdates(GossipMessageUpdates),
     UpdateFilter(Cursor),
@@ -1320,6 +1324,7 @@ impl<S: GossipMessageStore + Send + Sync + 'static> Actor for ExtendedGossipMess
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum ExtendedGossipMessageStoreMessage {
     // A new subscription for gossip message updates. We will send a batch of messages to the subscriber
     // via the returned output port.

@@ -4,6 +4,7 @@ use ractor::{
     concurrency::{sleep, Duration},
     Actor, ActorProcessingErr, ActorRef, RpcReplyPort,
 };
+use ractor_cluster::RactorClusterMessage;
 use tracing::debug;
 
 use crate::ckb::contracts::{get_script_by_contract, Contract};

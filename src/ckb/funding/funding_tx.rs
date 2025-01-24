@@ -22,7 +22,7 @@ use molecule::{
     bytes::{BufMut as _, BytesMut},
     prelude::*,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::collections::{HashMap, HashSet};
 use tracing::debug;
@@ -30,27 +30,29 @@ use tracing::debug;
 /// Funding transaction wrapper.
 ///
 /// It includes extra fields to verify the transaction.
-#[derive(Clone, Debug, Default)]
+#[serde_as]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct FundingTx {
-    tx: Option<TransactionView>,
+    #[serde_as(as = "Option<EntityHex>")]
+    tx: Option<Transaction>,
 }
 
 impl From<TransactionView> for FundingTx {
     fn from(tx: TransactionView) -> Self {
-        Self { tx: Some(tx) }
+        Self {
+            tx: Some(tx.data()),
+        }
     }
 }
 
 impl From<Transaction> for FundingTx {
     fn from(tx: Transaction) -> Self {
-        Self {
-            tx: Some(tx.into_view()),
-        }
+        Self { tx: Some(tx) }
     }
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct FundingRequest {
     /// The funding cell lock script args
     #[serde_as(as = "EntityHex")]

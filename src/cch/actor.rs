@@ -8,7 +8,7 @@ use lnd_grpc_tonic_client::{
 };
 use ractor::{call, RpcReplyPort};
 use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::{select, time::sleep};
@@ -82,6 +82,7 @@ pub struct ReceiveBTC {
     pub final_tlc_expiry: u64,
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum CchMessage {
     SendBTC(SendBTC, RpcReplyPort<Result<SendBTCOrder, CchError>>),
     ReceiveBTC(ReceiveBTC, RpcReplyPort<Result<ReceiveBTCOrder, CchError>>),
