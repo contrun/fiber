@@ -75,6 +75,7 @@ pub enum SubscriptionActorMessage {
 
 pub type SubscriptionId = u64;
 
+#[derive(Debug)]
 struct InvoiceSubscriber {
     id: SubscriptionId,
     receiver: DerivedActorRef<InvoiceUpdate>,
@@ -90,6 +91,7 @@ impl InvoiceSubscriber {
     }
 }
 
+#[derive(Debug)]
 struct PaymentSubscriber {
     id: SubscriptionId,
     receiver: DerivedActorRef<PaymentUpdate>,
@@ -115,6 +117,7 @@ pub struct SubscriptionActorState {
 impl SubscriptionActorState {
     pub fn send_invoice_update(&mut self, invoice_hash: Hash256, update: InvoiceUpdate) {
         if let Entry::Occupied(mut entry) = self.invoice_subscriptions.entry(invoice_hash) {
+            tracing::debug!(hash = ?invoice_hash, update = ?update, subscribers = ?entry, "Sending invoice update");
             entry
                 .get_mut()
                 .retain(|subscription| subscription.send_update(update.clone()));
@@ -126,6 +129,7 @@ impl SubscriptionActorState {
 
     pub fn send_payment_update(&mut self, payment_hash: Hash256, update: PaymentUpdate) {
         if let Entry::Occupied(mut entry) = self.payment_subscriptions.entry(payment_hash) {
+            tracing::debug!(hash = ?payment_hash, update = ?update, subscribers = ?entry, "Sending payment update");
             entry
                 .get_mut()
                 .retain(|subscription| subscription.send_update(update.clone()));
@@ -151,6 +155,7 @@ impl SubscriptionActorState {
             .entry(invoice_hash)
             .or_default()
             .push(InvoiceSubscriber::new(id, receiver));
+        tracing::debug!(hash = ?invoice_hash, subscription_id = id, "Added invoice subscriber");
         id
     }
 
@@ -164,6 +169,7 @@ impl SubscriptionActorState {
             .entry(payment_hash)
             .or_default()
             .push(PaymentSubscriber::new(id, receiver));
+        tracing::debug!(hash = ?payment_hash, subscription_id = id, "Added payment subscriber");
         id
     }
 }
@@ -388,6 +394,7 @@ impl StoreUpdateSubscription for SubscriptionImpl {}
 
 impl InvoiceUpdateHook for SubscriptionImpl {
     fn on_invoice_updated(&self, invoice_hash: Hash256, status: CkbInvoiceStatus) {
+        tracing::debug!(hash = ?invoice_hash, status = ?status, "Invoice updated");
         let _ = self
             .actor
             .send_message(SubscriptionActorMessage::InvoiceUpdated(
@@ -399,6 +406,7 @@ impl InvoiceUpdateHook for SubscriptionImpl {
 
 impl PaymentUpdateHook for SubscriptionImpl {
     fn on_payment_updated(&self, payment_hash: Hash256, status: PaymentSessionStatus) {
+        tracing::debug!(hash = ?payment_hash, status = ?status, "Payment updated");
         let _ = self
             .actor
             .send_message(SubscriptionActorMessage::PaymentUpdated(

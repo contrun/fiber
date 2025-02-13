@@ -1659,6 +1659,12 @@ where
         payment_session.route =
             SessionRoute::new(state.get_public_key(), payment_data.target_pubkey, &hops);
 
+        debug!(
+            payment_session = ?payment_session,
+            payment_data = ?payment_data,
+            hops = ?hops,
+            "Creating onion packet for payment session",
+        );
         let peeled_onion_packet = match PeeledPaymentOnionPacket::create(
             session_key,
             hops,

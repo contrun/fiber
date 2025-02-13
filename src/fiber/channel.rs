@@ -967,6 +967,15 @@ where
         let received_amount = add_tlc.amount;
         let forward_amount = peeled_onion_packet.current.amount;
 
+        trace!(
+            payment_hash = ?payment_hash,
+            preimage = ?peeled_onion_packet.current.payment_preimage,
+            is_last = peeled_onion_packet.is_last(),
+            add_tlc = ?add_tlc,
+            received_amount,
+            forward_amount,
+            "apply_add_tlc_operation_with_peeled_onion_packet",
+        );
         state.tlc_state.applied_add_tlcs.insert(add_tlc.tlc_id);
         if peeled_onion_packet.is_last() {
             if forward_amount != add_tlc.amount {
@@ -993,12 +1002,14 @@ where
                     .get_invoice_preimage(&add_tlc.payment_hash)
                     .ok_or(ProcessingChannelError::FinalIncorrectPaymentHash)?,
                 Some(preimage) if preimage == Hash256::default() => {
+                    debug!(payment_hash = ?payment_hash, "Received a hold invoice TLC");
                     match self.store.get_invoice_status(&payment_hash) {
                         Some(status) => {
                             let is_active = status == CkbInvoiceStatus::Open
                                 || status == CkbInvoiceStatus::Received;
                             let is_settled =
                                 self.store.get_invoice_preimage(&payment_hash).is_some();
+                            debug!(payment_hash = ?payment_hash, status = ?status, is_active, is_settled, "Received a hold invoice TLC");
                             if is_active && !is_settled {
                                 // This TLC is added to applied_add_tlcs in above, but
                                 // TLCs in the list applied_add_tlcs wouldn't be processed again.
@@ -1007,6 +1018,7 @@ where
                                 state.tlc_state.applied_add_tlcs.remove(&add_tlc.tlc_id);
                             }
                             if status == CkbInvoiceStatus::Open {
+                                debug!(payment_hash = ?payment_hash, "Update invoice status to received");
                                 self.store
                                     .update_invoice_status(
                                         &payment_hash,
@@ -1015,7 +1027,9 @@ where
                                     .expect("update invoice status failed");
                             }
                         }
-                        None => {}
+                        None => {
+                            error!(payment_hash = ?payment_hash, "Failed to get invoice status");
+                        }
                     }
                     if let Err(e) = self
                         .store
@@ -2575,6 +2589,10 @@ impl Debug for TlcInfo {
             .field("status", &self.status)
             .field("amount", &self.amount)
             .field("removed_reason", &self.removed_reason)
+            .field("payment_hash", &self.payment_hash)
+            .field("expiry", &self.expiry)
+            .field("hash_algorithm", &self.hash_algorithm)
+            .field("created_at", &self.created_at)
             .finish()
     }
 }
