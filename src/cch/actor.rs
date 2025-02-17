@@ -651,6 +651,80 @@ impl CchActor {
             Err(err) => return Err(err.into()),
             Ok(order) => order,
         };
+<<<<<<< HEAD
+||||||| 2f12f40e
+
+        if event.status == CchOrderStatus::Accepted && self.network_actor.is_some() {
+            // AddTlc to initiate the CKB payment
+            let message = |rpc_reply| -> NetworkActorMessage {
+                NetworkActorMessage::Command(NetworkActorCommand::ControlFiberChannel(
+                    ChannelCommandWithId {
+                        channel_id: order.channel_id,
+                        command: ChannelCommand::AddTlc(
+                            AddTlcCommand {
+                                amount: order.amount_sats - order.fee_sats,
+                                payment_hash: Hash256::from_str(&order.payment_hash)
+                                    .expect("parse Hash256"),
+                                expiry: now_timestamp_as_millis_u64()
+                                    + self.config.ckb_final_tlc_expiry_delta,
+                                hash_algorithm: HashAlgorithm::Sha256,
+                                onion_packet: None,
+                                shared_secret: NO_SHARED_SECRET.clone(),
+                                previous_tlc: None,
+                            },
+                            rpc_reply,
+                        ),
+                    },
+                ))
+            };
+            let tlc_response = call!(
+                self.network_actor
+                    .as_ref()
+                    .expect("CCH requires network actor"),
+                message
+            )
+            .expect("call actor")
+            .map_err(|msg| anyhow!(msg))?;
+            order.tlc_id = Some(tlc_response.tlc_id);
+        }
+
+=======
+
+        if event.status == CchOrderStatus::Accepted && self.network_actor.is_some() {
+            // AddTlc to initiate the CKB payment
+            let message = |rpc_reply| -> NetworkActorMessage {
+                NetworkActorMessage::Command(NetworkActorCommand::ControlFiberChannel(
+                    ChannelCommandWithId {
+                        channel_id: order.channel_id,
+                        command: ChannelCommand::AddTlc(
+                            AddTlcCommand {
+                                amount: order.amount_sats - order.fee_sats,
+                                payment_hash: Hash256::from_str(&order.payment_hash)
+                                    .expect("parse Hash256"),
+                                expiry: now_timestamp_as_millis_u64()
+                                    + self.config.ckb_final_tlc_expiry_delta,
+                                hash_algorithm: HashAlgorithm::Sha256,
+                                onion_packet: None,
+                                shared_secret: NO_SHARED_SECRET,
+                                previous_tlc: None,
+                            },
+                            rpc_reply,
+                        ),
+                    },
+                ))
+            };
+            let tlc_response = call!(
+                self.network_actor
+                    .as_ref()
+                    .expect("CCH requires network actor"),
+                message
+            )
+            .expect("call actor")
+            .map_err(|msg| anyhow!(msg))?;
+            order.tlc_id = Some(tlc_response.tlc_id);
+        }
+
+>>>>>>> nervosnetwork/develop
         order.status = event.status;
         order.payment_preimage = event.preimage.clone();
 
