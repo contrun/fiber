@@ -171,8 +171,14 @@ impl<S> InvoiceRpcServerImpl<S> {
         });
         Self {
             store,
+<<<<<<< HEAD
             network_actor,
             keypair: config.as_ref().map(|(kp, _)| kp.clone()),
+||||||| 2f12f40e
+            keypair: config.as_ref().map(|(kp, _)| kp.clone()),
+=======
+            keypair: config.as_ref().map(|(kp, _)| *kp),
+>>>>>>> nervosnetwork/develop
             currency: config.as_ref().map(|(_, currency)| *currency),
         }
     }
@@ -235,9 +241,9 @@ where
         };
 
         let invoice = if let Some((public_key, secret_key)) = &self.keypair {
-            invoice_builder = invoice_builder.payee_pub_key(public_key.clone());
+            invoice_builder = invoice_builder.payee_pub_key(*public_key);
             invoice_builder
-                .build_with_sign(|hash| Secp256k1::new().sign_ecdsa_recoverable(hash, &secret_key))
+                .build_with_sign(|hash| Secp256k1::new().sign_ecdsa_recoverable(hash, secret_key))
         } else {
             invoice_builder.build()
         };
