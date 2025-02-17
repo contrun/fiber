@@ -18,7 +18,7 @@ use crate::{
         serde_utils::serialize_entity_to_hex_string,
         tests::test_utils::{
             establish_udt_channel_between_nodes, init_tracing, NetworkNode,
-            NetworkNodeConfigBuilder, HUGE_CKB_AMOUNT, MIN_RESERVED_CKB,
+            NetworkNodeConfigBuilder, HUGE_CKB_AMOUNT,
         },
         types::Hash256,
     },
@@ -39,42 +39,90 @@ fn get_always_success_script() -> Script {
     get_script_by_contract(Contract::AlwaysSuccess, &vec![])
 }
 
-async fn do_test_cross_chain_payment_hub_send_btc(udt_script: Script) {
+async fn do_test_cross_chain_payment_hub_send_btc(udt_script: Script, multiple_hops: bool) {
     init_tracing();
     let _span = tracing::info_span!("node", node = "test").entered();
 
-    let [mut fiber_node, mut hub] = NetworkNode::new_n_interconnected_nodes_with_config(2, |n| {
+    let num_nodes = if multiple_hops { 3 } else { 2 };
+
+    let nodes = NetworkNode::new_n_interconnected_nodes_with_config(num_nodes, |n| {
         let mut builder = NetworkNodeConfigBuilder::new();
-        if n == 1 {
+        if n == num_nodes - 1 {
             let mut cch_config = CchConfig::default();
             cch_config.wrapped_btc_type_script = serialize_entity_to_hex_string(&udt_script);
             builder = builder.should_start_lnd(true).cch_config(cch_config);
         }
         builder.build()
     })
-    .await
-    .try_into()
-    .expect("2 nodes");
-
-    let (fiber_channel, _funding_tx) = establish_udt_channel_between_nodes(
-        &mut fiber_node,
-        &mut hub,
-        true,
-        HUGE_CKB_AMOUNT,
-        MIN_RESERVED_CKB,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        udt_script.clone(),
-    )
     .await;
+
+    let (fiber_channel, mut fiber_node, mut hub) = if multiple_hops {
+        let [mut fiber_node, mut middle_hop, mut hub] = nodes.try_into().expect("3 nodes");
+        let (_channel, funding_tx_1) = establish_udt_channel_between_nodes(
+            &mut fiber_node,
+            &mut middle_hop,
+            true,
+            HUGE_CKB_AMOUNT,
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            udt_script.clone(),
+        )
+        .await;
+        hub.submit_tx(funding_tx_1).await;
+        let (fiber_channel, funding_tx_2) = establish_udt_channel_between_nodes(
+            &mut middle_hop,
+            &mut hub,
+            true,
+            HUGE_CKB_AMOUNT,
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            udt_script.clone(),
+        )
+        .await;
+        fiber_node.submit_tx(funding_tx_2).await;
+        (fiber_channel, fiber_node, hub)
+    } else {
+        let [mut fiber_node, mut hub] = nodes.try_into().expect("2 nodes");
+        let (fiber_channel, _funding_tx) = establish_udt_channel_between_nodes(
+            &mut fiber_node,
+            &mut hub,
+            true,
+            HUGE_CKB_AMOUNT,
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            udt_script.clone(),
+        )
+        .await;
+
+        (fiber_channel, fiber_node, hub)
+    };
 
     let mut lnd_node = LndNode::new(
         Default::default(),
@@ -156,52 +204,112 @@ async fn do_test_cross_chain_payment_hub_send_btc(udt_script: Script) {
 
 #[cfg_attr(not(feature = "lnd-tests"), ignore)]
 #[tokio::test]
-async fn test_cross_chain_payment_hub_send_btc_always_success() {
-    do_test_cross_chain_payment_hub_send_btc(get_always_success_script()).await;
+async fn test_cross_chain_payment_hub_send_btc_always_success_single_hop() {
+    do_test_cross_chain_payment_hub_send_btc(get_always_success_script(), false).await;
 }
 
 #[cfg_attr(not(feature = "lnd-tests"), ignore)]
 #[tokio::test]
-async fn test_cross_chain_payment_hub_send_btc_simple_udt() {
-    do_test_cross_chain_payment_hub_send_btc(get_simple_udt_script()).await;
+async fn test_cross_chain_payment_hub_send_btc_simple_udt_single_hop() {
+    do_test_cross_chain_payment_hub_send_btc(get_simple_udt_script(), false).await;
 }
 
-async fn do_test_cross_chain_payment_hub_receive_btc(udt_script: Script) {
+#[cfg_attr(not(feature = "lnd-tests"), ignore)]
+#[tokio::test]
+async fn test_cross_chain_payment_hub_send_btc_always_success_multiple_hops() {
+    do_test_cross_chain_payment_hub_send_btc(get_always_success_script(), true).await;
+}
+
+#[cfg_attr(not(feature = "lnd-tests"), ignore)]
+#[tokio::test]
+async fn test_cross_chain_payment_hub_send_btc_simple_udt_multiple_hops() {
+    do_test_cross_chain_payment_hub_send_btc(get_simple_udt_script(), true).await;
+}
+
+async fn do_test_cross_chain_payment_hub_receive_btc(udt_script: Script, multiple_hops: bool) {
     init_tracing();
     let _span = tracing::info_span!("node", node = "test").entered();
 
-    let [mut fiber_node, mut hub] = NetworkNode::new_n_interconnected_nodes_with_config(2, |n| {
+    let num_nodes = if multiple_hops { 3 } else { 2 };
+
+    let nodes = NetworkNode::new_n_interconnected_nodes_with_config(num_nodes, |n| {
         let mut builder = NetworkNodeConfigBuilder::new();
-        if n == 1 {
+        if n == num_nodes - 1 {
             let mut cch_config = CchConfig::default();
             cch_config.wrapped_btc_type_script = serialize_entity_to_hex_string(&udt_script);
             builder = builder.should_start_lnd(true).cch_config(cch_config);
         }
         builder.build()
     })
-    .await
-    .try_into()
-    .expect("2 nodes");
-
-    let (fiber_channel, _funding_tx) = establish_udt_channel_between_nodes(
-        &mut hub,
-        &mut fiber_node,
-        true,
-        HUGE_CKB_AMOUNT,
-        MIN_RESERVED_CKB,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        udt_script.clone(),
-    )
     .await;
+
+    let (fiber_channel, mut fiber_node, mut hub) = if multiple_hops {
+        let [mut fiber_node, mut middle_hop, mut hub] = nodes.try_into().expect("3 nodes");
+        let (_channel, funding_tx_1) = establish_udt_channel_between_nodes(
+            &mut middle_hop,
+            &mut fiber_node,
+            true,
+            HUGE_CKB_AMOUNT,
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            udt_script.clone(),
+        )
+        .await;
+        hub.submit_tx(funding_tx_1).await;
+        let (fiber_channel, funding_tx_2) = establish_udt_channel_between_nodes(
+            &mut hub,
+            &mut middle_hop,
+            true,
+            HUGE_CKB_AMOUNT,
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            udt_script.clone(),
+        )
+        .await;
+        fiber_node.submit_tx(funding_tx_2).await;
+        (fiber_channel, fiber_node, hub)
+    } else {
+        let [mut fiber_node, mut hub] = nodes.try_into().expect("2 nodes");
+        let (fiber_channel, _funding_tx) = establish_udt_channel_between_nodes(
+            &mut hub,
+            &mut fiber_node,
+            true,
+            HUGE_CKB_AMOUNT,
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            udt_script.clone(),
+        )
+        .await;
+
+        (fiber_channel, fiber_node, hub)
+    };
 
     let mut lnd_node = LndNode::new(
         Default::default(),
@@ -284,12 +392,24 @@ async fn do_test_cross_chain_payment_hub_receive_btc(udt_script: Script) {
 
 #[cfg_attr(not(feature = "lnd-tests"), ignore)]
 #[tokio::test]
-async fn test_cross_chain_payment_hub_receive_btc_always_success() {
-    do_test_cross_chain_payment_hub_receive_btc(get_always_success_script()).await;
+async fn test_cross_chain_payment_hub_receive_btc_always_success_single_hop() {
+    do_test_cross_chain_payment_hub_receive_btc(get_always_success_script(), false).await;
 }
 
 #[cfg_attr(not(feature = "lnd-tests"), ignore)]
 #[tokio::test]
-async fn test_cross_chain_payment_hub_receive_btc_simple_udt() {
-    do_test_cross_chain_payment_hub_receive_btc(get_simple_udt_script()).await;
+async fn test_cross_chain_payment_hub_receive_btc_simple_udt_single_hop() {
+    do_test_cross_chain_payment_hub_receive_btc(get_simple_udt_script(), false).await;
+}
+
+#[cfg_attr(not(feature = "lnd-tests"), ignore)]
+#[tokio::test]
+async fn test_cross_chain_payment_hub_receive_btc_always_success_multiple_hops() {
+    do_test_cross_chain_payment_hub_receive_btc(get_always_success_script(), true).await;
+}
+
+#[cfg_attr(not(feature = "lnd-tests"), ignore)]
+#[tokio::test]
+async fn test_cross_chain_payment_hub_receive_btc_simple_udt_multiple_hops() {
+    do_test_cross_chain_payment_hub_receive_btc(get_simple_udt_script(), true).await;
 }
