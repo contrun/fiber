@@ -207,14 +207,18 @@ impl Actor for CchActor {
         match message {
             CchMessage::SendBTC(send_btc, port) => {
                 let result = self.send_btc(state, send_btc, myself.get_derived()).await;
-                let _ = port.send(result);
+                if let Err(err) = port.send(result) {
+                    tracing::warn!(error = ?err, "Failed to send rpc reply for SendBTC");
+                }
                 Ok(())
             }
             CchMessage::ReceiveBTC(receive_btc, port) => {
                 let result = self
                     .receive_btc(myself.clone(), state, receive_btc, myself.get_derived())
                     .await;
-                let _ = port.send(result);
+                if let Err(err) = port.send(result) {
+                    tracing::warn!(error = ?err, "Failed to send rpc reply for ReceiveBTC");
+                }
                 Ok(())
             }
             CchMessage::GetCchOrder(payment_hash, port) => {
@@ -223,7 +227,9 @@ impl Actor for CchActor {
                     .get_cch_order(&payment_hash)
                     .await
                     .map_err(Into::into);
-                let _ = port.send(result);
+                if let Err(err) = port.send(result) {
+                    tracing::warn!(error = ?err, "Failed to send rpc reply for GetCchOrder");
+                }
                 Ok(())
             }
             CchMessage::LightningPaymentUpdate(payment_update) => {
@@ -303,7 +309,9 @@ impl Actor for CchActor {
                     .await
                     .map_err(Into::into);
 
-                let _ = rpc_reply_port.send(result);
+                if let Err(err) = rpc_reply_port.send(result) {
+                    tracing::warn!(error = ?err, "Failed to send rpc reply for SubscribeFiberPayment");
+                }
                 Ok(())
             }
             CchMessage::UnsubscribeFiberPayment(subscription_id, rpc_reply_port) => {
@@ -313,7 +321,9 @@ impl Actor for CchActor {
                     .await
                     .map_err(Into::into);
 
-                let _ = rpc_reply_port.send(result);
+                if let Err(err) = rpc_reply_port.send(result) {
+                    tracing::warn!(error = ?err, "Failed to send rpc reply for UnsubscribeFiberPayment");
+                }
                 Ok(())
             }
             CchMessage::SubscribeFiberInvoice(hash256, actor_ref, rpc_reply_port) => {
@@ -323,7 +333,9 @@ impl Actor for CchActor {
                     .await
                     .map_err(Into::into);
 
-                let _ = rpc_reply_port.send(result);
+                if let Err(err) = rpc_reply_port.send(result) {
+                    tracing::warn!(error = ?err, "Failed to send rpc reply for SubscribeFiberInvoice");
+                }
                 Ok(())
             }
             CchMessage::UnsubscribeFiberInvoice(subscription_id, rpc_reply_port) => {
@@ -333,7 +345,9 @@ impl Actor for CchActor {
                     .await
                     .map_err(Into::into);
 
-                let _ = rpc_reply_port.send(result);
+                if let Err(err) = rpc_reply_port.send(result) {
+                    tracing::warn!(error = ?err, "Failed to send rpc reply for UnsubscribeFiberInvoice");
+                }
                 Ok(())
             }
         }
