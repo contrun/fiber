@@ -14,6 +14,8 @@ use crate::ckb::CkbConfig;
 use crate::fiber::gossip::GossipMessageStore;
 use crate::rpc::info::InfoRpcServer;
 use crate::rpc::payment::PaymentRpcServer;
+use crate::store::store::StoreWithInvoiceHook;
+use crate::store::subscription_impl::SubscriptionImpl;
 use crate::{
     cch::CchMessage,
     fiber::{
@@ -99,6 +101,7 @@ pub async fn start_rpc<
     cch_actor: Option<ActorRef<CchMessage>>,
     store: S,
     network_graph: Arc<RwLock<NetworkGraph<S>>>,
+    invoice_hook: SubscriptionImpl,
     #[cfg(debug_assertions)] ckb_chain_actor: Option<ActorRef<CkbChainMessage>>,
     #[cfg(debug_assertions)] rpc_dev_module_commitment_txs: Option<
         Arc<RwLock<HashMap<(Hash256, u64), TransactionView>>>,
@@ -113,8 +116,12 @@ pub async fn start_rpc<
         }
         modules
             .merge(
-                InvoiceRpcServerImpl::new(store.clone(), network_actor.clone(), fiber_config)
-                    .into_rpc(),
+                InvoiceRpcServerImpl::new(
+                    StoreWithInvoiceHook::new(store.clone(), invoice_hook),
+                    network_actor.clone(),
+                    fiber_config,
+                )
+                .into_rpc(),
             )
             .unwrap();
     }

@@ -95,6 +95,16 @@ impl Store {
     }
 }
 
+pub async fn new_store_with_subscription<P: AsRef<Path>>(
+    path: P,
+) -> Result<(Store, SubscriptionImpl, SubscriptionImpl, SubscriptionImpl), String> {
+    let store = Store::new(path.as_ref())?;
+    let subscription_impl = new_subscription_impl(store.clone()).await;
+    let invoice_hook = subscription_impl.clone();
+    let payment_hook = subscription_impl.clone();
+    Ok((store, subscription_impl, invoice_hook, payment_hook))
+}
+
 impl StoreWithHooks {
     pub async fn new<P: AsRef<Path>>(path: P) -> Result<(Self, SubscriptionImpl), String> {
         let store = Store::new(path.as_ref())?;
@@ -419,6 +429,103 @@ impl<IH: InvoiceUpdateHook, PH: PaymentUpdateHook> ChannelActorStateStore for Ge
     }
 }
 
+pub struct StoreWithInvoiceHook<S> {
+    store: S,
+    invoice_hook: SubscriptionImpl,
+}
+
+impl<S> StoreWithInvoiceHook<S> {
+    pub fn new(store: S, invoice_hook: SubscriptionImpl) -> Self {
+        Self {
+            store,
+            invoice_hook,
+        }
+    }
+}
+
+impl<S: InvoiceStore> InvoiceStore for StoreWithInvoiceHook<S> {
+    fn get_invoice(&self, id: &Hash256) -> Option<CkbInvoice> {
+        self.store.get_invoice(id)
+    }
+
+    fn insert_invoice(
+        &self,
+        invoice: CkbInvoice,
+        preimage: Option<Hash256>,
+    ) -> Result<(), InvoiceError> {
+        let hash = *invoice.payment_hash();
+        self.store.insert_invoice(invoice, preimage)?;
+        self.invoice_hook
+            .on_invoice_updated(hash, CkbInvoiceStatus::Open);
+        Ok(())
+    }
+
+    fn get_invoice_preimage(&self, id: &Hash256) -> Option<Hash256> {
+        self.store.get_invoice_preimage(id)
+    }
+
+    fn update_invoice_status(
+        &self,
+        id: &Hash256,
+        status: CkbInvoiceStatus,
+    ) -> Result<(), InvoiceError> {
+        self.store.update_invoice_status(id, status)?;
+        self.invoice_hook.on_invoice_updated(*id, status);
+        Ok(())
+    }
+
+    fn get_invoice_status(&self, id: &Hash256) -> Option<CkbInvoiceStatus> {
+        self.store.get_invoice_status(id)
+    }
+
+    fn insert_payment_preimage(
+        &self,
+        payment_hash: Hash256,
+        preimage: Hash256,
+    ) -> Result<(), InvoiceError> {
+        self.store.insert_payment_preimage(payment_hash, preimage)
+    }
+
+    fn get_invoice_channel_info(&self, payment_hash: &Hash256) -> Vec<InvoiceChannelInfo> {
+        self.store.get_invoice_channel_info(payment_hash)
+    }
+
+    fn add_invoice_channel_info(
+        &self,
+        payment_hash: &Hash256,
+        invoice_channel_info: InvoiceChannelInfo,
+    ) -> Result<Vec<InvoiceChannelInfo>, InvoiceError> {
+        self.store
+            .add_invoice_channel_info(payment_hash, invoice_channel_info)
+    }
+}
+
+impl<S: ChannelActorStateStore> ChannelActorStateStore for StoreWithInvoiceHook<S> {
+    fn get_channel_actor_state(&self, id: &Hash256) -> Option<ChannelActorState> {
+        self.store.get_channel_actor_state(id)
+    }
+
+    fn insert_channel_actor_state(&self, state: ChannelActorState) {
+        self.store.insert_channel_actor_state(state)
+    }
+
+    fn delete_channel_actor_state(&self, id: &Hash256) {
+        self.store.delete_channel_actor_state(id)
+    }
+
+    fn get_channel_ids_by_peer(&self, peer_id: &PeerId) -> Vec<Hash256> {
+        self.store.get_channel_ids_by_peer(peer_id)
+    }
+
+    fn get_channel_states(&self, peer_id: Option<PeerId>) -> Vec<(PeerId, Hash256, ChannelState)> {
+        self.store.get_channel_states(peer_id)
+    }
+
+    fn get_channel_state_by_outpoint(&self, outpoint: &OutPoint) -> Option<ChannelActorState> {
+        self.store.get_channel_state_by_outpoint(outpoint)
+    }
+}
+
 impl<IH: InvoiceUpdateHook, PH: PaymentUpdateHook> InvoiceStore for GenericStore<IH, PH> {
     fn get_invoice(&self, id: &Hash256) -> Option<CkbInvoice> {
         let key = [&[CKB_INVOICE_PREFIX], id.as_ref()].concat();
@@ -519,6 +626,38 @@ impl<IH: InvoiceUpdateHook, PH: PaymentUpdateHook> InvoiceStore for GenericStore
         batch.put_kv(KeyValue::CkbInvoiceChannels(*id, channels.clone()));
         batch.commit();
         Ok(channels)
+    }
+}
+
+struct NetworkGraphStateStoreWithHook {
+    store: Store,
+    payment_hook: SubscriptionImpl,
+}
+
+impl NetworkGraphStateStore for NetworkGraphStateStoreWithHook {
+    fn get_payment_session(&self, payment_hash: Hash256) -> Option<PaymentSession> {
+        self.store.get_payment_session(payment_hash)
+    }
+
+    fn insert_payment_session(&self, session: PaymentSession) {
+        let status = session.status;
+        let hash = session.payment_hash();
+        self.store.insert_payment_session(session);
+        self.payment_hook.on_payment_updated(hash, status);
+    }
+
+    fn insert_payment_history_result(
+        &mut self,
+        channel_outpoint: OutPoint,
+        direction: Direction,
+        result: TimedResult,
+    ) {
+        self.store
+            .insert_payment_history_result(channel_outpoint, direction, result);
+    }
+
+    fn get_payment_history_results(&self) -> Vec<(OutPoint, Direction, TimedResult)> {
+        self.store.get_payment_history_results()
     }
 }
 

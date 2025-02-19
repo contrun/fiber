@@ -5,7 +5,7 @@ use fnn::actors::RootActor;
 use fnn::ckb::{contracts::try_init_contracts_context, CkbChainActor};
 use fnn::fiber::types::Pubkey;
 use fnn::fiber::{graph::NetworkGraph, network::init_chain_hash};
-use fnn::store::store::StoreWithHooks;
+use fnn::store::store::new_store_with_subscription;
 use fnn::tasks::{
     cancel_tasks_and_wait_for_completion, new_tokio_cancellation_token, new_tokio_task_tracker,
 };
@@ -67,9 +67,10 @@ pub async fn main() -> Result<(), ExitMessage> {
         .ok_or_else(|| ExitMessage("fiber config is required but absent".to_string()))?
         .store_path();
 
-    let (store, store_update_subscription) = StoreWithHooks::new(store_path)
-        .await
-        .map_err(|err| ExitMessage(err.to_string()))?;
+    let (store, store_update_subscription, invoice_hook, payment_hook) =
+        new_store_with_subscription(store_path)
+            .await
+            .map_err(|err| ExitMessage(format!("failed to create store: {}", err)))?;
 
     let tracker = new_tokio_task_tracker();
     let token = new_tokio_cancellation_token();
@@ -152,6 +153,8 @@ pub async fn main() -> Result<(), ExitMessage> {
                 store.clone(),
                 network_graph.clone(),
                 default_shutdown_script,
+                invoice_hook.clone(),
+                payment_hook,
             )
             .await;
 
@@ -266,6 +269,7 @@ pub async fn main() -> Result<(), ExitMessage> {
                 cch_actor,
                 store,
                 network_graph,
+            invoice_hook.clone(),
                 #[cfg(debug_assertions)] ckb_chain_actor,
                 #[cfg(debug_assertions)] rpc_dev_module_commitment_txs,
             )

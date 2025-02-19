@@ -86,6 +86,8 @@ use crate::fiber::KeyPair;
 use crate::invoice::{
     add_invoice, CkbInvoice, CkbInvoiceStatus, InvoiceError, InvoiceStore, SettleInvoiceError,
 };
+use crate::store::store::StoreWithInvoiceHook;
+use crate::store::subscription_impl::SubscriptionImpl;
 use crate::{now_timestamp_as_millis_u64, unwrap_or_return, Error};
 
 pub const FIBER_PROTOCOL_ID: ProtocolId = ProtocolId::new(42);
@@ -1950,6 +1952,8 @@ where
 
 pub struct NetworkActorState<S> {
     store: S,
+    invoice_hook: SubscriptionImpl,
+    payment_hook: SubscriptionImpl,
     state_to_be_persisted: PersistentNetworkActorState,
     // The name of the node to be announced to the network, may be empty.
     node_name: Option<AnnouncedNodeName>,
@@ -2099,6 +2103,10 @@ where
         + Sync
         + 'static,
 {
+    pub fn get_store_with_invoice_hook(&self) -> StoreWithInvoiceHook<S> {
+        StoreWithInvoiceHook::new(self.store.clone(), self.invoice_hook.clone())
+    }
+
     pub fn get_or_create_new_node_announcement_message(&mut self) -> NodeAnnouncement {
         let now = now_timestamp_as_millis_u64();
         match self.last_node_announcement_message {
@@ -2152,7 +2160,7 @@ where
         &mut self,
         open_channel: OpenChannelCommand,
     ) -> Result<(ActorRef<ChannelActorMessage>, Hash256), ProcessingChannelError> {
-        let store = self.store.clone();
+        let store = self.get_store_with_invoice_hook();
         let network = self.network.clone();
         let OpenChannelCommand {
             peer_id,
@@ -2232,7 +2240,7 @@ where
         &mut self,
         accept_channel: AcceptChannelCommand,
     ) -> Result<(ActorRef<ChannelActorMessage>, Hash256, Hash256), ProcessingChannelError> {
-        let store = self.store.clone();
+        let store = self.get_store_with_invoice_hook();
         let AcceptChannelCommand {
             temp_channel_id,
             funding_amount,
@@ -2606,7 +2614,7 @@ where
                 self.get_public_key(),
                 remote_pubkey,
                 self.network.clone(),
-                self.store.clone(),
+                self.get_store_with_invoice_hook(),
             ),
             ChannelInitializationParameter::ReestablishChannel(channel_id),
             self.network.get_cell(),
@@ -3075,6 +3083,8 @@ pub struct NetworkActorStartArguments {
     pub config: FiberConfig,
     pub tracker: TaskTracker,
     pub default_shutdown_script: Script,
+    invoice_hook: SubscriptionImpl,
+    payment_hook: SubscriptionImpl,
 }
 
 #[rasync_trait]
@@ -3103,6 +3113,8 @@ where
             config,
             tracker,
             default_shutdown_script,
+            invoice_hook,
+            payment_hook,
         } = args;
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -3236,6 +3248,8 @@ where
 
         let mut state = NetworkActorState {
             store: self.store.clone(),
+            invoice_hook,
+            payment_hook,
             state_to_be_persisted,
             node_name: config.announced_node_name,
             peer_id: my_peer_id,
@@ -3522,6 +3536,8 @@ pub async fn start_network<
     store: S,
     network_graph: Arc<RwLock<NetworkGraph<S>>>,
     default_shutdown_script: Script,
+    invoice_hook: SubscriptionImpl,
+    payment_hook: SubscriptionImpl,
 ) -> ActorRef<NetworkActorMessage> {
     let my_pubkey = config.public_key();
     let my_peer_id = PeerId::from_public_key(&my_pubkey);
@@ -3533,6 +3549,8 @@ pub async fn start_network<
             config,
             tracker,
             default_shutdown_script,
+            invoice_hook,
+            payment_hook,
         },
         root_actor,
     )
