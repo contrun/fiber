@@ -3,7 +3,7 @@ use std::time::SystemTimeError;
 use jsonrpsee::types::{error::CALL_EXECUTION_FAILED_CODE, ErrorObjectOwned};
 use thiserror::Error;
 
-use crate::store::SubscriptionError;
+use crate::{fiber::types::Hash256, invoice::SettleInvoiceError, store::SubscriptionError};
 
 #[derive(Error, Debug)]
 pub enum CchDbError {
@@ -54,6 +54,16 @@ pub enum CchError {
     LndRpcError(String),
     #[error("Subscribe fiber updates error: {0}")]
     SubscribeFiberUpdatesError(#[from] SubscriptionError),
+    #[error("Task canceled")]
+    TaskCanceled,
+    #[error("Sending fiber payment error: {0}")]
+    SendFiberPaymentError(String),
+    #[error("Settling fiber invoice error: {0}")]
+    SettleFiberInvoiceError(#[from] SettleInvoiceError),
+    #[error("Requesting lnd gRPC error: {0}")]
+    LndGrpcRequestError(String),
+    #[error("Unexpected lnd data: {0}")]
+    UnexpectedLndData(String),
 }
 
 pub type CchResult<T> = std::result::Result<T, CchError>;
