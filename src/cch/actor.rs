@@ -41,9 +41,18 @@ pub async fn start_cch(
     pubkey: Pubkey,
     subscription: SubscriptionImpl,
 ) -> Result<ActorRef<CchMessage>> {
+    let lnd_connection = config.get_lnd_connection_info().await?;
     let (actor, _handle) = Actor::spawn_linked(
         Some("cch actor".to_string()),
-        CchActor::new(config, tracker, token, network_actor, pubkey, subscription),
+        CchActor::new(
+            config,
+            tracker,
+            token,
+            network_actor,
+            pubkey,
+            subscription,
+            lnd_connection,
+        ),
         (),
         root_actor,
     )
@@ -177,10 +186,10 @@ pub struct CchActor {
     network_actor: ActorRef<NetworkActorMessage>,
     pubkey: Pubkey,
     subscription: SubscriptionImpl,
+    lnd_connection: LndConnectionInfo,
 }
 
 pub struct CchState {
-    lnd_connection: LndConnectionInfo,
     orders_db: CchOrdersDb,
 }
 
@@ -333,6 +342,7 @@ impl CchActor {
         network_actor: ActorRef<NetworkActorMessage>,
         pubkey: Pubkey,
         subscription: SubscriptionImpl,
+        lnd_connection: LndConnectionInfo,
     ) -> Self {
         Self {
             config,
@@ -341,6 +351,7 @@ impl CchActor {
             network_actor,
             pubkey,
             subscription,
+            lnd_connection,
         }
     }
 
@@ -585,7 +596,7 @@ impl CchActor {
             return Err(CchError::ReceiveBTCOrderAmountTooLarge);
         }
 
-        let mut client = state.lnd_connection.create_invoices_client().await?;
+        let mut client = self.lnd_connection.create_invoices_client().await?;
         let req = invoicesrpc::AddHoldInvoiceRequest {
             hash: payment_hash.into(),
             value_msat: (amount_sats * 1_000u128) as i64,
@@ -628,7 +639,7 @@ impl CchActor {
         let invoice_tracker = LndInvoiceTracker::new(
             myself,
             payment_hash_str,
-            state.lnd_connection.clone(),
+            self.lnd_connection.clone(),
             self.token.clone(),
         );
         self.tracker
@@ -637,7 +648,87 @@ impl CchActor {
         Ok(order)
     }
 
-    async fn settle_receive_btc_order(
+    async fn pay_invoice(&self, invoice: CchInvoice) -> Result<Option<CchPaymentUpdate>, CchError> {
+        let payment_hash = invoice.payment_hash();
+        tracing::debug!(
+            payment_hash = ?payment_hash,
+            invoice = ?invoice,
+            "Paying invoice",
+        );
+
+        match &invoice {
+            CchInvoice::Lightning(invoice) => {
+                let out_invoice = invoice.to_string();
+                let req = routerrpc::SendPaymentRequest {
+                    payment_request: out_invoice,
+                    timeout_seconds: BTC_PAYMENT_TIMEOUT_SECONDS,
+                    ..Default::default()
+                };
+                tracing::debug!("[inbounding tlc] SendPaymentRequest: {:?}", req);
+
+                let mut client = self.lnd_connection.create_router_client().await?;
+                // TODO: set a fee
+                let mut stream = client
+                    .send_payment_v2(req)
+                    .await
+                    .map_err(|err| CchError::LndGrpcRequestError(err.to_string()))?
+                    .into_inner();
+                // Wait for the first message then quit
+                select! {
+                    payment_result_opt = stream.next() => {
+                        tracing::debug!("[inbounding tlc] payment result: {:?}", payment_result_opt);
+                        if let Some(Ok(payment)) = payment_result_opt {
+                            Ok(Some(
+                                CchPaymentUpdate {
+                                is_fiber: false,
+                                update: PaymentUpdate::try_from(payment).map_err(|err| {
+                                    CchError::UnexpectedLndData(err.to_string())
+                                })?
+                            }
+                            ))
+                        } else {
+                            Ok(None)
+                        }
+                    }
+                    _ = self.token.cancelled() => {
+                        tracing::debug!("Cancellation received, shutting down cch service");
+                        Err(CchError::TaskCanceled)
+                    }
+                }
+            }
+            CchInvoice::Fiber(fiber_invoice) => {
+                let message = |rpc_reply| -> NetworkActorMessage {
+                    NetworkActorMessage::Command(NetworkActorCommand::SendPayment(
+                        SendPaymentCommand {
+                            invoice: Some(fiber_invoice.to_string()),
+                            ..Default::default()
+                        },
+                        rpc_reply,
+                    ))
+                };
+
+                // TODO: handle payment failure here.
+                let tlc_response = call!(self.network_actor, message)
+                    .expect("call actor")
+                    .map_err(CchError::SendFiberPaymentError)?;
+                // TODO: handle payment failure here.
+                let state = if tlc_response.status == PaymentSessionStatus::Failed {
+                    PaymentState::Failed
+                } else {
+                    PaymentState::Inflight
+                };
+                Ok(Some(CchPaymentUpdate {
+                    is_fiber: true,
+                    update: PaymentUpdate {
+                        hash: payment_hash,
+                        state,
+                    },
+                }))
+            }
+        }
+    }
+
+    async fn handle_invoice_update(
         &self,
         state: &mut CchState,
         event: SettleReceiveBTCOrderEvent,
@@ -679,10 +770,92 @@ impl CchActor {
             }
         }
 
-        state
-            .orders_db
-            .update_receive_btc_order(order.clone())
-            .await?;
+        let result = self.pay_invoice(order.out_invoice.clone()).await?;
+        state.orders_db.update_cch_order(order.clone()).await?;
+        if let Some(payment_update) = result {
+            return self.handle_payment_update(state, payment_update).await;
+        }
+
+        Ok(())
+    }
+
+    async fn settle_invoice(
+        &self,
+        invoice: &CchInvoice,
+        preimage: Hash256,
+    ) -> Result<(), CchError> {
+        let payment_hash = invoice.payment_hash();
+        tracing::debug!(
+            hash = ?payment_hash,
+            preimage = ?preimage,
+            invoice = ?invoice,
+            "Settling invoice",
+        );
+        match &invoice {
+            CchInvoice::Lightning(_) => {
+                let req = invoicesrpc::SettleInvoiceMsg {
+                    preimage: preimage.as_ref().to_vec(),
+                };
+                let mut client = self.lnd_connection.create_invoices_client().await?;
+                let _ = client
+                    .settle_invoice(req)
+                    .await
+                    .map_err(|error| CchError::LndGrpcRequestError(error.to_string()))?
+                    .into_inner();
+                // TODO: settle_invoice response actually contains no useful information.
+                // We need to check the invoice state to see if it's settled.
+            }
+            CchInvoice::Fiber(_) => {
+                let message = move |rpc_reply| -> NetworkActorMessage {
+                    NetworkActorMessage::Command(NetworkActorCommand::SettleInvoice(
+                        payment_hash,
+                        preimage,
+                        rpc_reply,
+                    ))
+                };
+
+                call!(&self.network_actor, message).expect("call actor")?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_payment_update(
+        &self,
+        state: &mut CchState,
+        payment_update: CchPaymentUpdate,
+    ) -> Result<(), CchError> {
+        let CchPaymentUpdate {
+            is_fiber,
+            update: payment_update,
+        } = payment_update;
+        tracing::trace!(is_fiber = is_fiber, payment_update = ?payment_update, "Cch received payment update");
+        let payment_hash = payment_update.hash;
+
+        let mut order = state.orders_db.get_cch_order(&payment_hash).await?;
+
+        order.out_state = payment_update.state;
+        match (&order.in_state, &order.out_state) {
+            (
+                InvoiceState::Received {
+                    is_finished: true, ..
+                },
+                PaymentState::Success { preimage },
+            ) => {
+                let preimage = *preimage;
+                order.payment_preimage = Some(preimage);
+                self.settle_invoice(&order.in_invoice, preimage).await?;
+            }
+            (_, PaymentState::Failed) => {
+                // TODO: handle payment failure
+            }
+            _ => {
+                // TODO: handle other states
+            }
+        }
+
+        state.orders_db.update_cch_order(order).await?;
+
         Ok(())
     }
 }
