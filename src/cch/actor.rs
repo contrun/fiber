@@ -5,9 +5,10 @@ use lnd_grpc_tonic_client::{
     create_invoices_client, create_router_client, invoicesrpc, lnrpc, routerrpc, InvoicesClient,
     RouterClient, Uri,
 };
-use ractor::{call, DerivedActorRef, RpcReplyPort};
+use ractor::{call, ActorId, DerivedActorRef, RpcReplyPort};
 use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef};
 use serde::Deserialize;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::{select, time::sleep};
@@ -24,7 +25,7 @@ use crate::store::subscription::{
     InvoiceState, InvoiceSubscription, PaymentState, PaymentSubscription,
 };
 use crate::store::subscription_impl::SubscriptionImpl;
-use crate::store::{SubscriptionError, SubscriptionId};
+use crate::store::{SubscriptionError as UnderlyingSubscriptionError, SubscriptionId};
 
 use super::error::CchDbError;
 use super::order::{
@@ -47,8 +48,8 @@ pub async fn start_cch(
 ) -> Result<ActorRef<CchMessage>> {
     let (actor, _handle) = Actor::spawn_linked(
         Some("cch actor".to_string()),
-        CchActor::new(config, tracker, token, network_actor, pubkey, subscription),
-        (),
+        CchActor::new(config, tracker, token, network_actor, pubkey),
+        subscription,
         root_actor,
     )
     .await?;
@@ -81,18 +82,24 @@ pub enum CchMessage {
     SubscribeFiberPayment(
         Hash256,
         DerivedActorRef<FiberPaymentUpdate>,
-        RpcReplyPort<Result<SubscriptionId, SubscriptionError>>,
+        RpcReplyPort<Result<SubscriptionId, UnderlyingSubscriptionError>>,
     ),
 
-    UnsubscribeFiberPayment(SubscriptionId, RpcReplyPort<Result<(), SubscriptionError>>),
+    UnsubscribeFiberPayment(
+        SubscriptionId,
+        RpcReplyPort<Result<(), UnderlyingSubscriptionError>>,
+    ),
 
     SubscribeFiberInvoice(
         Hash256,
         DerivedActorRef<FiberInvoiceUpdate>,
-        RpcReplyPort<Result<SubscriptionId, SubscriptionError>>,
+        RpcReplyPort<Result<SubscriptionId, UnderlyingSubscriptionError>>,
     ),
 
-    UnsubscribeFiberInvoice(SubscriptionId, RpcReplyPort<Result<(), SubscriptionError>>),
+    UnsubscribeFiberInvoice(
+        SubscriptionId,
+        RpcReplyPort<Result<(), UnderlyingSubscriptionError>>,
+    ),
 }
 
 impl From<FiberPaymentUpdate> for CchMessage {
@@ -166,24 +173,67 @@ pub struct CchActor {
     token: CancellationToken,
     network_actor: ActorRef<NetworkActorMessage>,
     pubkey: Pubkey,
-    subscription: SubscriptionImpl,
 }
 
 pub struct CchState {
     lnd_connection: LndConnectionInfo,
     orders_db: CchOrdersDb,
+    subscription: SubscriptionImpl,
+    subscribed_fiber_payments: HashMap<Hash256, HashMap<ActorId, SubscriptionId>>,
+    subscribed_fiber_invoices: HashMap<Hash256, HashMap<ActorId, SubscriptionId>>,
+    subscribed_lightning_payments: HashSet<Hash256>,
+    subscribed_lightning_invoices: HashMap<Hash256, CancellationToken>,
+}
+
+#[derive(Debug, Error)]
+pub Enum SubscriptionError {
+    #[error("Some other Already subscribed")]
+    AlreadySubscribed(Hash256),
+    #[error("Underlying subscription error: {0}")]
+    Underlying(UnderlyingSubscriptionError),
+}
+
+impl CchState {
+    pub async fn subscribe_fiber_payment(
+        &mut self,
+        hash256: Hash256,
+        actor_ref: DerivedActorRef<FiberPaymentUpdate>,
+    ) -> Result<(), UnderlyingSubscriptionError> {
+        if self.subscribed_fiber_payments.contains_key(&hash256) {
+            return Err(UnderlyingSubscriptionError::AlreadySubscribed);
+        }
+        let subscription_id = self
+            .subscription
+            .subscribe_payment(hash256, actor_ref)
+            .await?;
+        self.subscribed_fiber_payments
+            .insert(hash256, subscription_id);
+        Ok(())
+    }
+
+    pub async fn unsubscribe_fiber_payment(
+        &mut self,
+        subscription_id: SubscriptionId,
+    ) -> Result<(), UnderlyingSubscriptionError> {
+        let hash256 = self
+            .subscription
+            .unsubscribe_payment(subscription_id)
+            .await?;
+        self.subscribed_fiber_payments.remove(&hash256);
+        Ok(())
+    }
 }
 
 #[ractor::async_trait]
 impl Actor for CchActor {
     type Msg = CchMessage;
     type State = CchState;
-    type Arguments = ();
+    type Arguments = SubscriptionImpl;
 
     async fn pre_start(
         &self,
         myself: ActorRef<Self::Msg>,
-        _config: Self::Arguments,
+        subscription: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         let lnd_connection = self.config.get_lnd_connection_info().await?;
 
@@ -194,7 +244,12 @@ impl Actor for CchActor {
 
         Ok(CchState {
             lnd_connection,
+            subscription,
             orders_db: Default::default(),
+            subscribed_fiber_payments: Default::default(),
+            subscribed_fiber_invoices: Default::default(),
+            subscribed_lightning_payments: Default::default(),
+            subscribed_lightning_invoices: Default::default(),
         })
     }
 
@@ -361,7 +416,6 @@ impl CchActor {
         token: CancellationToken,
         network_actor: ActorRef<NetworkActorMessage>,
         pubkey: Pubkey,
-        subscription: SubscriptionImpl,
     ) -> Self {
         Self {
             config,
@@ -369,7 +423,6 @@ impl CchActor {
             token,
             network_actor,
             pubkey,
-            subscription,
         }
     }
 
@@ -786,6 +839,7 @@ impl LndPaymentsTracker {
         tracing::debug!(target: "fnn::cch::actor::tracker::lnd_payments", "payment: {:?}", payment);
         match LightningPaymentUpdate::try_from(payment) {
             Ok(update) => {
+                // TODO: not all lnd payments are related to cch orders.
                 let message = CchMessage::LightningPaymentUpdate(update);
                 self.cch_actor.cast(message)?;
             }
