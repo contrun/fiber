@@ -1204,6 +1204,11 @@ impl NetworkNode {
     }
 
     pub async fn stop(&mut self) {
+        self.stop_fiber().await;
+        self.stop_lnd().await;
+    }
+
+    pub async fn stop_fiber(&mut self) {
         self.network_actor
             .stop(Some("stopping actor on request".to_string()));
         let my_peer_id = self.peer_id.clone();
@@ -1211,6 +1216,9 @@ impl NetworkNode {
             |event| matches!(event, NetworkServiceEvent::NetworkStopped(id) if id == &my_peer_id),
         )
         .await;
+    }
+
+    pub async fn stop_lnd(&mut self) {
         if let Some(cch) = self.cch.as_ref() {
             cch.stop_actor();
         }
