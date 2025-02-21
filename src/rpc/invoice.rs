@@ -14,6 +14,7 @@ use ractor::{call_t, ActorRef};
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
+use std::str::FromStr;
 use std::time::Duration;
 use tentacle::secio::SecioKeyPair;
 
@@ -49,11 +50,17 @@ pub(crate) struct NewInvoiceParams {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct InvoiceResult {
+pub struct InvoiceResult {
     /// The encoded invoice address.
-    invoice_address: String,
+    pub invoice_address: String,
     /// The invoice.
-    invoice: CkbInvoice,
+    pub invoice: CkbInvoice,
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct AddInvoiceParams {
+    /// The encoded invoice address.
+    invoice: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -104,6 +111,13 @@ trait InvoiceRpc {
     async fn new_invoice(
         &self,
         params: NewInvoiceParams,
+    ) -> Result<InvoiceResult, ErrorObjectOwned>;
+
+    /// Adds a new invoice to the store.
+    #[method(name = "add_invoice")]
+    async fn add_invoice(
+        &self,
+        params: AddInvoiceParams,
     ) -> Result<InvoiceResult, ErrorObjectOwned>;
 
     /// Parses a encoded invoice.
@@ -264,6 +278,23 @@ where
                 Some(params),
             )),
         }
+    }
+
+    async fn add_invoice(
+        &self,
+        params: AddInvoiceParams,
+    ) -> Result<InvoiceResult, ErrorObjectOwned> {
+        let invoice = params.invoice.as_str();
+        CkbInvoice::from_str(invoice)
+            .and_then(|parsed_invoice| {
+                add_invoice(&self.store, parsed_invoice.clone(), None).map(|_| InvoiceResult {
+                    invoice_address: invoice.to_string(),
+                    invoice: parsed_invoice,
+                })
+            })
+            .map_err(|e| {
+                ErrorObjectOwned::owned(CALL_EXECUTION_FAILED_CODE, e.to_string(), Some(params))
+            })
     }
 
     async fn parse_invoice(

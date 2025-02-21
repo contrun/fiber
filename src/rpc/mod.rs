@@ -5,7 +5,7 @@ mod config;
 mod dev;
 mod graph;
 mod info;
-mod invoice;
+pub mod invoice;
 mod payment;
 mod peer;
 mod pubsub;

@@ -1,5 +1,5 @@
 use jsonrpsee::{
-    core::client::SubscriptionClientT,
+    core::client::{ClientT, SubscriptionClientT},
     http_client::{HttpClient, HttpClientBuilder},
     rpc_params,
     ws_client::{WsClient, WsClientBuilder},
@@ -16,6 +16,7 @@ use crate::{
         NetworkActorCommand, NetworkActorMessage,
     },
     invoice::CkbInvoice,
+    rpc::invoice::InvoiceResult,
     store::{
         subscription::{
             InvoiceSubscription, InvoiceUpdate, PaymentState, PaymentSubscription, PaymentUpdate,
@@ -217,7 +218,11 @@ impl FiberBackend {
                 call!(&backend.network_actor, message).expect("call actor")?;
                 Ok(())
             }
-            FiberBackend::Http(_backend) => {
+            FiberBackend::Http(backend) => {
+                let client = backend.get_http_client().await?;
+                let response: Result<InvoiceResult, _> = client
+                    .request("add_invoice", rpc_params![invoice.to_string()])
+                    .await?;
                 unimplemented!("Adding invoice over http is not implemented yet");
             }
         }
