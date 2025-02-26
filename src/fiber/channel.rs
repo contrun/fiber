@@ -4630,7 +4630,7 @@ impl ChannelActorState {
             }
         }
         if tlc.is_offered() {
-            let sent_tlc_value = self.get_offered_tlc_balance(false);
+            let sent_tlc_value = self.get_offered_tlc_balance(true);
             debug_assert!(self.to_local_amount >= sent_tlc_value);
             if sent_tlc_value + tlc.amount > self.to_local_amount {
                 debug!(channel = ?self.get_id(), tlc_id = ?tlc.tlc_id, tlc_amount = tlc.amount, sent_tlc_value = sent_tlc_value, "Sending tlc exceeds local balance",);
