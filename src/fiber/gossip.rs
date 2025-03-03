@@ -1575,6 +1575,7 @@ where
     }
 
     fn get_safe_cursor_to_start_syncing(&self) -> Cursor {
+        let now = now_timestamp_as_millis_u64();
         self.get_latest_cursor()
             .go_back_for_some_time(MAX_MISSING_BROADCAST_MESSAGE_TIMESTAMP_DRIFT)
     }

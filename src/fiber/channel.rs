@@ -139,6 +139,7 @@ pub enum ChannelCommand {
     Update(UpdateCommand, RpcReplyPort<Result<(), String>>),
     ForwardTlcResult(ForwardTlcResult),
     SettleHeldTlc(Hash256),
+    BroadcastChannelUpdate(),
     #[cfg(test)]
     ReloadState(ReloadParams),
 }
@@ -2322,6 +2323,19 @@ where
                             ),
                         ))
                         .expect(ASSUME_NETWORK_ACTOR_ALIVE);
+                    if channel.is_public() {
+                        self.network
+                            .send_message(NetworkActorMessage::new_command(
+                                NetworkActorCommand::BroadcastMessages(vec![
+                                    BroadcastMessageWithTimestamp::ChannelUpdate(
+                                        channel
+                                            .generate_enabled_channel_update(&self.network)
+                                            .await,
+                                    ),
+                                ]),
+                            ))
+                            .expect(ASSUME_NETWORK_ACTOR_ALIVE);
+                    }
                 }
                 Ok(channel)
             }
